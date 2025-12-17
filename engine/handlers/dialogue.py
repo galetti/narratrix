@@ -5,7 +5,10 @@ from engine.constants import *
 class DialogueHandler:
     @staticmethod
     def talk(game, args_words):
-        clean_args = [w for w in args_words if w.lower() not in ["mit", "zu", "an"]]
+        # Nutzt allgemeine Präpositionen zum Filtern
+        ignore_words = game.config.get('vocabulary', {}).get('prepositions', {}).get('general', ["mit", "zu", "an"])
+        clean_args = [w for w in args_words if w.lower() not in ignore_words]
+        
         target_npc = Resolver.find_mentioned_npc(game, clean_args)
         
         if not target_npc:
@@ -41,7 +44,9 @@ class DialogueHandler:
             game.dialogue_active = False
             return
 
-        exit_words = ["bye", "ende", "tschüss", "weg", "stop", "exit", "leave"]
+        # NEU: Exit-Wörter aus Config
+        exit_words = game.config.get('vocabulary', {}).get('dialogue_exits', ["bye", "ende"])
+        
         if any(w in text for w in exit_words):
             game.log('event', "--- GESPRÄCH BEENDET ---")
             game.dialogue_active = False
@@ -52,7 +57,11 @@ class DialogueHandler:
         args = text.split()
         if args and args[0] in ["gib", "give", "geb", "geben", "reich"]:
             from engine.handlers.interaction import InteractionHandler
-            if "an" not in args and "to" not in args:
+            # Prüfen ob 'an' im Satz ist, wenn nicht, fügen wir den NPC hinzu
+            give_preps = game.config.get('vocabulary', {}).get('prepositions', {}).get('give', ["an"])
+            
+            if not any(p in args for p in give_preps):
+                # Füge "an [NPC]" hinzu, damit der InteractionHandler weiß, an wen es geht
                 new_args = args[1:] + ["an", npc[ATTR_NAME]]
                 InteractionHandler.give(game, new_args)
             else:
@@ -85,7 +94,6 @@ class DialogueHandler:
         
         if found_topic and entry:
             DialogueHandler._print_dialogue(game, npc, entry)
-            # FIX: Nutze die neue Multi-Effekt Methode
             DialogueHandler.process_effects(game, entry, npc)
         else:
             use_llm = game.config.get('use_llm_dialogue', False)
@@ -117,7 +125,6 @@ class DialogueHandler:
                 return True 
         return True
 
-    # --- NEU: Multi-Effekt Handler ---
     @staticmethod
     def process_effects(game, entry, npc):
         """Verarbeitet einen oder mehrere Effekte aus einem Dialog-Eintrag."""
@@ -172,7 +179,6 @@ class DialogueHandler:
             else:
                 game.log('error', f"Effect Error: Item {item_id} existiert nicht.")
 
-        # NEU: Status eines ANDEREN NPCs ändern
         elif e_type == 'set_npc_state':
             target_name = effect.get('npc')
             new_state = effect.get('value')
@@ -180,7 +186,6 @@ class DialogueHandler:
             
             if target:
                 target['state'] = new_state
-                # Optional: Config Update für den anderen NPC (Bild etc)
                 dialogue_root = target.get('dialogue', {})
                 state_config = dialogue_root.get(new_state, {})
                 if 'desc' in state_config: target[ATTR_DESC] = state_config['desc']

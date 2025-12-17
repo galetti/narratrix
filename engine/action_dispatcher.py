@@ -92,7 +92,10 @@ class ActionDispatcher:
         candidates = state['candidates']
         filter_text = f"{verb} {' '.join(args)}".strip().lower()
         
-        if filter_text in ["stop", "abbrechen", "nein", "cancel", "zurück"]:
+        # NEU: Hole Abbruch-Wörter aus Config
+        cancel_words = game.config.get('vocabulary', {}).get('system_commands', {}).get('cancel', ["stop"])
+        
+        if filter_text in cancel_words:
             game.log('info', "Abgebrochen.")
             game.disambiguation = None
             return

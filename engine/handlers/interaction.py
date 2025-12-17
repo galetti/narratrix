@@ -4,66 +4,86 @@ from engine.constants import *
 class InteractionHandler:
     @staticmethod
     def look(game, args):
-        room = game.get_room(game.location)
+        """Refactored Look-Methode."""
         if not args:
-            game.log('location', room[ATTR_NAME])
-            game.log('story', game.render_room_desc(game.location))
-            
-            exits = room.get('exits', {})
-            if exits:
-                trans = {"north": "Norden", "south": "Süden", "east": "Osten", "west": "Westen", "up": "Oben", "down": "Unten"}
-                exit_names = [trans.get(d, d.capitalize()) for d in exits.keys()]
-                game.log('info', f"Ausgänge: {', '.join(exit_names)}")
-            else: game.log('info', "Es gibt keinen sichtbaren Ausweg.")
-
-            visible_objs = []
-            local_objects = [o for o in game.objects.values() if o['location'] == game.location]
-            for obj in local_objects:
-                if obj.get('type') == TYPE_SURFACE:
-                    contents = [sub[ATTR_NAME] for sub in game.objects.values() if sub['location'] == obj[ATTR_ID]]
-                    if contents: game.log('info', f"Auf dem {obj[ATTR_NAME]}: {', '.join(contents)}")
-                elif obj.get('type') == TYPE_CONTAINER and obj.get('is_open'):
-                    contents = [sub[ATTR_NAME] for sub in game.objects.values() if sub['location'] == obj[ATTR_ID]]
-                    if contents: game.log('info', f"Im offenen {obj[ATTR_NAME]}: {', '.join(contents)}")
-                elif obj.get('type') == TYPE_ITEM or (not obj.get('type') and obj.get(ATTR_MOVABLE)):
-                     visible_objs.append(obj[ATTR_NAME])
-            if visible_objs: game.log('info', f"Am Boden: {', '.join(visible_objs)}")
-            visible_npcs = [n[ATTR_NAME] for n in game.npcs if n['location'] == game.location]
-            if visible_npcs: game.log('character', f"Personen: {', '.join(visible_npcs)}")
+            InteractionHandler._look_room_overview(game)
             return
 
         clean_args = Resolver.clean_args(args)
         target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_RECURSIVE, verb='look')
-        
-        if target:
-            desc = target.get(ATTR_DESC, "Nichts Besonderes.")
-            status = []
-            
-            temp = target.get(ATTR_TEMP, 20)
-            if temp > 50: status.append("Es ist HEISS.")
-            elif temp > 30: status.append("Es ist warm.")
-            elif temp < 5: status.append("Es ist eiskalt.")
-            
-            if target.get(ATTR_MATTER) == MATTER_LIQUID: status.append("Es ist flüssig.")
+        InteractionHandler._examine_target(game, target)
 
-            if target.get('type') == TYPE_CONTAINER:
-                if target.get('is_locked'): status.append("Verschlossen.")
-                elif target.get('is_open'):
-                    contents = [o[ATTR_NAME] for o in game.objects.values() if o['location'] == target[ATTR_ID]]
-                    if contents: status.append(f"Inhalt: {', '.join(contents)}")
-                    else: status.append("Leer.")
-                else: status.append("Geschlossen.")
-            elif target.get('type') == TYPE_SURFACE:
-                contents = [o[ATTR_NAME] for o in game.objects.values() if o['location'] == target[ATTR_ID]]
-                if contents: status.append(f"Darauf liegt: {', '.join(contents)}")
-                else: status.append("Leer.")
-            if target.get('state') == STATE_SABOTAGED: status.append("[WARNUNG: SABOTIERT]")
-            if target.get('state') == STATE_BROKEN: status.append("[DEFEKT]")
-            
-            if status: desc += " " + " ".join(status)
-            game.log('story', desc)
-        else:
+    @staticmethod
+    def _look_room_overview(game):
+        room = game.get_room(game.location)
+        game.log('location', room[ATTR_NAME])
+        game.log('story', game.render_room_desc(game.location))
+        
+        # Ausgänge
+        exits = room.get('exits', {})
+        if exits:
+            trans = {"north": "Norden", "south": "Süden", "east": "Osten", "west": "Westen", "up": "Oben", "down": "Unten"}
+            exit_names = [trans.get(d, d.capitalize()) for d in exits.keys()]
+            game.log('info', f"Ausgänge: {', '.join(exit_names)}")
+        else: 
+            game.log('info', "Es gibt keinen sichtbaren Ausweg.")
+
+        # Objekte & NPCs auflisten
+        InteractionHandler._list_visible_objects(game)
+
+    @staticmethod
+    def _list_visible_objects(game):
+        visible_objs = []
+        local_objects = [o for o in game.objects.values() if o['location'] == game.location]
+        
+        for obj in local_objects:
+            if obj.get('type') == TYPE_SURFACE:
+                contents = [sub[ATTR_NAME] for sub in game.objects.values() if sub['location'] == obj[ATTR_ID]]
+                if contents: game.log('info', f"Auf dem {obj[ATTR_NAME]}: {', '.join(contents)}")
+            elif obj.get('type') == TYPE_CONTAINER and obj.get('is_open'):
+                contents = [sub[ATTR_NAME] for sub in game.objects.values() if sub['location'] == obj[ATTR_ID]]
+                if contents: game.log('info', f"Im offenen {obj[ATTR_NAME]}: {', '.join(contents)}")
+            elif obj.get('type') == TYPE_ITEM or (not obj.get('type') and obj.get(ATTR_MOVABLE)):
+                    visible_objs.append(obj[ATTR_NAME])
+        
+        if visible_objs: game.log('info', f"Am Boden: {', '.join(visible_objs)}")
+        
+        visible_npcs = [n[ATTR_NAME] for n in game.npcs if n['location'] == game.location]
+        if visible_npcs: game.log('character', f"Personen: {', '.join(visible_npcs)}")
+
+    @staticmethod
+    def _examine_target(game, target):
+        if not target:
             game.log('error', "Das siehst du hier nicht.")
+            return
+
+        desc = target.get(ATTR_DESC, "Nichts Besonderes.")
+        status = []
+        
+        temp = target.get(ATTR_TEMP, 20)
+        if temp > 50: status.append("Es ist HEISS.")
+        elif temp > 30: status.append("Es ist warm.")
+        elif temp < 5: status.append("Es ist eiskalt.")
+        
+        if target.get(ATTR_MATTER) == MATTER_LIQUID: status.append("Es ist flüssig.")
+
+        if target.get('type') == TYPE_CONTAINER:
+            if target.get('is_locked'): status.append("Verschlossen.")
+            elif target.get('is_open'):
+                contents = [o[ATTR_NAME] for o in game.objects.values() if o['location'] == target[ATTR_ID]]
+                if contents: status.append(f"Inhalt: {', '.join(contents)}")
+                else: status.append("Leer.")
+            else: status.append("Geschlossen.")
+        elif target.get('type') == TYPE_SURFACE:
+            contents = [o[ATTR_NAME] for o in game.objects.values() if o['location'] == target[ATTR_ID]]
+            if contents: status.append(f"Darauf liegt: {', '.join(contents)}")
+            else: status.append("Leer.")
+        
+        if target.get('state') == STATE_SABOTAGED: status.append("[WARNUNG: SABOTIERT]")
+        if target.get('state') == STATE_BROKEN: status.append("[DEFEKT]")
+        
+        if status: desc += " " + " ".join(status)
+        game.log('story', desc)
 
     @staticmethod
     def take(game, args):
@@ -122,7 +142,8 @@ class InteractionHandler:
 
     @staticmethod
     def give(game, args):
-        separators = ["an", "to", "dem", "der"]
+        # NEU: Präpositionen aus Config
+        separators = game.config.get('vocabulary', {}).get('prepositions', {}).get('give', ["an", "to"])
         sep_indices = [i for i, w in enumerate(args) if w.lower() in separators]
         
         item_words = []
@@ -180,8 +201,6 @@ class InteractionHandler:
             game.log('event', f"--- GESPRÄCH MIT {npc[ATTR_NAME].upper()} ---")
             
             DialogueHandler._print_dialogue(game, npc, reaction_entry)
-            
-            # FIX: Multi-Effekte und neue Effekte
             DialogueHandler.process_effects(game, reaction_entry, npc)
         else:
             DialogueHandler.talk(game, [npc[ATTR_NAME]])
@@ -216,17 +235,23 @@ class InteractionHandler:
     @staticmethod
     def put(game, args):
         if not args: return game.log('error', "Was wohin legen?")
-        separators = ["in", "auf", "on", "into", "an"]
+        # NEU: Präpositionen aus Config
+        separators = game.config.get('vocabulary', {}).get('prepositions', {}).get('put', ["in", "auf"])
+        
         sep_indices = [i for i, w in enumerate(args) if w.lower() in separators]
         item_words = args[:sep_indices[0]] if sep_indices else args[:-1]
         container_words = args[sep_indices[0]+1:] if sep_indices else [args[-1]]
+        
         item = Resolver.resolve_target(game, item_words, location_filter=FILTER_INVENTORY, verb='put_item')
         if not item: return game.log('error', "Das hast du nicht dabei (oder es ist flüssig).") 
+        
         container = Resolver.resolve_target(game, container_words, location_filter=FILTER_RECURSIVE, verb='put_container')
         if not container: return game.log('error', "Diesen Behälter sehe ich hier nicht.")
+        
         if container == item: return game.log('error', "Geht nicht.")
         if container.get('type') not in [TYPE_CONTAINER, TYPE_SURFACE]: return game.log('error', "Da kannst du nichts reinlegen.")
         if container.get('type') == TYPE_CONTAINER and not container.get('is_open'): return game.log('error', f"Der {container[ATTR_NAME]} ist geschlossen.")
+        
         item['location'] = container[ATTR_ID]; prep = "auf" if container.get('type') == TYPE_SURFACE else "in"
         game.log('success', f"Du legst {item[ATTR_NAME]} {prep} {container[ATTR_NAME]}."); game.tick(2)
 
@@ -249,7 +274,11 @@ class InteractionHandler:
     @staticmethod
     def use(game, args):
         if not args: return game.log('error', "Was benutzen?")
-        separator_indices = [i for i, word in enumerate(args) if word.lower() in ["mit", "with", "und", "an"]]
+        
+        # NEU: Präpositionen aus Config
+        separators = game.config.get('vocabulary', {}).get('prepositions', {}).get('use', ["mit", "with"])
+        separator_indices = [i for i, word in enumerate(args) if word.lower() in separators]
+        
         item1_name = ""
         item2_name = ""
         if separator_indices:

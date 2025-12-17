@@ -10,8 +10,13 @@ CONFIG = {
     "meta": {
         "title": "Echo der Station Omega-9",
         "author": "Galetti & AI",
-        "version": "4.2 (Modular)",
+        "version": "4.3 (Refactored)",
         "start_room": "hub"
+    },
+
+    "system": {
+        "llm_api_url": "http://localhost:1234/v1/chat/completions",
+        "llm_timeout": 5
     },
 
     "vocabulary": {
@@ -42,6 +47,17 @@ CONFIG = {
             "west": ["w", "west", "westen", "schleuse"],
             "up": ["u", "up", "oben", "deck1"],
             "down": ["d", "down", "unten", "wartung"]
+        },
+        # NEU: System- und Parsing-Befehle zentralisiert
+        "system_commands": {
+            "cancel": ["stop", "abbrechen", "nein", "cancel", "zurück", "n"]
+        },
+        "dialogue_exits": ["bye", "ende", "tschüss", "weg", "stop", "exit", "leave"],
+        "prepositions": {
+            "give": ["an", "to", "dem", "der"],
+            "put": ["in", "auf", "on", "into", "an"],
+            "use": ["mit", "with", "und", "an"],
+            "general": ["in", "im", "an", "am", "auf", "mit", "bei", "zu", "nach", "den", "die", "das", "dem", "der"]
         },
         "skip_words": []
     },
