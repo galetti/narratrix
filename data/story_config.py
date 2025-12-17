@@ -1,70 +1,32 @@
 # data/story_config.py
-# -*- coding: utf-8 -*-
+# DIES IST JETZT DER BOOTSTRAPPER FÜR DAS KAPITEL-SYSTEM
 
-from data.rooms import ROOMS
-from data.items import ITEMS, COMBINATIONS
-from data.npcs import NPCS
-from data.events import NARRATIVE_MATRIX
+import data.global_data as global_data
+from engine.chapter_manager import ChapterManager
 
-CONFIG = {
-    "meta": {
-        "title": "Echo der Station Omega-9",
-        "author": "Galetti & AI",
-        "version": "4.3 (Refactored)",
-        "start_room": "hub"
-    },
+# Standardmäßig laden wir Kapitel 1
+# Später kann der Savegame-Loader entscheiden, ein anderes Kapitel zu laden,
+# indem er ChapterManager.load_chapter aufruft.
 
-    "system": {
-        "llm_api_url": "http://localhost:1234/v1/chat/completions",
-        "llm_timeout": 5
-    },
+# Hier definieren wir, welches Kapitel beim "Neuen Spiel" geladen wird.
+START_CHAPTER = "data.chapters.chapter_1"
 
-    "vocabulary": {
-        "verbs": {
-            "look": ["schau", "l", "x", "untersuche", "betrachte", "lies", "scan", "status"],
-            "move": ["gehe", "go", "lauf", "klettere", "schwebe", "wandere", "steig", "bewege"],
-            "take": ["nimm", "greif", "einstecken", "sammle", "aufheben"],
-            "drop": ["drop", "fallenlassen", "abwerfen", "hinlegen", "ablegen", "entferne", "lass"],
-            "put": ["put", "legen", "stecken", "tun", "platziere", "stell", "packe", "fülle"],
-            "give": ["gib", "geben", "reich", "schenke", "give", "versorge"],
-            "use": ["benutze", "opfere", "anwenden", "kombiniere", "fülle", "injiziere"],
-            "talk": ["rede", "sprich", "frag", "befrage", "kommuniziere", "funk"],
-            "open": ["öffne", "aufmachen", "zugriff"],
-            "break": ["brich", "zerstöre", "eintreten", "force", "zerschlage"],
-            "fix": ["repariere", "reinige", "patch", "löte", "fix", "flicken", "verbinde"],
-            "inventory": ["i", "inv", "tasche", "rucksack", "ausrüstung"],
-            "wait": ["warte", "bete", "z", "ruhen"],
-            "save": ["speichern", "sichern", "save"],
-            "load": ["laden", "load"],
-            "oracle": ["orakel", "vorhersage", "vision", "prognose", "sehe", "log"],
-            "map": ["map", "karte", "plan", "radar"],
-            "hack": ["hack", "hacken", "zugriff", "system", "override"]
-        },
-        "directions": {
-            "north": ["n", "nord", "norden", "brücke"],
-            "south": ["s", "süd", "süden", "kantine"],
-            "east": ["e", "ost", "osten", "reaktor"],
-            "west": ["w", "west", "westen", "schleuse"],
-            "up": ["u", "up", "oben", "deck1"],
-            "down": ["d", "down", "unten", "wartung"]
-        },
-        # NEU: System- und Parsing-Befehle zentralisiert
-        "system_commands": {
-            "cancel": ["stop", "abbrechen", "nein", "cancel", "zurück", "n"]
-        },
-        "dialogue_exits": ["bye", "ende", "tschüss", "weg", "stop", "exit", "leave"],
-        "prepositions": {
-            "give": ["an", "to", "dem", "der"],
-            "put": ["in", "auf", "on", "into", "an"],
-            "use": ["mit", "with", "und", "an"],
-            "general": ["in", "im", "an", "am", "auf", "mit", "bei", "zu", "nach", "den", "die", "das", "dem", "der"]
-        },
-        "skip_words": []
-    },
+# Wir laden die Konfiguration initial
+CONFIG = ChapterManager.load_chapter(START_CHAPTER, global_data)
 
-    "narrative_matrix": NARRATIVE_MATRIX,
-    "combinations": COMBINATIONS,
-    "rooms": ROOMS,
-    "objects": ITEMS,
-    "npcs": NPCS
-}
+if CONFIG is None:
+    raise RuntimeError("Kritischer Fehler: Start-Kapitel konnte nicht geladen werden!")
+
+# Hilfsfunktion für Savegames/Engine, um Kapitel zu wechseln
+def reload_config_for_chapter(chapter_module_str):
+    """
+    Lädt die globale CONFIG neu basierend auf dem gewünschten Kapitel.
+    Wird vom SystemHandler beim Laden eines Spielstands aufgerufen.
+    """
+    global CONFIG
+    new_config = ChapterManager.load_chapter(chapter_module_str, global_data)
+    if new_config:
+        CONFIG.clear()
+        CONFIG.update(new_config)
+        return True
+    return False

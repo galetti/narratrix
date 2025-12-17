@@ -1,38 +1,38 @@
-# Objekt-Zustände
-STATE_NORMAL = "normal"
-STATE_SABOTAGED = "sabotaged"
-STATE_BROKEN = "broken"
+# engine/constants.py
 
-# Objekt-Typen
+# Attribute Keys
+ATTR_ID = "id"
+ATTR_NAME = "name"
+ATTR_DESC = "desc"
+ATTR_ALIASES = "aliases"
+ATTR_MOVABLE = "movable"
+ATTR_MATTER = "matter" # solid, liquid, gas
+ATTR_TEMP = "temp"
+ATTR_WEIGHT = "weight" 
+ATTR_CAPACITY = "capacity" 
+ATTR_AFFINITY = "affinity" 
+
+# Types
 TYPE_CONTAINER = "container"
 TYPE_SURFACE = "surface"
 TYPE_ITEM = "item"
-TYPE_SCENERY = "scenery"
+TYPE_SCENERY = "scenery" 
 
-# Aggregatzustände (NEU)
+# States
+STATE_NORMAL = "normal"
+STATE_BROKEN = "broken"
+STATE_SABOTAGED = "sabotaged"
+
+# Locations
+LOC_INVENTORY = "inventory"
+LOC_VOID = "void"
+
+# Matters
 MATTER_SOLID = "solid"
 MATTER_LIQUID = "liquid"
 MATTER_GAS = "gas"
 
-# Orte
-LOC_INVENTORY = "inventory"
-LOC_VOID = "void" # Aus dem Spiel entfernt
-
-# Attribute
-ATTR_AFFINITY = "affinity"
-ATTR_MOVABLE = "movable"
-ATTR_ALIASES = "aliases"
-ATTR_DESC = "desc"
-ATTR_ID = "id"
-ATTR_NAME = "name"
-ATTR_TEMP = "temp" # Temperatur in Grad Celsius (NEU)
-ATTR_MATTER = "matter" # Fest/Flüssig (NEU)
-
-# Dialog & AI
-AI_CHANCE_MOVE = 20
-AI_CHANCE_STAY = 80
-
-# Filter für Resolver
-FILTER_ROOM = "room"
+# Filter flags
 FILTER_INVENTORY = "inventory"
-FILTER_RECURSIVE = "recursive_room"
+FILTER_RECURSIVE = "recursive"
+FILTER_ROOM = "room" # NEU: Hat gefehlt!
