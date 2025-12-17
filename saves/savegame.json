@@ -1,0 +1,279 @@
+{
+  "time": 5,
+  "location": "taverna",
+  "stability": 100,
+  "game_over": false,
+  "knowledge": [],
+  "objects": {
+    "prism": {
+      "id": "prism",
+      "name": "Prisma",
+      "aliases": [
+        "kristall",
+        "lampe",
+        "licht",
+        "linse"
+      ],
+      "location": "lighthouse",
+      "state": "broken",
+      "movable": false,
+      "desc": "Ein uraltes Artefakt aus Glas. Es ist fast blind vor Schmutz. Ohne Reinigung bündelt es kein Licht."
+    },
+    "bell": {
+      "id": "bell",
+      "name": "Glocke",
+      "aliases": [
+        "glocke",
+        "kirchenglocke"
+      ],
+      "location": "church",
+      "state": "normal",
+      "movable": false,
+      "desc": "Graviert mit Symbolen, die im Auge schmerzen. Wenn sie läutet, öffnet sie Tore."
+    },
+    "chest": {
+      "id": "chest",
+      "name": "Seemannskiste",
+      "aliases": [
+        "kiste",
+        "truhe",
+        "box"
+      ],
+      "location": "crypt",
+      "movable": false,
+      "is_container": true,
+      "is_locked": true,
+      "is_open": false,
+      "key_id": "iron_key",
+      "desc": "Sie gehört einem Kapitän, der wahnsinnig wurde."
+    },
+    "fountain": {
+      "id": "fountain",
+      "name": "Brunnen",
+      "aliases": [
+        "engel",
+        "statue"
+      ],
+      "location": "plaza",
+      "movable": false,
+      "scenery": true,
+      "desc": "Der steinerne Engel weint schwarze Tränen."
+    },
+    "iron_key": {
+      "id": "iron_key",
+      "name": "Eisen-Schlüssel",
+      "aliases": [
+        "schlüssel",
+        "eisen"
+      ],
+      "location": "fountain",
+      "movable": true,
+      "desc": "Kaltes, schwarzes Eisen. Es scheint Licht zu absorbieren."
+    },
+    "rag": {
+      "id": "rag",
+      "name": "Lappen",
+      "aliases": [
+        "tuch",
+        "stoff"
+      ],
+      "location": "toolbox",
+      "movable": true,
+      "desc": "Ein altes Stück Leinen."
+    },
+    "oil": {
+      "id": "oil",
+      "name": "Olivenöl",
+      "aliases": [
+        "öl",
+        "flasche"
+      ],
+      "location": "taverna",
+      "movable": true,
+      "desc": "Ranzig, aber es schmiert und reinigt."
+    },
+    "oily_rag": {
+      "id": "oily_rag",
+      "name": "Öliger Lappen",
+      "aliases": [
+        "putzlappen"
+      ],
+      "location": "void",
+      "movable": true,
+      "desc": "Perfekt, um alte Mechanismen oder Linsen zu reinigen."
+    },
+    "dagger": {
+      "id": "dagger",
+      "name": "Obsidian-Dolch",
+      "aliases": [
+        "dolch",
+        "messer",
+        "waffe"
+      ],
+      "location": "chest",
+      "movable": true,
+      "desc": "Die Klinge ist vulkanisches Glas. Blut klebt daran."
+    },
+    "cutters": {
+      "id": "cutters",
+      "name": "Notizbuch",
+      "aliases": [
+        "buch",
+        "journal",
+        "tagebuch"
+      ],
+      "location": "taverna",
+      "movable": true,
+      "desc": "Ein schwerer Drahtschneider. Die Initialen 'PA' sind in den Griff gekratzt."
+    }
+  },
+  "npcs": [
+    {
+      "name": "Padre Tomas",
+      "aliases": [
+        "priester",
+        "tomas",
+        "vater",
+        "pfarrer"
+      ],
+      "start_loc": "church",
+      "location": "church",
+      "desc": "Seine Soutane ist staubig. Er murmelt ununterbrochen Gebete.",
+      "personality": "Fanatisch, verzweifelt. Er glaubt, das Ende ist eine Prüfung.",
+      "dialogue": {
+        "status": "Die Engel weinen Blut! Wir müssen büßen!",
+        "sabotage": "Ich würde niemals das Heiligtum entweihen... es sei denn, Gott verlangt es.",
+        "zeuge": {
+          "text": "Die Welt muss brennen, damit sie neu geboren werden kann!",
+          "condition": "saw_sabotage"
+        },
+        "default": "Bete mit mir, Fremder. Das Ende ist nah."
+      },
+      "is_saboteur": true,
+      "agenda": [
+        {
+          "start_tick": 10,
+          "end_tick": 30,
+          "target_loc": "engine",
+          "target_obj": "core",
+          "action": "sabotage",
+          "completed": false
+        },
+        {
+          "start_tick": 50,
+          "end_tick": 90,
+          "target_loc": "medbay",
+          "target_obj": "vent",
+          "action": "sabotage",
+          "completed": false
+        }
+      ]
+    },
+    {
+      "name": "Isabella",
+      "aliases": [
+        "malerin",
+        "frau",
+        "künstlerin"
+      ],
+      "start_loc": "lighthouse",
+      "location": "lighthouse",
+      "desc": "Sie malt das Meer. Aber auf ihrer Leinwand ist das Meer rot.",
+      "personality": "Verträumt, unheimlich ruhig. Sie sieht Dinge, die nicht da sind.",
+      "dialogue": {
+        "status": "Die Farben... sie singen so laut heute.",
+        "sabotage": "Warum etwas reparieren, das so schön zerbricht?",
+        "zeuge": {
+          "text": "Wenn ich das Licht lösche, können wir endlich sehen, was im Dunkeln wohnt.",
+          "condition": "saw_sabotage"
+        },
+        "default": "Haben Sie schon einmal geträumt, dass Sie ertrinken?"
+      }
+    },
+    {
+      "name": "Der Fremde",
+      "aliases": [
+        "mann",
+        "tourist",
+        "archäologe"
+      ],
+      "start_loc": "taverna",
+      "location": "taverna",
+      "desc": "Er trägt einen Anzug, der hier völlig fehl am Platz wirkt.",
+      "personality": "Rational, panisch. Er sucht nach einer logischen Erklärung.",
+      "dialogue": {
+        "status": "Die geomagnetischen Werte spielen verrückt.",
+        "sabotage": "Ich will hier nur weg!",
+        "zeuge": {
+          "text": "Es ist ein Experiment! Wir sind die Variablen!",
+          "condition": "saw_sabotage"
+        },
+        "default": "Haben Sie ein Boot? Ein Funkgerät?"
+      }
+    }
+  ],
+  "matrix": [
+    {
+      "id": "evt_tide",
+      "title": "Die Schwarze Flut",
+      "description": "Die Wellen unten am Leuchtturm schlagen höher. Das Wasser ist nicht mehr blau, sondern dickflüssig und schwarz wie Öl. Es riecht nach uraltem Verwesungsgestank.",
+      "trigger_time": 30,
+      "target_obj_id": "prism",
+      "penalty": 40,
+      "fail_text": "Das Licht erlischt. Tentakelartige Schatten greifen nach den Klippen. Die Realität bekommt Risse.",
+      "success_text": "Das Prisma bündelt das Licht. Die Schatten weichen kreischend zurück."
+    },
+    {
+      "id": "evt_bell",
+      "title": "Das Läuten der Toten",
+      "description": "Die Kirchenglocke beginnt von selbst zu schwingen. Ein Ton, so tief, dass er Zähne und Knochen vibrieren lässt.",
+      "trigger_time": 80,
+      "target_obj_id": "bell",
+      "penalty": 60,
+      "fail_text": "Der Schall zersprengt die Fenster der Stadt. Wahnsinn breitet sich in den Köpfen aus.",
+      "success_text": "Die Glocke bleibt stumm. Die Stille ist ein Segen."
+    }
+  ],
+  "logs": [
+    {
+      "type": "location",
+      "text": "Plaza Mayor",
+      "turn": 0
+    },
+    {
+      "type": "story",
+      "text": "Die Mittagssonne brennt gnadenlos. Der Staub schmeckt nach Asche. Ein vertrockneter Brunnen steht in der Mitte. Nach Norden führt eine Gasse zur Taverne, im Westen ragt die Kirche auf.",
+      "turn": 0
+    },
+    {
+      "type": "location",
+      "text": "Taverna 'El Ojo'",
+      "turn": 5
+    },
+    {
+      "type": "story",
+      "text": "Es ist dunkel und kühl. Schinken hängen von der Decke, bedeckt mit Schimmel. Auf dem Tresen steht eine Flasche Olivenöl. Eine Hintertür führt zurück zur Plaza.",
+      "turn": 5
+    },
+    {
+      "type": "info",
+      "text": "Gegenstände: Olivenöl, Notizbuch",
+      "turn": 5
+    },
+    {
+      "type": "character",
+      "text": "Personen: Der Fremde",
+      "turn": 5
+    },
+    {
+      "type": "error",
+      "text": "Das siehst du hier nicht.",
+      "turn": 5
+    },
+    {
+      "type": "error",
+      "text": "Ich weiß nicht, wie man 'get' soll.",
+      "turn": 5
+    }
+  ]
+}
