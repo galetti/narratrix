@@ -58,6 +58,10 @@ class NarratrixGUI:
         self.scroll_offset = 0
         self.loading = False
         
+        # Command History
+        self.command_history = []
+        self.history_index = -1 # -1 bedeutet: wir sind am Ende (neuer Input)
+        
         # Asset Cache
         self.images = {}
         # Pfad korrigieren: data/assets/images ist der korrekte Ort
@@ -163,14 +167,43 @@ class NarratrixGUI:
             
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_RETURN:
-                    if self.input_text.strip():
-                        self.process_command(self.input_text)
+                    cmd = self.input_text.strip()
+                    if cmd:
+                        # Zur History hinzufügen, wenn nicht identisch zum letzten
+                        if not self.command_history or self.command_history[-1] != cmd:
+                            self.command_history.append(cmd)
+                        self.history_index = -1 # Reset nach Absenden
+                        
+                        self.process_command(cmd)
                         self.input_text = ""
+                        
                 elif event.key == pygame.K_BACKSPACE:
                     self.input_text = self.input_text[:-1]
                 elif event.key == pygame.K_ESCAPE:
                     self.running = False
                 
+                # Command History Navigation (Pfeil Rauf/Runter)
+                elif event.key == pygame.K_UP:
+                    if self.command_history:
+                        if self.history_index == -1:
+                            self.history_index = len(self.command_history) - 1
+                        else:
+                            self.history_index = max(0, self.history_index - 1)
+                        self.input_text = self.command_history[self.history_index]
+                
+                elif event.key == pygame.K_DOWN:
+                    if self.command_history and self.history_index != -1:
+                        self.history_index = min(len(self.command_history) - 1, self.history_index + 1)
+                        # Wenn wir wieder am Ende ankommen -> leeres Feld
+                        if self.history_index == len(self.command_history) - 1 and self.input_text == self.command_history[-1]:
+                             # Optional: Wenn man ganz unten ist und nochmal drückt -> clear?
+                             # Hier: Einfach weiter den letzten anzeigen oder clearen
+                             pass 
+                        self.input_text = self.command_history[self.history_index]
+                        
+                        # Spezialfall: Wenn wir "über" das Ende hinaus wollen -> leeren
+                        # (Wir machen es so: history_index zeigt auf das Item. Wenn man am Ende ist, bleibt man da)
+
                 # COPY LOG LOGIK
                 elif event.key == pygame.K_c and (pygame.key.get_mods() & pygame.KMOD_CTRL):
                     try:
