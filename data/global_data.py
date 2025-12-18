@@ -1,42 +1,37 @@
 # data/global_data.py
+# Enthält Daten, die in ALLEN Kapiteln verfügbar sind.
+# KEINE IMPORTE aus items.py, rooms.py etc. mehr!
 
-from data.rooms import ROOMS
-from data.items import ITEMS, COMBINATIONS
-from data.events import NARRATIVE_MATRIX
-from data.npcs import NPCS as ALL_NPCS
-# Wir brauchen hier keine Constants importieren, wenn wir sie nicht direkt nutzen,
-# aber da ITEMS sie nutzt, muss ITEMS.py sie importieren (Schritt 1).
+from engine.constants import (
+    TYPE_ITEM, LOC_INVENTORY, ATTR_MOVABLE
+)
 
-# --- NPC FILTERUNG ---
+# --- GLOBALE ITEMS ---
+# Dinge, die der Spieler immer hat oder die kapitelübergreifend sind.
+GLOBAL_ITEMS = {
+    "player_pda": {
+        "id": "player_pda", 
+        "name": "Datapad", 
+        "aliases": ["pda", "tablet", "logbuch"],
+        "location": LOC_INVENTORY, 
+        "type": TYPE_ITEM, 
+        "movable": True,
+        "desc": "Dein persönliches Terminal. Es enthält Missionslogs.",
+        "weight": 0.5
+    }
+}
+
+# --- GLOBALE NPCS ---
+# Z.B. eine KI im Kopf des Spielers oder ein Begleiter.
 GLOBAL_NPCS = []
-for npc in ALL_NPCS:
-    is_val = (
-        npc.get('id', '').lower() == 'npc_val' or 
-        npc.get('name', '').upper() == 'VAL' or
-        'val' in npc.get('aliases', [])
-    )
-    if not is_val:
-        GLOBAL_NPCS.append(npc)
-
-# ITEMS UPDATEN MIT GEWICHT (Patching der bestehenden Items)
-for item in ITEMS.values():
-    if 'weight' not in item:
-        name = item.get('name', '').lower()
-        if 'pda' in name or 'datapad' in name: item['weight'] = 0.5
-        elif 'brecheisen' in name: item['weight'] = 2.5
-        elif 'schlüssel' in name: item['weight'] = 0.1
-        else: item['weight'] = 1.0 
-
-if 'player_pda' in ITEMS:
-    ITEMS['player_pda']['weight'] = 0.3
 
 # --- GLOBALE KONFIGURATION ---
 GLOBAL_CONFIG = {
     "meta": {
         "title": "Narratrix: Omega-9",
         "author": "Galetti & AI",
-        "version": "5.1 (Weight System)",
-        "start_room": "hub" 
+        "version": "6.0 (Chapter Isolation)",
+        "start_room": "hub" # Startraum des aktuellen Kapitels (überschreibbar)
     },
 
     "system": {
@@ -44,6 +39,7 @@ GLOBAL_CONFIG = {
         "llm_timeout": 5
     },
 
+    # Vokabular ist global
     "vocabulary": {
         "verbs": {
             "look": ["schau", "l", "x", "untersuche", "betrachte", "lies", "scan", "status"],
@@ -86,9 +82,10 @@ GLOBAL_CONFIG = {
         "skip_words": ["der", "die", "das", "ein", "eine", "einen"]
     },
     
-    "narrative_matrix": NARRATIVE_MATRIX,
-    "combinations": COMBINATIONS,
-    "rooms": ROOMS,
-    "objects": ITEMS,
+    # Platzhalter für Merge (werden vom ChapterManager gefüllt)
+    "narrative_matrix": [],
+    "combinations": [],
+    "rooms": {},
+    "objects": GLOBAL_ITEMS, 
     "npcs": GLOBAL_NPCS
 }
