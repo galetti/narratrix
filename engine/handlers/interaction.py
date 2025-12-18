@@ -42,19 +42,13 @@ class InteractionHandler:
             desc = raw_desc.format(**format_map)
         except:
             # 2. Versuch: Manuelles Ersetzen von {id}
-            # Wir iterieren über ALLE Objekte und suchen nach ihrem Platzhalter
             for oid, obj in game.objects.items():
                 placeholder = "{" + oid + "}"
                 if placeholder in raw_desc:
                     real_name = obj.get(ATTR_NAME, oid)
                     desc = desc.replace(placeholder, real_name)
             
-            # Fallback für übrig gebliebene {chair} (z.B. Tippfehler im Key vs ID)
-            # Wenn immer noch {chair} da steht, obwohl wir ein Objekt mit ID "chair" haben,
-            # dann stimmt was mit dem Matching nicht.
-            # Wir prüfen spezifisch auf den beschriebenen Fehlerfall.
             if "{chair}" in desc:
-                # Suche nach Objekt mit Alias "chair" oder ID "chair"
                 chair_obj = game.objects.get("chair")
                 if chair_obj:
                     desc = desc.replace("{chair}", chair_obj.get(ATTR_NAME, "Sessel"))
@@ -127,9 +121,20 @@ class InteractionHandler:
         desc = target.get(ATTR_DESC, "Nichts Besonderes.")
         status = []
         
-        if target.get(ATTR_MOVABLE) or target.get('type') == TYPE_CONTAINER:
+        # Schätzung des Gewichts statt exakter Angabe
+        if target.get(ATTR_MOVABLE):
             real_weight = game.get_real_weight(target)
-            status.append(f"[Gewicht: {real_weight}kg]")
+            weight_desc = "sehr leicht"
+            pronomen = "Er" # Vereinfacht, eigentlich müsste man Genus prüfen (Der Becher -> Er, Die Flasche -> Sie)
+                            # Für eine erste Version nutzen wir neutrale Formulierungen oder "Es"
+                            
+            if real_weight > 10.0: weight_desc = "extrem schwer"
+            elif real_weight > 5.0: weight_desc = "sehr schwer"
+            elif real_weight > 2.0: weight_desc = "schwer"
+            elif real_weight > 0.5: weight_desc = "handlich"
+            
+            # Bessere Formulierung: "Es sieht ... aus"
+            status.append(f"Das Objekt wirkt {weight_desc}.")
 
         temp = target.get(ATTR_TEMP, 20)
         if temp > 50: status.append("Es ist HEISS.")
@@ -138,16 +143,23 @@ class InteractionHandler:
         if target.get(ATTR_MATTER) == MATTER_LIQUID: status.append("Es ist flüssig.")
 
         if target.get('type') == TYPE_CONTAINER:
+            # Kapazität nur grob schätzen? Nein, Füllstand ist visuell erkennbar.
             cap = target.get(ATTR_CAPACITY, 0)
-            if cap > 0: status.append(f"[Kapazität: {cap}kg]")
-
+            
             if target.get('is_locked'): status.append("Verschlossen.")
             elif target.get('is_open'):
                 contents = [o for o in game.objects.values() if o['location'] == target[ATTR_ID]]
                 names = [o[ATTR_NAME] for o in contents]
                 
                 current_load = sum(game.get_real_weight(c) for c in contents)
-                status.append(f"[Füllstand: {current_load}/{cap}kg]")
+                
+                # Füllstandsanzeige
+                if cap > 0:
+                    fill_ratio = current_load / cap
+                    if fill_ratio > 0.9: status.append("(Fast voll)")
+                    elif fill_ratio > 0.5: status.append("(Halb voll)")
+                    elif fill_ratio > 0.1: status.append("(Fast leer)")
+                    else: status.append("(Leer)")
 
                 if names: status.append(f"Inhalt: {', '.join(names)}")
                 else: status.append("Leer.")
@@ -164,6 +176,7 @@ class InteractionHandler:
         if any(w in args for w in ["all", "alles", "alle"]):
             candidates = [o for o in game.objects.values() if o.get(ATTR_MOVABLE)]
             taken = []
+            
             current_load = game.get_inventory_weight()
             
             for item in candidates:
@@ -171,6 +184,7 @@ class InteractionHandler:
                 
                 if InteractionHandler._is_reachable(game, item) and item['location'] != LOC_INVENTORY:
                     item_weight = game.get_real_weight(item)
+                    
                     if current_load + item_weight <= game.max_carry_weight:
                         item['location'] = LOC_INVENTORY
                         taken.append(item[ATTR_NAME])
@@ -192,14 +206,17 @@ class InteractionHandler:
         
         if target:
             if target['location'] == LOC_INVENTORY: return game.log('info', "Hast du schon.")
+            
             if not InteractionHandler._is_reachable(game, target):
                 game.log('error', "Du kommst da nicht heran (Container geschlossen?).")
                 return
+
             if not target.get(ATTR_MOVABLE): return game.log('error', "Das ist fest verankert.")
             if target.get(ATTR_MATTER) == MATTER_LIQUID: return game.log('error', "Du brauchst einen Behälter.")
 
             item_weight = game.get_real_weight(target)
             current_load = game.get_inventory_weight()
+            
             if current_load + item_weight > game.max_carry_weight:
                 return game.log('error', f"Das ist zu schwer! ({item_weight}kg). Du trägst bereits {current_load}kg.")
 
@@ -232,17 +249,21 @@ class InteractionHandler:
         game.add_knowledge(trigger_id)
         
         from engine.handlers.dialogue import DialogueHandler
+        
         dialogue_active = False
         current_state = npc.get('state', 'default')
         state_db = npc.get('dialogue', {}).get(current_state, {})
+        
         reaction_topic = None
-        if trigger_id in state_db: reaction_topic = state_db[trigger_id]
+        if trigger_id in state_db:
+            reaction_topic = state_db[trigger_id]
         if not reaction_topic:
             for topic, entry in state_db.items():
                 if isinstance(entry, dict) and 'condition' in entry:
                     cond = entry['condition']
                     if cond == trigger_id or (isinstance(cond, dict) and cond.get('value') == trigger_id):
-                        reaction_topic = entry; break
+                        reaction_topic = entry
+                        break
         
         if reaction_topic:
             game.dialogue_active = True
@@ -259,9 +280,11 @@ class InteractionHandler:
         target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_RECURSIVE, verb='open')
         
         if not target: return game.log('error', "Das sehe ich hier nicht.")
+        
         if not InteractionHandler._is_reachable(game, target):
              game.log('error', "Du kommst da nicht heran.")
              return
+
         if target.get('type') == TYPE_SURFACE: return game.log('info', "Das ist offen sichtbar.")
         if target.get('type') != TYPE_CONTAINER: return game.log('error', "Das lässt sich nicht öffnen.")
         
@@ -275,6 +298,7 @@ class InteractionHandler:
             else: return game.log('error', "Verschlossen.")
         
         if target.get('is_open'): return game.log('info', "Ist schon offen.")
+
         target['is_open'] = True
         game.log('success', f"{target[ATTR_NAME]} geöffnet.")
         InteractionHandler.look(game, clean_args)
@@ -283,27 +307,31 @@ class InteractionHandler:
     def put(game, args):
         separators = game.config.get('vocabulary', {}).get('prepositions', {}).get('put', ["in", "auf"])
         sep_indices = [i for i, w in enumerate(args) if w.lower() in separators]
-        if sep_indices:
-            idx = sep_indices[0]; item_words = args[:idx]; container_words = args[sep_indices[0]+1:]
-        else:
-            item_words = args[:-1]; container_words = [args[-1]]
+        
+        item_words = args[:sep_indices[0]] if sep_indices else args[:-1]
+        container_words = args[sep_indices[0]+1:] if sep_indices else [args[-1]]
         
         item = Resolver.resolve_target(game, item_words, location_filter=FILTER_INVENTORY, verb='put_item')
         if not item: return game.log('error', "Das hast du nicht.")
+        
         container = Resolver.resolve_target(game, container_words, location_filter=FILTER_RECURSIVE, verb='put_container')
         if not container: return game.log('error', "Das sehe ich hier nicht.")
         
         if not InteractionHandler._is_reachable(game, container):
             game.log('error', "Du kommst an den Behälter nicht ran.")
             return
+        
         if container == item: return game.log('error', "Geht nicht.")
         if container.get('type') not in [TYPE_CONTAINER, TYPE_SURFACE]: return game.log('error', "Da passt nichts rein.")
         if container.get('type') == TYPE_CONTAINER and not container.get('is_open'): return game.log('error', f"Der {container[ATTR_NAME]} ist geschlossen.")
         
         capacity = container.get(ATTR_CAPACITY, 9999) 
+        
         contents = [o for o in game.objects.values() if o['location'] == container[ATTR_ID]]
         current_content_weight = sum(game.get_real_weight(c) for c in contents)
+        
         item_weight = game.get_real_weight(item)
+        
         if current_content_weight + item_weight > capacity:
             return game.log('error', f"Passt nicht! Der Behälter ist voll ({current_content_weight}/{capacity}kg).")
 
@@ -316,25 +344,30 @@ class InteractionHandler:
         display_list = []
         for item in items:
             name = item.get(ATTR_NAME, "Unbekannt")
-            weight = game.get_real_weight(item)
+            # Gewicht wird hier nicht mehr angezeigt
+            
             if item.get('type') in [TYPE_CONTAINER, TYPE_SURFACE]:
                 if item.get('type') == TYPE_SURFACE or item.get('is_open', True):
                     contents = [o[ATTR_NAME] for o in game.objects.values() if o['location'] == item[ATTR_ID]]
                     if contents: name += f" (enthält: {', '.join(contents)})"
                 else: name += " (geschlossen)"
-            display_list.append(f"{name} [{weight}kg]")
+            
+            # Nur Name anzeigen
+            display_list.append(f"{name}")
             
         current_load = game.get_inventory_weight()
         max_load = game.max_carry_weight
+        
         if not display_list: 
-            game.log('info', f"Inventar: Leer ({current_load}/{max_load}kg)")
+            game.log('info', f"Inventar: Leer ({current_load:.1f}/{max_load}kg)")
         else: 
-            game.log('info', f"Inventar ({current_load}/{max_load}kg): {', '.join(display_list)}")
+            game.log('info', f"Inventar ({current_load:.1f}/{max_load}kg): {', '.join(display_list)}")
 
     @staticmethod
     def use(game, args):
         separators = game.config.get('vocabulary', {}).get('prepositions', {}).get('use', ["mit", "with"])
         separator_indices = [i for i, word in enumerate(args) if word.lower() in separators]
+        
         item1_name = ""; item2_name = ""
         if separator_indices:
             idx = separator_indices[0]
@@ -343,7 +376,8 @@ class InteractionHandler:
             mid = len(args) // 2; item1_name = " ".join(args[:mid]); item2_name = " ".join(args[mid:])
         else:
             game.log('info', f"Womit möchtest du {' '.join(args)} benutzen?")
-            game.pending_interaction = {'verb': 'use', 'args': args}; return
+            game.pending_interaction = {'verb': 'use', 'args': args}
+            return
 
         result_msg = game.perform_combine(item1_name, item2_name)
         if "Fehler" in result_msg or "nicht" in result_msg.lower(): game.log('error', result_msg)
@@ -354,33 +388,44 @@ class InteractionHandler:
         clean_args = Resolver.clean_args(args)
         target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_RECURSIVE, verb='break')
         if not target: return game.log('error', "Was aufbrechen?")
+        
         if not target.get('is_locked'): return game.log('info', "Das ist nicht verschlossen.")
         
         tools = [o for o in game.objects.values() if o['location'] == LOC_INVENTORY and 
                  ("brecheisen" in o[ATTR_NAME].lower() or o.get('tool_type') == 'force')]
+        
         if not tools:
             game.log('error', "Du kannst das nicht mit bloßen Händen aufbrechen. Du brauchst ein Brecheisen.")
             return
 
         tool = tools[0]
         game.log('success', f"Mit einem lauten Krachen brichst du das Schloss mit dem {tool[ATTR_NAME]} auf.")
-        target['is_locked'] = False; target['is_open'] = True; target['state'] = STATE_BROKEN; game.tick(10)
+        target['is_locked'] = False
+        target['is_open'] = True
+        target['state'] = STATE_BROKEN
+        game.tick(10)
 
     @staticmethod
     def fix(game, args):
         clean_args = Resolver.clean_args(args)
         target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_RECURSIVE, verb='fix')
         if not target: return game.log('error', "Was reparieren?")
-        if target.get('state') not in [STATE_SABOTAGED, STATE_BROKEN]: return game.log('info', "Das sieht intakt aus.")
+        
+        if target.get('state') not in [STATE_SABOTAGED, STATE_BROKEN]:
+            return game.log('info', "Das sieht intakt aus.")
 
         tools = [o for o in game.objects.values() if o['location'] == LOC_INVENTORY and 
                  ("werkzeug" in o[ATTR_NAME].lower() or "kit" in o[ATTR_NAME].lower() or o.get('tool_type') == 'repair')]
-        if not tools: return game.log('error', "Du hast kein geeignetes Werkzeug, um das zu reparieren.")
+
+        if not tools:
+            game.log('error', "Du hast kein geeignetes Werkzeug, um das zu reparieren.")
+            return
 
         tool = tools[0]
         game.log('success', f"Du arbeitest mit dem {tool[ATTR_NAME]} daran...")
         target['state'] = STATE_NORMAL
-        game.log('success', f"{target[ATTR_NAME]} ist wieder funktionstüchtig."); game.tick(20)
+        game.log('success', f"{target[ATTR_NAME]} ist wieder funktionstüchtig.")
+        game.tick(20)
     
     @staticmethod
     def drop_item(game, args):

@@ -42,9 +42,15 @@ ITEMS = {
         "desc": "Geplündert.",
         "weight": 50.0, "capacity": 20.0
     },
+    "scale": { # NEU: Waage
+        "id": "scale", "name": "Präzisionswaage", "aliases": ["waage"],
+        "location": "medbay", "type": TYPE_SCENERY, "movable": False, # Fest verbaut
+        "desc": "Eine digitale Waage für Medikamente. Benutze sie 'mit' einem Gegenstand.",
+        "weight": 2.0
+    },
 
     # --- ITEMS (Beweglich) ---
-    "player_pda": { # War im Original evtl. nicht drin, aber für Logik wichtig
+    "player_pda": {
         "id": "player_pda", "name": "Datapad", "aliases": ["pda", "tablet"],
         "location": "inventory", "type": TYPE_ITEM, "movable": True,
         "desc": "Dein persönliches Terminal.",
@@ -94,9 +100,9 @@ ITEMS = {
         "location": "bridge", "type": TYPE_ITEM, "movable": True, "matter": MATTER_SOLID, 
         "desc": "Universelles Dichtmittel.",
         "weight": 1.0,
-        "tool_type": "repair" # Wichtig für fix() Logik
+        "tool_type": "repair"
     },
-    "crowbar": { # Hinzugefügt für break() Logik, falls im Original nicht vorhanden
+    "crowbar": {
         "id": "crowbar", "name": "Brecheisen", "aliases": ["eisen"],
         "location": "maintenance", "type": TYPE_ITEM, "movable": True,
         "desc": "Solider Stahl.", "weight": 2.5, "tool_type": "force"
@@ -120,32 +126,22 @@ ITEMS = {
 }
 
 COMBINATIONS = [
-    # 1. Wasser in Becher füllen
     {
         "items": ["mug", "hot_water"], 
-        "result": "hot_water", # Trick: Wasser landet im Becher durch Logik, oder wir erzeugen vollen Becher
-        # Da perform_combine() Logik Result erzeugt: Wir müssten eigentlich ein Item "mug_full" haben.
-        # Vereinfachung: Wir nutzen das existierende System.
-        # Da hot_water LIQUID ist und mug CONTAINER, sollte 'put' genutzt werden.
-        # Aber für Crafting Logik:
+        "result": "hot_water", 
         "message": "Du füllst das heiße Wasser in den Becher.",
         "keep_items": True 
     },
-    # 2. Pulver in das Wasser (im Becher?)
-    # Wir brauchen eine ID für "Wasser im Becher". Das ist komplex.
-    # Einfacher: Pulver + Heißes Wasser -> Stim Caf
     {
         "items": ["stim_powder", "hot_water"], 
         "result": "stim_caf", 
         "message": "Das Pulver löst sich zischend im Wasser auf. Es wird zu Stim-Caf."
     },
-    # 3. Kanister flicken
     {
         "items": ["coolant_canister", "patch_kit"], 
         "result": "sealed_coolant", 
         "message": "Du klebst das Leck mit dem Dichtmittel zu. Es scheint zu halten."
     },
-    # 4. Medikit basteln
     {
         "items": ["med_gel", "bandage"],
         "result": "medikit", 

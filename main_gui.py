@@ -1,260 +1,404 @@
 import pygame
-import sys
 import threading
-import math
+import time
 import os
-import pygame.scrap
+import sys
+import subprocess
 
-from data.story_config import CONFIG
+# Engine Importe
 from engine.game_state import GameState
-from engine.action_dispatcher import ActionDispatcher 
-from engine.parser.rule_based import RuleBasedParser
+from data.story_config import CONFIG
+from engine.parser.spacy_parser import SpacyParser
+from engine.constants import *
 
-try:
-    from engine.parser.spacy_parser import SpacyParser
-    SPACY_AVAILABLE = True
-except ImportError:
-    SPACY_AVAILABLE = False
-    print("[WARN] Spacy Modul nicht gefunden.")
+# KONSTANTEN GUI
+WIDTH, HEIGHT = 1024, 768
+COLOR_BG = (20, 20, 25)
+COLOR_TEXT = (220, 220, 220)
+COLOR_ACCENT = (100, 200, 255)
+COLOR_ALERT = (255, 80, 80)
+COLOR_INPUT_BG = (30, 30, 35)
+COLOR_BORDER = (60, 60, 70)
+COLOR_DIALOGUE_BG = (40, 40, 50)
+COLOR_DIALOGUE_BORDER = (100, 255, 150)
 
-INIT_WIDTH, INIT_HEIGHT = 1024, 768
-COLOR_BG = (10, 10, 15); COLOR_UI_BORDER = (40, 40, 60); COLOR_TEXT = (200, 200, 200)
-COLOR_ACCENT = (0, 255, 136); COLOR_ALERT = (255, 50, 50); COLOR_INPUT = (255, 255, 255)
-COLOR_LOADING = (255, 200, 0); COLOR_USER_ECHO = (150, 150, 150); COLOR_DIALOGUE_BORDER = (0, 150, 255)
-FONT_SIZE_LOG = 18; FONT_SIZE_HEADER = 32
-PARSER_MODE = "SPACY" 
+FONT_SIZE_MAIN = 22
+FONT_SIZE_LOG = 18
 
-class AssetLoader:
-    """Lädt Bilder aus dem Content-Ordner (data/assets) und cacht sie."""
+class NarratrixGUI:
     def __init__(self):
-        self.cache = {}
-        # Pfad zeigt in den data Ordner
-        self.base_path = os.path.join(os.path.dirname(__file__), "data", "assets", "images")
-        
-        if not os.path.exists(self.base_path):
-            try:
-                os.makedirs(self.base_path)
-                print(f"[SYSTEM] Asset-Ordner erstellt: {self.base_path}")
-            except: pass
+        pygame.init()
+        # Scrap Modul init (versuchen)
+        try:
+            pygame.scrap.init()
+        except:
+            pass
 
-    def get_image(self, img_id):
-        """Lädt das Originalbild (ohne Skalierung)."""
-        if not img_id: return None
+        self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        pygame.display.set_caption("NARRATRIX - Terminal Uplink")
+        self.clock = pygame.time.Clock()
+        self.running = True
         
-        if img_id in self.cache:
-            return self.cache[img_id]
-            
+        # Fonts
+        try:
+            self.font_main = pygame.font.SysFont("Consolas, 'Courier New', monospace", FONT_SIZE_MAIN)
+            self.font_log = pygame.font.SysFont("Consolas, 'Courier New', monospace", FONT_SIZE_LOG)
+        except:
+            self.font_main = pygame.font.SysFont(None, FONT_SIZE_MAIN)
+            self.font_log = pygame.font.SysFont(None, FONT_SIZE_LOG)
+
+        # Game Engine Init
+        self.game = GameState(CONFIG)
+        self.parser = SpacyParser(self.game)
+        
+        # UI State
+        self.input_text = ""
+        self.cursor_visible = True
+        self.last_cursor_blink = time.time()
+        self.scroll_offset = 0
+        self.loading = False
+        
+        # Asset Cache
+        self.images = {}
+        # Pfad korrigieren: data/assets/images ist der korrekte Ort
+        self.base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "data", "assets", "images"))
+        
+        print(f"[SYSTEM] Asset-Pfad: {self.base_path}")
+        if not os.path.exists(self.base_path):
+            # Fallback Versuche
+            alt_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "data", "assets"))
+            if os.path.exists(alt_path):
+                print(f"[SYSTEM] 'images' Unterordner nicht gefunden, versuche {alt_path}")
+                self.base_path = alt_path
+            else:
+                print(f"[SYSTEM] WARNUNG: Asset-Ordner existiert nicht!")
+                try: os.makedirs(self.base_path, exist_ok=True)
+                except: pass
+
+        # Initiales Log
+        self.game.log('system', "Verbindung hergestellt...")
+        self.game.log('system', f"Lade Modul: {CONFIG['meta']['title']}")
+        
+        from engine.handlers.interaction import InteractionHandler
+        InteractionHandler.look(self.game, [])
+
+    def load_image(self, name):
+        if not name: return None
+        if name in self.images: return self.images[name]
+        
+        # Dateinamen prüfen
+        extensions = [".png", ".jpg", ".jpeg"]
         found_path = None
-        for ext in [".png", ".jpg", ".jpeg"]:
-            p = os.path.join(self.base_path, img_id + ext)
-            if os.path.exists(p):
-                found_path = p
+        
+        for ext in extensions:
+            test_path = os.path.join(self.base_path, name + ext)
+            if os.path.exists(test_path):
+                found_path = test_path
                 break
         
         if found_path:
             try:
-                img = pygame.image.load(found_path).convert()
-                self.cache[img_id] = img
+                img = pygame.image.load(found_path).convert_alpha()
+                self.images[name] = img
+                print(f"[IMG] Geladen: {name}")
                 return img
             except Exception as e:
-                print(f"[ERROR] Konnte Bild {found_path} nicht laden: {e}")
-                
-        self.cache[img_id] = None
+                print(f"[IMG] Fehler bei {name}: {e}")
+                return None
+        else:
+            # Debugging: Nur einmal pro Name warnen
+            if name not in self.images: 
+                print(f"[IMG] Nicht gefunden: {name} (in {self.base_path})")
+                self.images[name] = None 
         return None
 
-class GameGUI:
-    def __init__(self):
-        pygame.init()
-        self.screen = pygame.display.set_mode((INIT_WIDTH, INIT_HEIGHT), pygame.RESIZABLE)
-        pygame.display.set_caption("NARRATRIX v4.2 - Proportional Images")
-        
-        try: pygame.scrap.init()
-        except pygame.error: print("[WARN] Clipboard konnte nicht initialisiert werden.")
+    def copy_to_clipboard(self, text):
+        """
+        Robuste Kopierfunktion für Linux/Ubuntu.
+        Priorität: subprocess (xclip/xsel) -> pygame -> fallback print
+        """
+        # 1. Versuch: Native Linux Tools
+        try:
+            # Versuche xclip
+            process = subprocess.Popen(['xclip', '-selection', 'clipboard'], stdin=subprocess.PIPE)
+            process.communicate(input=text.encode('utf-8'))
+            print("[Clipboard] Via xclip kopiert.")
+            return True
+        except FileNotFoundError:
+            try:
+                # Versuche xsel als Alternative
+                process = subprocess.Popen(['xsel', '-b', '-i'], stdin=subprocess.PIPE)
+                process.communicate(input=text.encode('utf-8'))
+                print("[Clipboard] Via xsel kopiert.")
+                return True
+            except FileNotFoundError:
+                pass 
+        except Exception as e:
+            print(f"[Clipboard] Subprocess Fehler: {e}")
 
-        self.clock = pygame.time.Clock()
-        try: self.font_log = pygame.font.SysFont("Consolas", FONT_SIZE_LOG); self.font_header = pygame.font.SysFont("Verdana", FONT_SIZE_HEADER, bold=True)
-        except: self.font_log = pygame.font.SysFont("Arial", FONT_SIZE_LOG); self.font_header = pygame.font.SysFont("Arial", FONT_SIZE_HEADER)
+        # 2. Versuch: Pygame Builtin
+        try:
+            pygame.scrap.put(pygame.SCRAP_TEXT, text.encode('utf-8'))
+            return True
+        except Exception as e:
+            print(f"[Clipboard] Pygame Fehler: {e}")
 
-        self.game = GameState(CONFIG)
-        self.assets = AssetLoader() 
-        
-        self.user_text = ""; self.cursor_blink = 0; self.is_processing = False
-        self.history = []; self.history_index = 0
-        
-        self.parser = None
-        if PARSER_MODE == "SPACY" and SPACY_AVAILABLE:
-            print("Initialisiere Spacy Parser...")
-            self.parser = SpacyParser(self.game)
-            if not self.parser.available: self.parser = RuleBasedParser(self.game)
-        else: self.parser = RuleBasedParser(self.game)
-
-        self.submit_command("look", echo=False)
+        return False
 
     def run(self):
-        while True:
-            self.handle_events(); self.update(); self.draw(); self.clock.tick(30)
+        """Hauptschleife."""
+        while self.running:
+            self.handle_events()
+            self.update()
+            self.draw()
+            self.clock.tick(30)
+        
+        pygame.quit()
+        sys.exit()
 
     def handle_events(self):
         for event in pygame.event.get():
-            if event.type == pygame.QUIT: pygame.quit(); sys.exit()
-            elif event.type == pygame.VIDEORESIZE: self.screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
+            if event.type == pygame.QUIT:
+                self.running = False
+            
             elif event.type == pygame.KEYDOWN:
-                if self.game.game_over: continue
-                if self.is_processing: continue 
-                
-                if event.key == pygame.K_c and (pygame.key.get_mods() & pygame.KMOD_CTRL):
-                    snapshot = self.game.get_logs()
-                    text_dump = "\n".join([f"{l['type']}: {l['text']}" for l in snapshot])
-                    try: pygame.scrap.put(pygame.SCRAP_TEXT, text_dump.encode('utf-8')); print("Clipboard copy success.")
-                    except Exception as e: print(f"Clipboard Error: {e}")
-                    continue
-
                 if event.key == pygame.K_RETURN:
-                    if self.user_text.strip():
-                        cmd = self.user_text; self.history.append(cmd); self.history_index = len(self.history); self.user_text = ""; self.submit_command(cmd)
-                elif event.key == pygame.K_UP:
-                    if self.history: self.history_index = max(0, self.history_index - 1); self.user_text = self.history[self.history_index]
-                elif event.key == pygame.K_DOWN:
-                    if self.history:
-                        self.history_index = min(len(self.history), self.history_index + 1)
-                        self.user_text = self.history[self.history_index] if self.history_index < len(self.history) else ""
-                elif event.key == pygame.K_BACKSPACE: self.user_text = self.user_text[:-1]
-                else: 
-                    if len(self.user_text) < 120: self.user_text += event.unicode
+                    if self.input_text.strip():
+                        self.process_command(self.input_text)
+                        self.input_text = ""
+                elif event.key == pygame.K_BACKSPACE:
+                    self.input_text = self.input_text[:-1]
+                elif event.key == pygame.K_ESCAPE:
+                    self.running = False
+                
+                # COPY LOG LOGIK
+                elif event.key == pygame.K_c and (pygame.key.get_mods() & pygame.KMOD_CTRL):
+                    try:
+                        logs = self.game.get_logs()
+                        text_lines = [f"[{l['type'].upper()}] {l['text']}" for l in logs]
+                        full_text = "\n".join(text_lines)
+                        
+                        if self.copy_to_clipboard(full_text):
+                            self.game.log('system', "Log in Zwischenablage kopiert.")
+                        else:
+                            self.game.log('error', "Clipboard fehlgeschlagen (Installiere 'xclip').")
+                            print("\n--- LOG DUMP ---")
+                            print(full_text)
+                            print("----------------")
+                            
+                    except Exception as e: 
+                        print(f"[SYSTEM] Log Fehler: {e}")
+                        self.game.log('error', "Fehler beim Kopieren.")
 
-    def submit_command(self, text, echo=True):
-        self.is_processing = True
-        if echo: self.game.log('user', f"> {text}")
-        def worker():
-            if self.game.dialogue_active: ActionDispatcher.dialogue_step(self.game, text)
-            else: self.parser.parse(text)
-            self.is_processing = False
-        t = threading.Thread(target=worker); t.start()
+                elif event.key == pygame.K_PAGEUP:
+                    self.scroll_offset += 1
+                elif event.key == pygame.K_PAGEDOWN:
+                    self.scroll_offset = max(0, self.scroll_offset - 1)
+                else:
+                    if len(self.input_text) < 200:
+                        self.input_text += event.unicode
 
-    def update(self): self.cursor_blink += 1
+            elif event.type == pygame.MOUSEWHEEL:
+                self.scroll_offset = max(0, self.scroll_offset + event.y)
 
-    def wrap_text(self, text, font, max_width):
-        words = text.split(' '); lines = []; current_line = []
-        for word in words:
-            test_line = ' '.join(current_line + [word])
-            w, h = font.size(test_line)
-            if w < max_width: current_line.append(word)
-            else: lines.append(' '.join(current_line)); current_line = [word]
-        if current_line: lines.append(' '.join(current_line))
-        return lines
+    def process_command(self, text):
+        self.game.log('user', f"> {text}")
+        self.loading = True
+        t = threading.Thread(target=self.worker, args=(text,))
+        t.start()
+
+    def worker(self, text):
+        if self.game.dialogue_active:
+            from engine.handlers.dialogue import DialogueHandler
+            DialogueHandler.step(self.game, text)
+        else:
+            self.parser.parse(text)
+        self.loading = False
+        self.scroll_offset = 0
+
+    def update(self):
+        if time.time() - self.last_cursor_blink > 0.5:
+            self.cursor_visible = not self.cursor_visible
+            self.last_cursor_blink = time.time()
 
     def draw(self):
+        self.screen.fill(COLOR_BG)
         snapshot = self.game.get_snapshot()
-        self.screen.fill(COLOR_BG); w, h = self.screen.get_size()
-        scene_height = int(h * 0.4); input_height = 50; log_height = h - scene_height - input_height
-        rect_scene = pygame.Rect(0, 0, w, scene_height); rect_log = pygame.Rect(0, scene_height, w, log_height); rect_input = pygame.Rect(0, h - input_height, w, input_height)
-        self.draw_scene_area(rect_scene, snapshot); self.draw_log_area(rect_log, snapshot); self.draw_input_area(rect_input, snapshot)
-        border_col = COLOR_DIALOGUE_BORDER if snapshot['dialogue_active'] else COLOR_UI_BORDER
-        pygame.draw.line(self.screen, border_col, (0, scene_height), (w, scene_height), 2)
-        pygame.draw.line(self.screen, border_col, (0, h - input_height), (w, h - input_height), 2)
-        if self.is_processing: self.draw_loading_spinner(w, h, snapshot)
+        
+        h_scene = int(HEIGHT * 0.3)
+        h_input = int(HEIGHT * 0.08)
+        h_log = HEIGHT - h_scene - h_input
+        
+        rect_scene = pygame.Rect(0, 0, WIDTH, h_scene)
+        rect_log = pygame.Rect(0, h_scene, WIDTH, h_log)
+        rect_input = pygame.Rect(0, HEIGHT - h_input, WIDTH, h_input)
+        
+        self.draw_scene_area(rect_scene, snapshot)
+        self.draw_log_area(rect_log, snapshot)
+        self.draw_input_area(rect_input, snapshot)
+        
+        if self.loading:
+            pygame.draw.circle(self.screen, COLOR_ACCENT, (WIDTH-20, 20), 5)
+
         pygame.display.flip()
 
-    def draw_scene_area(self, rect, snap):
-        bg_color = (20, 20, 30)
-        if snap['stability'] < 50 and (self.cursor_blink // 15) % 2 == 0: bg_color = (40, 20, 20)
-        pygame.draw.rect(self.screen, bg_color, rect)
+    def apply_pixel_effect(self, surface, scale_factor=0.2, brightness=128):
+        """
+        Verpixelt ein Bild und dunkelt es ab.
+        scale_factor: 0.1 = sehr stark verpixelt, 0.5 = leicht verpixelt
+        brightness: 0-255 (255 = original, 0 = schwarz)
+        """
+        w, h = surface.get_size()
+        small_w = max(1, int(w * scale_factor))
+        small_h = max(1, int(h * scale_factor))
         
-        # Maximaler Platz für das Bild
-        max_h = rect.height - 40 
-        max_w = int(rect.width * 0.4) 
+        # Herunterskalieren (Pixel verlieren)
+        small_surf = pygame.transform.smoothscale(surface, (small_w, small_h))
+        # Hochskalieren (Pixel groß machen)
+        pixel_surf = pygame.transform.scale(small_surf, (w, h))
         
-        img_x = rect.width - max_w - 20
-        img_y = 20
+        # Abdunkeln
+        dark = pygame.Surface((w, h), flags=pygame.SRCALPHA)
+        dark.fill((0, 0, 0, 255 - brightness))
+        pixel_surf.blit(dark, (0, 0), special_flags=pygame.BLEND_RGBA_SUB)
         
-        # Standard-Platzhalter Rechteck (4:3)
-        placeholder_w = int(max_h * 1.33)
-        if placeholder_w > max_w: placeholder_w = max_w
-        placeholder_h = int(placeholder_w / 1.33)
-        
-        final_img_rect = pygame.Rect(rect.width - placeholder_w - 20, 20, placeholder_w, placeholder_h)
-        
-        img_id = snap['dialogue_img'] if snap['dialogue_active'] else snap['room_img']
-        original_img = self.assets.get_image(img_id)
-        
-        if original_img:
-            # Skalierung berechnen (Fit inside)
-            o_w, o_h = original_img.get_size()
-            aspect = o_w / o_h
-            
-            # Versuche, Höhe zu maximieren
-            target_h = max_h
-            target_w = int(target_h * aspect)
-            
-            # Wenn zu breit, limitiere Breite
-            if target_w > max_w:
-                target_w = max_w
-                target_h = int(target_w / aspect)
-            
-            # Zentrieren im verfügbaren Bereich (rechtsbündig)
-            # Bereich ist (rect.width - max_w - 20) bis (rect.width - 20)
-            area_x = rect.width - max_w - 20
-            # Zentriere das Bild in diesem Bereich horizontal
-            draw_x = area_x + (max_w - target_w) // 2
-            draw_y = 20 + (max_h - target_h) // 2
-            
-            final_img_rect = pygame.Rect(draw_x, draw_y, target_w, target_h)
-            
-            scaled_img = pygame.transform.smoothscale(original_img, (target_w, target_h))
-            self.screen.blit(scaled_img, (draw_x, draw_y))
-            
-            border_col = COLOR_DIALOGUE_BORDER if snap['dialogue_active'] else COLOR_UI_BORDER
-            pygame.draw.rect(self.screen, border_col, final_img_rect, 2)
-            
-        else:
-            # Fallback: Platzhalter zeichnen
-            pygame.draw.rect(self.screen, (0, 0, 0), final_img_rect)
-            border_col = COLOR_DIALOGUE_BORDER if snap['dialogue_active'] else COLOR_UI_BORDER
-            pygame.draw.rect(self.screen, border_col, final_img_rect, 2)
-            if snap['dialogue_active']: label_text = f"PORTRAIT: {img_id}"; col_label = COLOR_DIALOGUE_BORDER
-            else: label_text = f"IMG: {img_id}"; col_label = (80, 80, 80)
-            label_surf = self.font_log.render(label_text, True, col_label); label_rect = label_surf.get_rect(center=final_img_rect.center)
-            self.screen.blit(label_surf, label_rect)
+        return pixel_surf
 
-        if snap['dialogue_active']: header_text = snap['dialogue_header']; header_col = COLOR_DIALOGUE_BORDER
-        else: header_text = snap['room_name'].upper(); header_col = COLOR_ACCENT
-        text_room = self.font_header.render(header_text, True, header_col); self.screen.blit(text_room, (20, 20))
-        surf_time = self.font_log.render(f"ZEIT: T+{snap['time']}m", True, COLOR_TEXT); surf_stab = self.font_log.render(f"INTEGRITÄT: {snap['stability']}%", True, COLOR_ACCENT if snap['stability'] > 50 else COLOR_ALERT)
-        self.screen.blit(surf_time, (20, 70)); self.screen.blit(surf_stab, (20, 95))
+    def draw_scene_area(self, rect, snap):
+        pygame.draw.rect(self.screen, (30, 30, 40), rect)
+        pygame.draw.line(self.screen, COLOR_BORDER, rect.bottomleft, rect.bottomright, 2)
+        
+        # 1. Hintergrund-Bild (Raum) laden
+        room_img_id = snap['room_img']
+        room_img = self.load_image(room_img_id)
+        
+        final_bg = None
+        img_size = rect.height - 20
+        # Position für das Bild (quadratisch links)
+        img_rect = pygame.Rect(10, 10, img_size, img_size)
+        
+        if room_img:
+            # Skalieren auf Zielgröße
+            room_scaled = pygame.transform.scale(room_img, (img_size, img_size))
+            
+            if snap['dialogue_active']:
+                # Wenn Dialog: Verpixeln & Abdunkeln
+                # ANGEPASST: scale_factor von 0.1 auf 0.25 erhöht (weniger pixelig)
+                # ANGEPASST: brightness von 100 auf 80 (etwas dunkler für mehr Kontrast zum Portrait)
+                final_bg = self.apply_pixel_effect(room_scaled, scale_factor=0.25, brightness=80)
+            else:
+                # Normal: Klar anzeigen
+                final_bg = room_scaled
+                
+            # Hintergrund zeichnen
+            self.screen.blit(final_bg, img_rect)
+        else:
+            # Fallback Platzhalter
+            pygame.draw.rect(self.screen, (20, 20, 20), img_rect)
+
+        # 2. Charakter-Overlay (nur bei Dialog)
+        if snap['dialogue_active']:
+            char_img_id = snap['dialogue_img']
+            char_img = self.load_image(char_img_id)
+            
+            if char_img:
+                # Charakter skalieren (etwas kleiner oder voll?) -> Voll im Rahmen
+                char_scaled = pygame.transform.scale(char_img, (img_size, img_size))
+                self.screen.blit(char_scaled, img_rect)
+
+        # Text Infos
+        text_start_x = img_size + 30
+        header_text = snap['room_name']
+        header_col = COLOR_ACCENT
+        
+        if snap['dialogue_active']:
+            header_text = snap['dialogue_header']
+            header_col = COLOR_DIALOGUE_BORDER
+            
+        surf_header = self.font_main.render(header_text.upper(), True, header_col)
+        self.screen.blit(surf_header, (text_start_x, 20))
+        
+        stats = []
+        stats.append(f"ZEIT: {snap['time']}")
+        stats.append(f"INTEGRITÄT: {snap['stability']}%")
+        if 'weight_info' in snap:
+            stats.append(f"LAST: {snap['weight_info']}")
+            
+        stats_str = " | ".join(stats)
+        surf_stats = self.font_log.render(stats_str, True, (150, 150, 150))
+        self.screen.blit(surf_stats, (text_start_x, 50))
+        
+        exits_str = "AUSGÄNGE: " + ", ".join([e.upper() for e in snap['exits']])
+        if not snap['exits']: exits_str = "AUSGÄNGE: KEINE"
+        surf_exits = self.font_log.render(exits_str, True, (150, 150, 150))
+        self.screen.blit(surf_exits, (text_start_x, 75))
+
+        inv_count = len(snap['inventory'])
+        surf_inv = self.font_log.render(f"ITEMS: {inv_count}", True, (150, 150, 150))
+        self.screen.blit(surf_inv, (text_start_x, 100))
 
     def draw_log_area(self, rect, snap):
-        padding_x = 20; padding_y = 10; line_height = FONT_SIZE_LOG + 4
-        bottom_y = rect.bottom - padding_y - line_height; current_y = bottom_y; max_text_width = rect.width - (padding_x * 2)
+        self.screen.set_clip(rect)
+        padding = 15
+        line_height = FONT_SIZE_LOG + 4
         
-        for log in reversed(snap['logs']):
-            color = COLOR_TEXT; prefix = ""
-            if log['type'] == 'user': color = COLOR_USER_ECHO; prefix = ""
-            elif log['type'] == 'error': color = (255, 80, 80)
-            elif log['type'] == 'success': color = COLOR_ACCENT
-            elif log['type'] == 'event': color = (255, 200, 50)
-            elif log['type'] == 'alarm': color = COLOR_ALERT
-            elif log['type'] == 'location': color = COLOR_ACCENT
-            elif log['type'] == 'character': color = (100, 200, 255)
-            elif log['type'] == 'story': color = (220, 220, 220)
+        logs = snap['logs']
+        y_pos = rect.bottom - padding - (line_height * self.scroll_offset)
+        
+        for log in reversed(logs):
+            text = log['text']
+            cat = log['type']
             
-            wrapped_lines = self.wrap_text(prefix + log['text'], self.font_log, max_text_width)
-            for line in reversed(wrapped_lines):
-                if current_y < rect.top: break
-                text_surf = self.font_log.render(line, True, color); self.screen.blit(text_surf, (padding_x, current_y)); current_y -= line_height
-            if current_y < rect.top: break
+            col = COLOR_TEXT
+            if cat == 'user': col = (150, 150, 150)
+            elif cat == 'error': col = COLOR_ALERT
+            elif cat == 'success': col = (100, 255, 100)
+            elif cat == 'info': col = (180, 180, 200)
+            elif cat == 'character': col = COLOR_DIALOGUE_BORDER
+            elif cat == 'story': col = (255, 255, 200)
+            
+            words = text.split(' ')
+            lines = []
+            current_line = []
+            
+            for word in words:
+                test_line = " ".join(current_line + [word])
+                if self.font_log.size(test_line)[0] < (rect.width - 2*padding):
+                    current_line.append(word)
+                else:
+                    lines.append(" ".join(current_line))
+                    current_line = [word]
+            lines.append(" ".join(current_line))
+            
+            for line in reversed(lines):
+                if y_pos < rect.top: break
+                surf = self.font_log.render(line, True, col)
+                self.screen.blit(surf, (rect.left + padding, y_pos - line_height))
+                y_pos -= line_height
+                
+            y_pos -= 5
+            if y_pos < rect.top: break
+
+        self.screen.set_clip(None)
+        
+        if self.scroll_offset > 0:
+            surf = self.font_log.render(f"^ SCROLL {self.scroll_offset} ^", True, COLOR_ACCENT)
+            self.screen.blit(surf, (rect.right - 150, rect.bottom - 25))
 
     def draw_input_area(self, rect, snap):
-        pygame.draw.rect(self.screen, (0, 0, 0), rect); padding = 10; prompt = "> " if (self.cursor_blink // 20) % 2 == 0 else ">_"
-        col_prompt = COLOR_DIALOGUE_BORDER if snap['dialogue_active'] else COLOR_ACCENT
-        surf_prompt = self.font_log.render(prompt, True, col_prompt); surf_text = self.font_log.render(self.user_text, True, COLOR_INPUT)
-        self.screen.blit(surf_prompt, (rect.x + padding, rect.y + padding)); self.screen.blit(surf_text, (rect.x + padding + 30, rect.y + padding))
-
-    def draw_loading_spinner(self, w, h, snap):
-        center_x, center_y = w - 30, h - 25; angle = (self.cursor_blink * 15) % 360; radius = 10
-        end_x = center_x + radius * math.cos(math.radians(angle)); end_y = center_y + radius * math.sin(math.radians(angle))
-        col = COLOR_DIALOGUE_BORDER if snap['dialogue_active'] else COLOR_LOADING
-        pygame.draw.circle(self.screen, col, (center_x, center_y), radius, 1); pygame.draw.line(self.screen, col, (center_x, center_y), (end_x, end_y), 2)
+        pygame.draw.rect(self.screen, COLOR_INPUT_BG, rect)
+        pygame.draw.line(self.screen, COLOR_BORDER, rect.topleft, rect.topright, 2)
+        
+        prompt = "> "
+        txt_surf = self.font_main.render(prompt + self.input_text, True, COLOR_ACCENT)
+        self.screen.blit(txt_surf, (rect.left + 20, rect.centery - txt_surf.get_height()//2))
+        
+        if self.cursor_visible:
+            cursor_x = rect.left + 20 + txt_surf.get_width()
+            cursor_h = txt_surf.get_height()
+            cursor_y = rect.centery - cursor_h//2
+            pygame.draw.rect(self.screen, COLOR_ACCENT, (cursor_x, cursor_y, 10, cursor_h))
 
 if __name__ == "__main__":
-    gui = GameGUI()
+    gui = NarratrixGUI()
     gui.run()

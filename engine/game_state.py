@@ -6,12 +6,12 @@ class GameState:
     def __init__(self, config=None):
         self.config = config if config else {}
         self.location = self.config.get('meta', {}).get('start_room', 'hub')
-        self.inventory = [] 
+        # self.inventory als Liste entfernt, ist jetzt Property
         self.knowledge = [] 
         self.game_over = False
         
         # SPIELER STATS
-        self.max_carry_weight = 20.0 # Der Spieler kann 20 Einheiten tragen
+        self.max_carry_weight = 20.0 
         
         # ZEIT SYSTEM
         self.total_minutes = 480 
@@ -35,6 +35,11 @@ class GameState:
         if config:
             self._initialize_world(config)
 
+    @property
+    def inventory(self):
+        """Dynamische Property: Liefert alle IDs von Items im Inventar."""
+        return [oid for oid, obj in self.objects.items() if obj.get('location') == LOC_INVENTORY]
+
     def _initialize_world(self, config):
         self.rooms = copy.deepcopy(config.get('rooms', {}))
         self.objects = copy.deepcopy(config.get('objects', {}))
@@ -51,25 +56,18 @@ class GameState:
             if 'location' not in obj: obj['location'] = LOC_VOID
 
     def get_real_weight(self, obj):
-        """
-        Berechnet das tatsächliche Gewicht eines Objekts inkl. Inhalt.
-        """
         base_weight = obj.get(ATTR_WEIGHT, 0.0)
-        
-        # Wenn es ein Container ist, addieren wir den Inhalt
         if obj.get('type') in [TYPE_CONTAINER, TYPE_SURFACE]:
             content_weight = 0.0
-            # Finde alle Objekte, die DRIN sind
             contents = [o for o in self.objects.values() if o['location'] == obj[ATTR_ID]]
             for item in contents:
-                content_weight += self.get_real_weight(item) # Rekursion!
+                content_weight += self.get_real_weight(item) 
             return base_weight + content_weight
-            
         return base_weight
 
     def get_inventory_weight(self):
-        """Berechnet das Gesamtgewicht des Inventars."""
         total = 0.0
+        # Nutzt jetzt die Property self.inventory
         for item_id in self.inventory:
             obj = self.objects.get(item_id)
             if obj:
@@ -80,7 +78,6 @@ class GameState:
         print(f"[SYSTEM] Lade Welt-Daten neu für Kapitelwechsel...")
         self.config = new_config
         
-        # 1. State sichern
         room_states = {rid: {'visited': r.get('visited', False)} for rid, r in self.rooms.items()}
         
         obj_states = {}
@@ -103,12 +100,10 @@ class GameState:
             }
             npc_states[nid] = state_data
 
-        # 2. Neue Daten laden
         new_rooms = copy.deepcopy(new_config.get('rooms', {}))
         new_objects = copy.deepcopy(new_config.get('objects', {}))
         new_npcs = copy.deepcopy(new_config.get('npcs', []))
         
-        # 3. Mergen
         self.rooms = new_rooms
         for r_id, room in self.rooms.items():
             room[ATTR_ID] = r_id
@@ -141,6 +136,10 @@ class GameState:
     def log(self, category, text):
         entry = {'type': category, 'text': text}
         self.message_log.append(entry)
+    
+    def get_logs(self):
+        """Gibt alle Logs zurück (für Copy-to-Clipboard etc.)."""
+        return self.message_log
         
     def get_room(self, room_id):
         return self.rooms.get(room_id)
@@ -174,8 +173,7 @@ class GameState:
                 if obj and obj['location'] == loc_id: triggered = True
             elif t_type == 'time_ge':
                 if self.total_minutes >= int(t_val): triggered = True
-            elif t_type == 'weight_ge': # NEU: Gewichtstrigger (für Bodenplatten etc.)
-                # value: "item_id:min_weight"
+            elif t_type == 'weight_ge':
                 parts = t_val.split(':')
                 if len(parts) == 2:
                     oid = parts[0]; min_w = float(parts[1])
@@ -236,6 +234,15 @@ class GameState:
         if not obj2: return f"Ich habe '{item2_name}' hier nicht."
 
         id1 = obj1[ATTR_ID]; id2 = obj2[ATTR_ID]
+        
+        # SONDERREGEL WAAGE
+        if id1 == 'scale' or id2 == 'scale':
+            other = obj2 if id1 == 'scale' else obj1
+            if other[ATTR_ID] == 'scale': return "Du kannst die Waage nicht mit sich selbst benutzen."
+            
+            weight = self.get_real_weight(other)
+            return f"Die Anzeige blinkt: {weight:.2f} kg."
+
         combos = self.combinations if isinstance(self.combinations, list) else []
         
         for recipe in combos:
@@ -279,11 +286,8 @@ class GameState:
         minutes = self.total_minutes % 60
         time_str = f"{hours:02d}:{minutes:02d}"
 
-        # Inventar Gewicht Info hinzufügen
         cur_weight = self.get_inventory_weight()
         max_weight = self.max_carry_weight
-        # Wir hängen das an die Status Logs, wenn es voll wird, oder geben es als separates Feld zurück, 
-        # falls die GUI es anzeigen kann. Für jetzt reicht es im Log, wenn man 'inv' tippt (siehe InteractionHandler).
         
         return {
             'location': self.location,
@@ -301,20 +305,20 @@ class GameState:
             'dialogue_header': dialogue_header,
             'dialogue_img': dialogue_img,
             'game_over': self.game_over,
-            'weight_info': f"{cur_weight:.1f}/{max_weight:.1f}kg" # NEU für GUI
+            'weight_info': f"{cur_weight:.1f}/{max_weight:.1f}kg"
         }
 
     def clone(self):
         new_state = GameState()
         new_state.config = self.config 
         new_state.location = self.location
-        new_state.inventory = list(self.inventory)
+        # Inventory property is automatic
         new_state.knowledge = list(self.knowledge)
         new_state.game_over = self.game_over
         new_state.turn_count = self.turn_count
         new_state.total_minutes = self.total_minutes 
         new_state.stability = self.stability
-        new_state.max_carry_weight = self.max_carry_weight # Clone
+        new_state.max_carry_weight = self.max_carry_weight 
         new_state.rooms = copy.deepcopy(self.rooms)
         new_state.objects = copy.deepcopy(self.objects)
         new_state.npcs = copy.deepcopy(self.npcs)

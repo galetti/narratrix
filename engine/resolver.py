@@ -3,14 +3,19 @@ from engine.constants import *
 class Resolver:
     @staticmethod
     def clean_args(args):
-        skip_words = ["der", "die", "das", "ein", "eine", "einen", "im", "in", "am", "an"]
+        # "den" hinzugefügt für Fälle wie "gib den verband"
+        skip_words = ["der", "die", "das", "ein", "eine", "einen", "im", "in", "am", "an", "den"]
         return [w for w in args if w.lower() not in skip_words]
 
     @staticmethod
     def resolve_target(game, words, location_filter=FILTER_ROOM, verb=None):
         if not words: return None
         
-        search_text = " ".join(words).lower()
+        # WICHTIG: Arguments bereinigen (entfernt Füllwörter)
+        clean_words = Resolver.clean_args(words)
+        if not clean_words: return None
+        
+        search_text = " ".join(clean_words).lower()
         candidates = Resolver._collect_candidates(game, location_filter)
         
         # 1. Exakter Match auf ID (Debug/Admin)
@@ -41,7 +46,6 @@ class Resolver:
                 
         if len(unique) == 1: return unique[0]
         if len(unique) > 1:
-            # Disambiguierung nötig!
             game.log('info', f"Meinst du: {', '.join([u[ATTR_NAME] for u in unique])}?")
             game.disambiguation = {
                 'verb': verb,
@@ -49,7 +53,7 @@ class Resolver:
             }
             return None
             
-        # 4. Fuzzy / Teil-Suche (wenn nichts exaktes gefunden)
+        # 4. Fuzzy / Teil-Suche
         partial_matches = []
         for obj in candidates:
             name = obj.get(ATTR_NAME, "").lower()
@@ -63,8 +67,6 @@ class Resolver:
         
         if len(partial_matches) == 1: return partial_matches[0]
         if len(partial_matches) > 1:
-             # Wir nehmen den besten Match oder fragen nach
-             # Einfachheit halber: Fragen
              names = list(set([o[ATTR_NAME] for o in partial_matches]))
              game.log('info', f"Meinst du: {', '.join(names)}?")
              return None
@@ -74,32 +76,62 @@ class Resolver:
     @staticmethod
     def _collect_candidates(game, location_filter):
         if location_filter == FILTER_INVENTORY:
-            return [game.objects[oid] for oid in game.inventory if oid in game.objects]
+            # FIX: Suche direkt in Objekten nach Location
+            return [o for o in game.objects.values() if o.get('location') == LOC_INVENTORY]
         
-        elif location_filter == FILTER_ROOM: # HIER war der Fehler (konnte FILTER_ROOM nicht finden)
-            return [o for o in game.objects.values() if o['location'] == game.location]
+        elif location_filter == FILTER_ROOM: 
+            return [o for o in game.objects.values() if o.get('location') == game.location]
             
         elif location_filter == FILTER_RECURSIVE:
-            # Alles im Raum + Alles im Inventar + Inhalte offener Container
-            # Wir nutzen eine Hilfsfunktion oder Logik hier
+            # Alles (für globale Suche), ABER ohne LOC_VOID
+            # Wir wollen nur Objekte finden, die tatsächlich im Spiel "existieren" (Raum, Inventar, Container)
+            # und nicht solche, die erst noch gecraftet werden müssen oder gelöscht wurden.
+            
+            # Strategie: Wir sammeln rekursiv alles ein, was vom Spieler aus erreichbar ist.
+            # Das ist sauberer als "alles außer void".
+            
+            # Startpunkte: Inventar und aktueller Raum
             candidates = []
+            visited = set()
             
-            # Inventar
-            for oid in game.inventory:
-                if oid in game.objects: candidates.append(game.objects[oid])
+            # 1. Alles im Inventar
+            inventory_items = [o for o in game.objects.values() if o.get('location') == LOC_INVENTORY]
+            candidates.extend(inventory_items)
+            
+            # 2. Alles im Raum
+            room_items = [o for o in game.objects.values() if o.get('location') == game.location]
+            candidates.extend(room_items)
+            
+            # IDs merken für Rekursion
+            to_process = [o[ATTR_ID] for o in candidates]
+            visited.update(to_process)
+            
+            # 3. Rekursiv Inhalte von Containern finden
+            # Wir schauen uns alle Objekte an. Wenn ihr Location-Parent in unserer 'visited'-Liste ist,
+            # dann sind sie auch sichtbar/erreichbar (zumindest für den Resolver).
+            # Das ist ineffizient O(N^2) im Worst Case, aber bei <1000 Items okay.
+            # Besserer Ansatz: Iteriere solange, bis keine neuen Items mehr gefunden werden.
+            
+            changed = True
+            while changed:
+                changed = False
+                # Suche Objekte, deren Parent bereits als "sichtbar" markiert wurde
+                potential_contents = [
+                    o for o in game.objects.values() 
+                    if o.get('location') in visited and o[ATTR_ID] not in visited
+                ]
                 
-            # Raum (Top Level)
-            in_room = [o for o in game.objects.values() if o['location'] == game.location]
-            candidates.extend(in_room)
+                for item in potential_contents:
+                    # Optional: Prüfen ob Parent ein offener Container ist?
+                    # Für den Resolver ist es oft besser, tolerant zu sein ("nimm münze" geht auch wenn sie in der offenen truhe ist)
+                    # Wir lassen die strikte "is_open"-Prüfung dem InteractionHandler, 
+                    # aber wir schließen VOID definitiv aus, da VOID nie in 'visited' sein wird.
+                    candidates.append(item)
+                    visited.add(item[ATTR_ID])
+                    to_process.append(item[ATTR_ID])
+                    changed = True
             
-            # Rekursion für Container im Scope
-            # (Vereinfacht: Wir nehmen einfach ALLE Objekte, deren Location eine der IDs in candidates ist)
-            # Eine echte Rekursion wäre besser, aber für den Resolver reicht oft eine flache Hierarchie
-            # oder wir verlassen uns darauf, dass der Spieler "nimm Münze" sagt und wir sie finden, auch wenn sie in der Kiste ist.
-            
-            # Wir machen es etwas breiter: Alle Objekte.
-            # Aber filtern später auf Erreichbarkeit im InteractionHandler.
-            return list(game.objects.values())
+            return candidates
             
         return []
 
