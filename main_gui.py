@@ -53,7 +53,8 @@ class AssetLoader:
         
         if found_path:
             try:
-                img = pygame.image.load(found_path).convert()
+                # WICHTIG: convert_alpha() für Transparenz bei Portraits
+                img = pygame.image.load(found_path).convert_alpha()
                 self.cache[img_id] = img
                 return img
             except Exception as e:
@@ -160,61 +161,91 @@ class GameGUI:
         if snap['stability'] < 50 and (self.cursor_blink // 15) % 2 == 0: bg_color = (40, 20, 20)
         pygame.draw.rect(self.screen, bg_color, rect)
         
-        # Maximaler Platz für das Bild
+        # --- BILD-LOGIK (VERBESSERT & ZENTRIERT) ---
+        
+        # 1. Layout Metriken definieren
         max_h = rect.height - 40 
         max_w = int(rect.width * 0.4) 
+        area_x = rect.width - max_w - 20
         
-        img_x = rect.width - max_w - 20
-        img_y = 20
-        
-        # Standard-Platzhalter Rechteck (4:3)
+        # 2. Standard Platzhalter Rechteck berechnen
         placeholder_w = int(max_h * 1.33)
         if placeholder_w > max_w: placeholder_w = max_w
         placeholder_h = int(placeholder_w / 1.33)
+        default_rect = pygame.Rect(rect.width - placeholder_w - 20, 20, placeholder_w, placeholder_h)
         
-        final_img_rect = pygame.Rect(rect.width - placeholder_w - 20, 20, placeholder_w, placeholder_h)
+        # 3. Assets laden
+        room_img = self.assets.get_image(snap['room_img'])
+        dialogue_img = self.assets.get_image(snap['dialogue_img']) if snap['dialogue_active'] else None
         
-        img_id = snap['dialogue_img'] if snap['dialogue_active'] else snap['room_img']
-        original_img = self.assets.get_image(img_id)
-        
-        if original_img:
-            # Skalierung berechnen (Fit inside)
-            o_w, o_h = original_img.get_size()
+        # Helper: Bild skalieren
+        def get_scaled_rect_and_surf(img, max_w, max_h):
+            o_w, o_h = img.get_size()
             aspect = o_w / o_h
+            t_h = max_h; t_w = int(t_h * aspect)
+            if t_w > max_w: t_w = max_w; t_h = int(t_w / aspect)
+            return pygame.Rect(0, 0, t_w, t_h), pygame.transform.smoothscale(img, (t_w, t_h))
+
+        # --- UNIFIED DRAWING LOGIC ---
+        # Wir berechnen die Basis-Position des Hintergrunds IMMER gleich,
+        # egal ob Dialog oder Exploration. Das verhindert das "Springen".
+        
+        final_visual_rect = default_rect
+        bg_surf_to_draw = None
+        bg_pos = (0,0)
+        
+        if room_img:
+            # A. Basis-Geometrie berechnen
+            r_rect, r_surf = get_scaled_rect_and_surf(room_img, max_w, max_h)
             
-            # Versuche, Höhe zu maximieren
-            target_h = max_h
-            target_w = int(target_h * aspect)
+            # Zentrierung im verfügbaren Bereich
+            draw_x = area_x + (max_w - r_rect.width) // 2
+            draw_y = 20 + (max_h - r_rect.height) // 2
+            bg_pos = (draw_x, draw_y)
+            final_visual_rect = pygame.Rect(draw_x, draw_y, r_rect.width, r_rect.height)
             
-            # Wenn zu breit, limitiere Breite
-            if target_w > max_w:
-                target_w = max_w
-                target_h = int(target_w / aspect)
-            
-            # Zentrieren im verfügbaren Bereich (rechtsbündig)
-            # Bereich ist (rect.width - max_w - 20) bis (rect.width - 20)
-            area_x = rect.width - max_w - 20
-            # Zentriere das Bild in diesem Bereich horizontal
-            draw_x = area_x + (max_w - target_w) // 2
-            draw_y = 20 + (max_h - target_h) // 2
-            
-            final_img_rect = pygame.Rect(draw_x, draw_y, target_w, target_h)
-            
-            scaled_img = pygame.transform.smoothscale(original_img, (target_w, target_h))
-            self.screen.blit(scaled_img, (draw_x, draw_y))
-            
-            border_col = COLOR_DIALOGUE_BORDER if snap['dialogue_active'] else COLOR_UI_BORDER
-            pygame.draw.rect(self.screen, border_col, final_img_rect, 2)
+            # B. Modus-spezifische Bearbeitung des Hintergrunds
+            if snap['dialogue_active']:
+                # Verpixeln & Abdunkeln
+                pixel_scale = 8
+                px_w, px_h = max(1, r_surf.get_width() // pixel_scale), max(1, r_surf.get_height() // pixel_scale)
+                small = pygame.transform.scale(r_surf, (px_w, px_h))
+                pixelated = pygame.transform.scale(small, r_surf.get_size())
+                
+                dark_overlay = pygame.Surface(pixelated.get_size()).convert_alpha()
+                dark_overlay.fill((0, 0, 0, 160)) 
+                pixelated.blit(dark_overlay, (0,0))
+                
+                bg_surf_to_draw = pixelated
+            else:
+                # Normal
+                bg_surf_to_draw = r_surf
+                
+            # C. Hintergrund zeichnen
+            self.screen.blit(bg_surf_to_draw, bg_pos)
             
         else:
-            # Fallback: Platzhalter zeichnen
-            pygame.draw.rect(self.screen, (0, 0, 0), final_img_rect)
-            border_col = COLOR_DIALOGUE_BORDER if snap['dialogue_active'] else COLOR_UI_BORDER
-            pygame.draw.rect(self.screen, border_col, final_img_rect, 2)
-            if snap['dialogue_active']: label_text = f"PORTRAIT: {img_id}"; col_label = COLOR_DIALOGUE_BORDER
-            else: label_text = f"IMG: {img_id}"; col_label = (80, 80, 80)
-            label_surf = self.font_log.render(label_text, True, col_label); label_rect = label_surf.get_rect(center=final_img_rect.center)
-            self.screen.blit(label_surf, label_rect)
+            # Fallback (Kein Raumbild)
+            pygame.draw.rect(self.screen, (20, 20, 20), default_rect)
+            if not snap['dialogue_active']:
+                label_text = f"IMG: {snap['room_img']}"
+                label_surf = self.font_log.render(label_text, True, (80, 80, 80))
+                label_rect = label_surf.get_rect(center=final_visual_rect.center)
+                self.screen.blit(label_surf, label_rect)
+
+        # 4. Vordergrund (Portrait)
+        if snap['dialogue_active'] and dialogue_img:
+            c_rect, c_surf = get_scaled_rect_and_surf(dialogue_img, max_w, max_h)
+            
+            # Zentrieren über dem Hintergrund-Rechteck
+            p_draw_x = final_visual_rect.x + (final_visual_rect.width - c_rect.width) // 2
+            p_draw_y = final_visual_rect.y + (final_visual_rect.height - c_rect.height) // 2
+            
+            self.screen.blit(c_surf, (p_draw_x, p_draw_y))
+
+        # 5. UI Rahmen & Text
+        border_col = COLOR_DIALOGUE_BORDER if snap['dialogue_active'] else COLOR_UI_BORDER
+        pygame.draw.rect(self.screen, border_col, final_visual_rect, 2)
 
         if snap['dialogue_active']: header_text = snap['dialogue_header']; header_col = COLOR_DIALOGUE_BORDER
         else: header_text = snap['room_name'].upper(); header_col = COLOR_ACCENT

@@ -29,7 +29,7 @@ ATTR_TEMP = "temp" # Temperatur in Grad Celsius (NEU)
 ATTR_MATTER = "matter" # Fest/Flüssig (NEU)
 
 # Dialog & AI
-AI_CHANCE_MOVE = 20
+AI_CHANCE_MOVE_DEFAULT = 20 # Umbenannt von AI_CHANCE_MOVE
 AI_CHANCE_STAY = 80
 
 # Filter für Resolver

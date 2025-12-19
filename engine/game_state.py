@@ -132,10 +132,8 @@ class GameState:
                 # Erfolg!
                 
                 # A. Ziel-Container bestimmen
-                # Standard: Inventar (sicherer Fallback)
                 target_location = LOC_INVENTORY
                 
-                # Wenn eine Zutat in einem Container war, der NICHT gelöscht wird, soll das Ergebnis dort rein.
                 # Check obj1
                 loc1 = obj1['location']
                 parent1 = self.objects.get(loc1)
@@ -148,8 +146,6 @@ class GameState:
 
                 # B. Konsumieren
                 if consume_list is True:
-                    # Wenn alles gelöscht wird, schauen wir, wo es war
-                    # War z.B. Wasser im Becher? Becher wird nicht gelöscht (ist parent).
                     if parent1 and parent1['location'] != LOC_VOID: target_location = loc1
                     elif parent2 and parent2['location'] != LOC_VOID: target_location = loc2
                     
@@ -157,17 +153,13 @@ class GameState:
                     obj2['location'] = LOC_VOID
                 
                 elif isinstance(consume_list, list):
-                    # Wenn obj1 gelöscht wird, aber obj2 ein Container ist, der bleibt -> target = obj2
                     if obj1[ATTR_ID] in consume_list: obj1['location'] = LOC_VOID
                     if obj2[ATTR_ID] in consume_list: obj2['location'] = LOC_VOID
                     
-                    # Logik: Wo soll das Ergebnis hin?
-                    # 1. In einen der Input-Container (falls es einer ist und überlebt)
                     if obj1[ATTR_ID] not in consume_list and obj1.get('type') == TYPE_CONTAINER:
                         target_location = obj1[ATTR_ID]
                     elif obj2[ATTR_ID] not in consume_list and obj2.get('type') == TYPE_CONTAINER:
                         target_location = obj2[ATTR_ID]
-                    # 2. An den Ort einer der Zutaten (falls Parent überlebt)
                     elif parent1 and parent1['location'] != LOC_VOID:
                         target_location = loc1
                     elif parent2 and parent2['location'] != LOC_VOID:
@@ -179,12 +171,8 @@ class GameState:
                     res_obj = self.objects[res_id]
                     res_obj['location'] = target_location
                     
-                    # Thermo-Transfer
                     t1 = obj1.get(ATTR_TEMP, 20); t2 = obj2.get(ATTR_TEMP, 20)
                     res_obj[ATTR_TEMP] = max(t1, t2)
-                    
-                    # Debug Log (nur in Konsole sichtbar, hilft beim Entwickeln)
-                    # print(f"DEBUG: Crafted {res_id} into {target_location}")
                     
                     return recipe['message']
                 else:
@@ -283,7 +271,26 @@ class GameState:
             elif self.location == next_room: self.log('character', f"{npc[ATTR_NAME]} betritt den Raum.")
 
     def process_npc_ai(self, npc):
-        if not rng.chance(AI_CHANCE_MOVE): return 
+        # HIERARCHISCHE WAHRSCHEINLICHKEITSPRÜFUNG
+        
+        # 1. Startwert: Globaler Standard
+        chance_to_move = AI_CHANCE_MOVE_DEFAULT
+        
+        # 2. Überschreiben durch NPC-Level Einstellung
+        if 'movement_chance' in npc:
+            chance_to_move = npc['movement_chance']
+            
+        # 3. Überschreiben durch State-Level Einstellung
+        current_state = npc.get('state', 'default')
+        dialogue_conf = npc.get('dialogue', {})
+        state_conf = dialogue_conf.get(current_state, {})
+        
+        if 'movement_chance' in state_conf:
+            chance_to_move = state_conf['movement_chance']
+            
+        # Ausführen
+        if not rng.chance(chance_to_move): return 
+
         affinity_rooms = npc.get(ATTR_AFFINITY, []); current_loc = npc['location']
         if not affinity_rooms: return 
         if current_loc in affinity_rooms:
