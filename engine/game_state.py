@@ -13,6 +13,11 @@ class GameState:
         self.logs = []
         self.lock = threading.RLock()
         
+        # --- LAYER 3: PERSISTENTE DATEN ---
+        # Flags, die Kapitel überdauern (z.B. 'val_dead', 'station_saved')
+        self.persistent_flags = set() 
+        # Hier könnte man auch Inventar speichern, wenn wir Kapitel wechseln
+        
         start_room = config.get('meta', {}).get('start_room')
         if not start_room and 'start' in config['rooms']: start_room = 'start'
         if not start_room or start_room not in config['rooms']:
@@ -39,6 +44,8 @@ class GameState:
             if ATTR_MATTER not in obj: obj[ATTR_MATTER] = MATTER_SOLID
 
     def clone(self):
+        # Beim Klonen (für Simulation) müssen wir aufpassen.
+        # Einfachheitshalber übergeben wir die gleiche Config.
         new_state = GameState(self.config, silent=True)
         with self.lock:
             new_state.time = self.time
@@ -46,6 +53,7 @@ class GameState:
             new_state.stability = self.stability
             new_state.game_over = self.game_over
             new_state.knowledge = copy.deepcopy(self.knowledge)
+            new_state.persistent_flags = copy.deepcopy(self.persistent_flags) # Layer 3 Copy
             new_state.rooms = copy.deepcopy(self.rooms)
             new_state.npcs = copy.deepcopy(self.npcs)
             new_state.matrix = copy.deepcopy(self.matrix)
@@ -53,6 +61,7 @@ class GameState:
             new_state.inventory = copy.deepcopy(self.inventory)
         return new_state
 
+    # ... existing code (render_room_desc, log, get_logs, get_snapshot, get_room) ...
     def render_room_desc(self, room_id):
         room = self.rooms.get(room_id)
         if not room: return f"ERROR: Raum '{room_id}' nicht gefunden."
@@ -95,9 +104,13 @@ class GameState:
             }
 
     def get_room(self, room_id): return self.rooms.get(room_id)
+    
     def add_knowledge(self, fact_id): 
         if fact_id not in self.knowledge: self.knowledge.add(fact_id)
+        # Optional: Automatisch auch als persistentes Flag setzen?
+        # self.persistent_flags.add(fact_id)
 
+    # ... existing code (perform_combine, find_path, get_direction_to, _check_trigger_condition) ...
     def perform_combine(self, item1_name, item2_name):
         # 1. Sammle alle Objekte für die Suche
         accessible_objs = []
@@ -129,26 +142,16 @@ class GameState:
         for recipe in combinations:
             needed = recipe['items']
             if (obj1[ATTR_ID] in needed and obj2[ATTR_ID] in needed) and (obj1[ATTR_ID] != obj2[ATTR_ID]):
-                # Erfolg!
-                
-                # A. Ziel-Container bestimmen
                 target_location = LOC_INVENTORY
-                
-                # Check obj1
                 loc1 = obj1['location']
                 parent1 = self.objects.get(loc1)
-                
-                # Check obj2
                 loc2 = obj2['location']
                 parent2 = self.objects.get(loc2)
-
                 consume_list = recipe.get('consume', True)
 
-                # B. Konsumieren
                 if consume_list is True:
                     if parent1 and parent1['location'] != LOC_VOID: target_location = loc1
                     elif parent2 and parent2['location'] != LOC_VOID: target_location = loc2
-                    
                     obj1['location'] = LOC_VOID
                     obj2['location'] = LOC_VOID
                 
@@ -165,22 +168,18 @@ class GameState:
                     elif parent2 and parent2['location'] != LOC_VOID:
                         target_location = loc2
 
-                # C. Ergebnis erzeugen
                 res_id = recipe.get('result')
                 if res_id and res_id in self.objects:
                     res_obj = self.objects[res_id]
                     res_obj['location'] = target_location
-                    
                     t1 = obj1.get(ATTR_TEMP, 20); t2 = obj2.get(ATTR_TEMP, 20)
                     res_obj[ATTR_TEMP] = max(t1, t2)
-                    
                     return recipe['message']
                 else:
                     return "Fehler: Ergebnis-Item nicht definiert."
         
         return "Das lässt sich nicht sinnvoll kombinieren."
 
-    # --- SENSORIK & WEGFINDUNG ---
     def find_path(self, start_room_id, target_room_id):
         if start_room_id == target_room_id: return []
         queue = deque([[start_room_id]]); visited = set([start_room_id])
@@ -271,24 +270,13 @@ class GameState:
             elif self.location == next_room: self.log('character', f"{npc[ATTR_NAME]} betritt den Raum.")
 
     def process_npc_ai(self, npc):
-        # HIERARCHISCHE WAHRSCHEINLICHKEITSPRÜFUNG
-        
-        # 1. Startwert: Globaler Standard
         chance_to_move = AI_CHANCE_MOVE_DEFAULT
-        
-        # 2. Überschreiben durch NPC-Level Einstellung
-        if 'movement_chance' in npc:
-            chance_to_move = npc['movement_chance']
-            
-        # 3. Überschreiben durch State-Level Einstellung
+        if 'movement_chance' in npc: chance_to_move = npc['movement_chance']
         current_state = npc.get('state', 'default')
         dialogue_conf = npc.get('dialogue', {})
         state_conf = dialogue_conf.get(current_state, {})
+        if 'movement_chance' in state_conf: chance_to_move = state_conf['movement_chance']
         
-        if 'movement_chance' in state_conf:
-            chance_to_move = state_conf['movement_chance']
-            
-        # Ausführen
         if not rng.chance(chance_to_move): return 
 
         affinity_rooms = npc.get(ATTR_AFFINITY, []); current_loc = npc['location']

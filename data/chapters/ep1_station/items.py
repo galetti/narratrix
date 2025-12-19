@@ -1,3 +1,4 @@
+# data/chapters/ep1_station/items.py
 from engine.constants import *
 
 ITEMS = {
@@ -29,7 +30,7 @@ ITEMS = {
         "id": "med_cabinet", "name": "Medizin-Schrank", "aliases": ["schrank"], "location": "medbay", "type": TYPE_CONTAINER, "movable": False, "is_open": True, "desc": "Geplündert."
     },
 
-    # --- ITEMS ---
+    # --- ITEMS (Lokale Gegenstände) ---
     "stim_powder": {
         "id": "stim_powder", "name": "Stim-Pulver", "aliases": ["pulver", "kaffee", "koffein"], 
         "location": "terminal", "type": TYPE_ITEM, "movable": True, "matter": MATTER_SOLID, 
@@ -83,25 +84,21 @@ ITEMS = {
 }
 
 COMBINATIONS = [
-    # 1. Wasser in Becher füllen
     {
         "items": ["mug", "hot_water"], 
         "result": "hot_water", "consume": [], 
         "message": "Du füllst das heiße Wasser in den Becher."
     },
-    # 2. Pulver in das Wasser
     {
         "items": ["stim_powder", "hot_water"], 
         "result": "stim_caf", "consume": ["stim_powder", "hot_water"], 
         "message": "Das Pulver löst sich zischend im Wasser auf. Es wird zu Stim-Caf."
     },
-    # 3. Kanister flicken
     {
         "items": ["coolant_canister", "patch_kit"], 
         "result": "sealed_coolant", "consume": ["coolant_canister"], 
         "message": "Du klebst das Leck mit dem Dichtmittel zu. Es scheint zu halten."
     },
-    # 4. Medikit basteln
     {
         "items": ["med_gel", "bandage"],
         "result": "medikit", "consume": ["med_gel", "bandage"],

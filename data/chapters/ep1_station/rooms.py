@@ -1,3 +1,6 @@
+# data/chapters/ep1_station/rooms.py
+# Layer 2: Lokale Räume für Episode 1
+
 ROOMS = {
     "hub": {
         "id": "hub", "name": "Zentraler Hub", "map_x": 0, "map_y": 0,
