@@ -1,7 +1,7 @@
 from engine.constants import *
 
-ITEMS = {
+COMMON_ITEMS = {
 }
 
-COMBINATIONS = [
+COMMON_COMBINATIONS = [
 ]

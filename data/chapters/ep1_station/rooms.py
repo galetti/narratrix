@@ -3,7 +3,10 @@
 
 ROOMS = {
     "hub": {
-        "id": "hub", "name": "Zentraler Hub", "map_x": 0, "map_y": 0,
+        "id": "hub", 
+        "name": "Zentraler Hub", 
+        "map_x": 0, "map_y": 0,
+        # TAG ENTFERNT: Der Hub ist zu voll
         "desc": "Das Herz der Station. Ein großes {terminal} dominiert die Mitte. K.A.R.L.s Hologramm flackert.",
         "exits": {"north": "bridge", "east": "reactor", "south": "cantina", "west": "medbay"},
         "img": "scifi_hub"
@@ -28,7 +31,8 @@ ROOMS = {
     },
     "maintenance": {
         "id": "maintenance", "name": "Wartungstunnel", "map_x": 1, "map_y": 1,
-        "desc": "Eng und laut. Hier ist ein {vent}, der zischt.",
+        "tags": ["common_dock"], # NEU: Hier ist jetzt das Dock
+        "desc": "Eng und laut. Hier ist ein {vent}, der zischt. Rostige Rohre führen zu einer massiven Schott-Tür im Osten.",
         "exits": {"up": "reactor"},
         "img": "scifi_tunnel"
     },

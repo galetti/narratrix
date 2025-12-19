@@ -46,27 +46,41 @@ class StoryLoader:
             # NPCs zusammenführen (Listen addieren)
             final_npcs = copy.deepcopy(COMMON_CONFIG.get('npcs', [])) + copy.deepcopy(chapter_data.get('npcs', []))
             
-            # 3. Verknüpfungspunkte (Hardcoded Logic für den Übergang)
-            # Verbindet das Schiff (ship_cockpit) mit dem Startraum des Kapitels
-            start_room = chapter_data['meta']['start_room']
+            # 3. Dynamische Verknüpfung (Docking System)
+            # Wir suchen einen Raum im Kapitel, der das Tag "common_dock" besitzt.
             
-            # Prüfen, ob Schiff und Startraum existieren, dann verbinden
-            if 'ship_cockpit' in final_rooms and start_room in final_rooms:
-                # A. Ausgang vom Schiff zur Station
-                final_rooms['ship_cockpit']['exits']['out'] = start_room
+            docking_room_id = None
+            
+            # Suche nach Tag
+            for r_id, room_data in final_rooms.items():
+                if "common_dock" in room_data.get("tags", []):
+                    docking_room_id = r_id
+                    print(f"[SYSTEM] Docking-Punkt gefunden: {r_id}")
+                    break
+            
+            # Fallback: Startraum (falls kein Dock definiert wurde, damit man nicht festsitzt)
+            if not docking_room_id:
+                docking_room_id = chapter_data['meta'].get('start_room')
+                print(f"[SYSTEM] Kein Dock-Tag gefunden. Nutze Startraum als Fallback: {docking_room_id}")
+
+            # Verbindung herstellen
+            if docking_room_id and 'ship_cockpit' in final_rooms:
                 
-                # B. Ausgang von der Station zum Schiff (FIX: Damit man die Kestrel findet)
-                if 'exits' not in final_rooms[start_room]:
-                    final_rooms[start_room]['exits'] = {}
+                # A. Ausgang vom Schiff zur Station (out -> Docking Room)
+                final_rooms['ship_cockpit']['exits']['out'] = docking_room_id
                 
-                # Wir nennen den Ausgang 'dock' (im Vokabular unter 'out'/'dock' gemappt)
-                final_rooms[start_room]['exits']['dock'] = 'ship_cockpit'
+                # B. Ausgang von der Station zum Schiff
+                # WICHTIG: Wir nutzen den Key 'out', da unser Parser 'dock' zu 'out' übersetzt.
+                if 'exits' not in final_rooms[docking_room_id]:
+                    final_rooms[docking_room_id]['exits'] = {}
                 
-                # Optional: Hinweis in der Raumbeschreibung ergänzen, damit der Spieler es sieht
-                # (Nur wenn noch nicht erwähnt)
-                desc = final_rooms[start_room].get('desc', "")
+                final_rooms[docking_room_id]['exits']['out'] = 'ship_cockpit'
+                
+                # C. Flavor Text hinzufügen (damit der Spieler den Ausgang bemerkt)
+                desc = final_rooms[docking_room_id].get('desc', "")
+                # Wir prüfen, ob schon ein Hinweis existiert, um Doppelungen zu vermeiden
                 if "dock" not in desc.lower() and "schleuse" not in desc.lower():
-                    final_rooms[start_room]['desc'] = desc + " Die Luftschleuse zum Dock (dock) ist grün beleuchtet."
+                    final_rooms[docking_room_id]['desc'] = desc + " Die Luftschleuse zum Dock (Befehl: dock/out) ist aktiv."
 
             # 4. Finales Config bauen
             full_config = {
@@ -121,7 +135,7 @@ class StoryLoader:
                 "west": ["w", "west", "westen", "schleuse"],
                 "up": ["u", "up", "oben", "deck1"],
                 "down": ["d", "down", "unten", "wartung"],
-                "out": ["raus", "out", "ausgang", "dock"] # Wichtig für das Schiff
+                "out": ["raus", "out", "ausgang", "dock", "schiff", "kestrel"] # Erweitert um Schiff/Kestrel
             },
             "skip_words": []
         }
