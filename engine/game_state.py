@@ -1,9 +1,12 @@
 import copy
 import re
-from collections import deque
-from utils import rng
 import threading
 from engine.constants import *
+
+# Neue Sub-Systeme importieren
+from engine.systems.crafting import CraftingSystem
+from engine.systems.pathfinder import Pathfinder
+from engine.systems.ai import AISystem
 
 class GameState:
     def __init__(self, config, silent=False):
@@ -13,10 +16,8 @@ class GameState:
         self.logs = []
         self.lock = threading.RLock()
         
-        # --- LAYER 3: PERSISTENTE DATEN ---
-        # Flags, die Kapitel überdauern (z.B. 'val_dead', 'station_saved')
+        # Layer 3: Persistente Daten
         self.persistent_flags = set() 
-        # Hier könnte man auch Inventar speichern, wenn wir Kapitel wechseln
         
         start_room = config.get('meta', {}).get('start_room')
         if not start_room and 'start' in config['rooms']: start_room = 'start'
@@ -43,9 +44,12 @@ class GameState:
             if ATTR_TEMP not in obj: obj[ATTR_TEMP] = 20
             if ATTR_MATTER not in obj: obj[ATTR_MATTER] = MATTER_SOLID
 
+        # --- INITIALISIERUNG DER SYSTEME ---
+        self.crafting = CraftingSystem(self)
+        self.pathfinder = Pathfinder(self)
+        self.ai = AISystem(self)
+
     def clone(self):
-        # Beim Klonen (für Simulation) müssen wir aufpassen.
-        # Einfachheitshalber übergeben wir die gleiche Config.
         new_state = GameState(self.config, silent=True)
         with self.lock:
             new_state.time = self.time
@@ -53,7 +57,7 @@ class GameState:
             new_state.stability = self.stability
             new_state.game_over = self.game_over
             new_state.knowledge = copy.deepcopy(self.knowledge)
-            new_state.persistent_flags = copy.deepcopy(self.persistent_flags) # Layer 3 Copy
+            new_state.persistent_flags = copy.deepcopy(self.persistent_flags)
             new_state.rooms = copy.deepcopy(self.rooms)
             new_state.npcs = copy.deepcopy(self.npcs)
             new_state.matrix = copy.deepcopy(self.matrix)
@@ -61,7 +65,8 @@ class GameState:
             new_state.inventory = copy.deepcopy(self.inventory)
         return new_state
 
-    # ... existing code (render_room_desc, log, get_logs, get_snapshot, get_room) ...
+    # --- CORE METHODS (Rendering / Logging) ---
+    # Diese bleiben hier, da sie direkten UI-Bezug haben
     def render_room_desc(self, room_id):
         room = self.rooms.get(room_id)
         if not room: return f"ERROR: Raum '{room_id}' nicht gefunden."
@@ -107,104 +112,23 @@ class GameState:
     
     def add_knowledge(self, fact_id): 
         if fact_id not in self.knowledge: self.knowledge.add(fact_id)
-        # Optional: Automatisch auch als persistentes Flag setzen?
-        # self.persistent_flags.add(fact_id)
 
-    # ... existing code (perform_combine, find_path, get_direction_to, _check_trigger_condition) ...
+    # --- DELEGATION ZU SYSTEMEN ---
+    
     def perform_combine(self, item1_name, item2_name):
-        # 1. Sammle alle Objekte für die Suche
-        accessible_objs = []
-        inv_objs = [o for o in self.objects.values() if o['location'] == LOC_INVENTORY]
-        accessible_objs.extend(inv_objs)
-        for o in inv_objs:
-            if o.get('type') in [TYPE_CONTAINER, TYPE_SURFACE] and o.get('is_open', True):
-                contents = [sub for sub in self.objects.values() if sub['location'] == o['id']]
-                accessible_objs.extend(contents)
+        return self.crafting.perform_combine(item1_name, item2_name)
 
-        room_objs = [o for o in self.objects.values() if o['location'] == self.location]
-        accessible_objs.extend(room_objs)
-        for o in room_objs:
-            if o.get('type') in [TYPE_SURFACE, TYPE_CONTAINER] and o.get('is_open', True):
-                contents = [sub for sub in self.objects.values() if sub['location'] == o['id']]
-                accessible_objs.extend(contents)
+    def find_path(self, start, target):
+        return self.pathfinder.find_path(start, target)
 
-        def find_in_list(name, lst):
-            search = name.lower()
-            return next((o for o in lst if search in o[ATTR_NAME].lower() or any(search in a for a in o.get(ATTR_ALIASES, []))), None)
-
-        obj1 = find_in_list(item1_name, accessible_objs)
-        obj2 = find_in_list(item2_name, accessible_objs)
-
-        if not obj1: return f"Ich finde '{item1_name}' hier nicht."
-        if not obj2: return f"Ich finde '{item2_name}' hier nicht."
-
-        combinations = self.config.get('combinations', [])
-        for recipe in combinations:
-            needed = recipe['items']
-            if (obj1[ATTR_ID] in needed and obj2[ATTR_ID] in needed) and (obj1[ATTR_ID] != obj2[ATTR_ID]):
-                target_location = LOC_INVENTORY
-                loc1 = obj1['location']
-                parent1 = self.objects.get(loc1)
-                loc2 = obj2['location']
-                parent2 = self.objects.get(loc2)
-                consume_list = recipe.get('consume', True)
-
-                if consume_list is True:
-                    if parent1 and parent1['location'] != LOC_VOID: target_location = loc1
-                    elif parent2 and parent2['location'] != LOC_VOID: target_location = loc2
-                    obj1['location'] = LOC_VOID
-                    obj2['location'] = LOC_VOID
-                
-                elif isinstance(consume_list, list):
-                    if obj1[ATTR_ID] in consume_list: obj1['location'] = LOC_VOID
-                    if obj2[ATTR_ID] in consume_list: obj2['location'] = LOC_VOID
-                    
-                    if obj1[ATTR_ID] not in consume_list and obj1.get('type') == TYPE_CONTAINER:
-                        target_location = obj1[ATTR_ID]
-                    elif obj2[ATTR_ID] not in consume_list and obj2.get('type') == TYPE_CONTAINER:
-                        target_location = obj2[ATTR_ID]
-                    elif parent1 and parent1['location'] != LOC_VOID:
-                        target_location = loc1
-                    elif parent2 and parent2['location'] != LOC_VOID:
-                        target_location = loc2
-
-                res_id = recipe.get('result')
-                if res_id and res_id in self.objects:
-                    res_obj = self.objects[res_id]
-                    res_obj['location'] = target_location
-                    t1 = obj1.get(ATTR_TEMP, 20); t2 = obj2.get(ATTR_TEMP, 20)
-                    res_obj[ATTR_TEMP] = max(t1, t2)
-                    return recipe['message']
-                else:
-                    return "Fehler: Ergebnis-Item nicht definiert."
-        
-        return "Das lässt sich nicht sinnvoll kombinieren."
-
-    def find_path(self, start_room_id, target_room_id):
-        if start_room_id == target_room_id: return []
-        queue = deque([[start_room_id]]); visited = set([start_room_id])
-        while queue:
-            path = queue.popleft(); current = path[-1]
-            if current == target_room_id: return path[1:]
-            room_data = self.rooms.get(current)
-            if room_data:
-                for exit_id in room_data['exits'].values():
-                    if exit_id not in visited and exit_id in self.rooms:
-                        visited.add(exit_id); new_path = list(path); new_path.append(exit_id); queue.append(new_path)
-        return None
-        
     def get_direction_to(self, target_room_id):
-        if self.location == target_room_id: return "hier"
-        path = self.find_path(self.location, target_room_id)
-        if not path: return None
-        next_step = path[0]; current_room = self.rooms[self.location]
-        for direction, r_id in current_room['exits'].items():
-            if r_id == next_step:
-                trans = {"north": "Norden", "south": "Süden", "east": "Osten", "west": "Westen", "up": "Oben", "down": "Unten"}
-                return trans.get(direction, direction)
-        return "irgendwo"
+        return self.pathfinder.get_direction_to(self.location, target_room_id)
 
+    # --- SIMULATION LOOP ---
+    
     def _check_trigger_condition(self, node):
+        # Bleibt vorerst hier, da es direkten Zugriff auf Time/Matrix braucht
+        # Könnte später in ein EventSystem ausgelagert werden.
         if node.get('triggered', False): return False
         trigger_type = node.get('trigger', 'time')
         if trigger_type == 'time': return self.time >= node.get('trigger_time', 99999)
@@ -223,6 +147,8 @@ class GameState:
 
     def tick(self, minutes):
         self.time += minutes
+        
+        # Physik (Temp)
         for obj in self.objects.values():
             if ATTR_TEMP in obj:
                 current = obj[ATTR_TEMP]; target = 20
@@ -230,7 +156,8 @@ class GameState:
                     diff = target - current; change = diff * 0.1
                     if abs(change) < 0.5: obj[ATTR_TEMP] = target
                     else: obj[ATTR_TEMP] += change
-                        
+        
+        # Events
         for node in self.matrix:
             if self._check_trigger_condition(node):
                 node['triggered'] = True; node['triggered_at'] = self.time
@@ -250,40 +177,7 @@ class GameState:
                     else:
                         if 'success_text' in node: self.log('success', f"STATUS: {node['success_text']}")
 
-        for npc in self.npcs:
-            if not self.silent and npc == self.dialogue_partner and self.dialogue_active: continue
-            self.process_npc_ai(npc)
+        # AI Update
+        self.ai.process_all_npcs()
 
         if self.stability <= 0: self.log('alarm', "GAME OVER: STATION KRITISCH."); self.game_over = True
-
-    def move_npc(self, npc, next_room):
-        player_sees_movement = (self.location == npc['location']) or (self.location == next_room)
-        old_loc = npc['location']; npc['location'] = next_room
-        if player_sees_movement and not self.silent:
-            direction = "davon"; room_data = self.rooms.get(old_loc)
-            if room_data:
-                for d, r_id in room_data['exits'].items():
-                    if r_id == next_room: direction = d; break
-            trans = {"north": "Norden", "south": "Süden", "east": "Osten", "west": "Westen", "up": "Oben", "down": "Unten"}
-            dir_de = trans.get(direction, direction)
-            if self.location == old_loc: self.log('character', f"{npc[ATTR_NAME]} verlässt den Raum nach {dir_de}.")
-            elif self.location == next_room: self.log('character', f"{npc[ATTR_NAME]} betritt den Raum.")
-
-    def process_npc_ai(self, npc):
-        chance_to_move = AI_CHANCE_MOVE_DEFAULT
-        if 'movement_chance' in npc: chance_to_move = npc['movement_chance']
-        current_state = npc.get('state', 'default')
-        dialogue_conf = npc.get('dialogue', {})
-        state_conf = dialogue_conf.get(current_state, {})
-        if 'movement_chance' in state_conf: chance_to_move = state_conf['movement_chance']
-        
-        if not rng.chance(chance_to_move): return 
-
-        affinity_rooms = npc.get(ATTR_AFFINITY, []); current_loc = npc['location']
-        if not affinity_rooms: return 
-        if current_loc in affinity_rooms:
-            if rng.chance(AI_CHANCE_STAY): return 
-        target = rng.pick(affinity_rooms)
-        if target == current_loc and len(affinity_rooms) > 1: target = rng.pick([r for r in affinity_rooms if r != current_loc])
-        path = self.find_path(current_loc, target)
-        if path: self.move_npc(npc, path[0])

@@ -1,5 +1,11 @@
 from engine.constants import *
 
+class ResolutionError(Exception):
+    """Custom Exception für fehlgeschlagene Auflösung, mit Grund."""
+    def __init__(self, message, reason_code="unknown"):
+        super().__init__(message)
+        self.reason_code = reason_code
+
 class Resolver:
     """
     Hilfsklasse zum Auflösen von Text zu Spielobjekten.
@@ -8,7 +14,7 @@ class Resolver:
 
     @staticmethod
     def clean_args(args):
-        ignore = ["in", "im", "an", "am", "auf", "mit", "bei", "zu", "nach", "den", "die", "das"]
+        ignore = ["in", "im", "an", "am", "auf", "mit", "bei", "zu", "nach", "den", "die", "das", "dem", "der", "einen", "eine", "ein"]
         return [w for w in args if w.lower() not in ignore]
 
     @staticmethod
@@ -54,33 +60,55 @@ class Resolver:
 
     @staticmethod
     def resolve_target(game, search_words, location_filter=None, verb='unknown'):
-        if not search_words: return None
+        if not search_words: 
+            return None # Kein Fehler, einfach keine Eingabe
         
-        # 1. Kandidaten sammeln (Refactored)
+        search_query = " ".join(search_words).lower()
+        
+        # 1. Existenz-Check (Gibt es das Wort überhaupt im Spiel?)
+        # Wir suchen in ALLEN Objekten des Spiels (Common + Chapter)
+        anywhere_match = False
+        for obj in game.objects.values():
+             if search_query in obj[ATTR_NAME].lower() or any(search_query in a for a in obj.get(ATTR_ALIASES, [])):
+                 anywhere_match = True
+                 break
+        
+        if not anywhere_match:
+            # Grund 1: Unbekanntes Wort
+            raise ResolutionError(f"Ich weiß nicht, was ein '{search_query}' ist.", "unknown_word")
+
+        # 2. Kandidaten am aktuellen Ort sammeln
         candidates = Resolver._collect_candidates(game, location_filter)
 
-        # 2. Filtern nach Name/Alias
-        search_query = " ".join(search_words).lower()
+        # 3. Filtern nach Name/Alias
         matches = []
         for cand in candidates:
             if search_query in cand[ATTR_NAME].lower() or any(search_query in a for a in cand.get(ATTR_ALIASES, [])):
-                # Duplikate vermeiden (falls ein Objekt mehrfach gefunden wurde)
                 if cand not in matches:
                     matches.append(cand)
         
-        # 3. Ergebnis
-        if len(matches) == 0: return None
-        if len(matches) == 1: return matches[0]
+        # 4. Ergebnis & Fehlerbehandlung
+        if len(matches) == 0:
+            # Grund 2: Existiert, ist aber nicht hier
+            if location_filter == FILTER_INVENTORY:
+                 raise ResolutionError(f"Du hast kein '{search_query}' dabei.", "not_in_inventory")
+            else:
+                 raise ResolutionError(f"Ich sehe hier kein '{search_query}'.", "not_here")
         
-        # 4. Disambiguierung
+        if len(matches) == 1: 
+            return matches[0]
+        
+        # 5. Disambiguierung (Mehrere Treffer)
         names = [m[ATTR_NAME] for m in matches]
         game.log('info', f"Meinst du: {', '.join(names)}?")
+        
+        # Disambiguierung starten
         game.disambiguation = {
             'verb': verb,
             'candidates': matches,
             'original_args': search_words
         }
-        return None
+        return None # Return None, aber Log wurde geschrieben & State gesetzt
 
     @staticmethod
     def find_mentioned_npc(game, words):

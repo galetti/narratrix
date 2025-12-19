@@ -46,41 +46,63 @@ class StoryLoader:
             # NPCs zusammenführen (Listen addieren)
             final_npcs = copy.deepcopy(COMMON_CONFIG.get('npcs', [])) + copy.deepcopy(chapter_data.get('npcs', []))
             
-            # 3. Dynamische Verknüpfung (Docking System)
-            # Wir suchen einen Raum im Kapitel, der das Tag "common_dock" besitzt.
+            # 3. Dynamische Verknüpfung (Link System)
+            # Wir suchen nach der 'links'-Definition in der Kapitel-Config.
+            # Falls vorhanden, nutzen wir diese. Ansonsten Fallback auf Tags/Startraum.
             
-            docking_room_id = None
+            links = chapter_data.get('links', [])
             
-            # Suche nach Tag
-            for r_id, room_data in final_rooms.items():
-                if "common_dock" in room_data.get("tags", []):
-                    docking_room_id = r_id
-                    print(f"[SYSTEM] Docking-Punkt gefunden: {r_id}")
-                    break
-            
-            # Fallback: Startraum (falls kein Dock definiert wurde, damit man nicht festsitzt)
-            if not docking_room_id:
-                docking_room_id = chapter_data['meta'].get('start_room')
-                print(f"[SYSTEM] Kein Dock-Tag gefunden. Nutze Startraum als Fallback: {docking_room_id}")
+            if links:
+                # Neue, explizite Link-Logik
+                for link in links:
+                    from_id = link.get('from_common')
+                    direction = link.get('dir')
+                    to_tag = link.get('to_chapter_tag')
+                    
+                    if from_id and direction and to_tag:
+                        # Zielraum im Kapitel suchen (basierend auf Tag)
+                        target_room_id = None
+                        for r_id, room_data in final_rooms.items():
+                            if to_tag in room_data.get("tags", []):
+                                target_room_id = r_id
+                                break
+                        
+                        if target_room_id and from_id in final_rooms:
+                            # Link erstellen (Common -> Chapter)
+                            if 'exits' not in final_rooms[from_id]: final_rooms[from_id]['exits'] = {}
+                            final_rooms[from_id]['exits'][direction] = target_room_id
+                            
+                            # Rücklink erstellen (Chapter -> Common)
+                            # Wir nutzen denselben Richtungs-Key (z.B. 'out'), da unser Parser Synonyme handhabt.
+                            if 'exits' not in final_rooms[target_room_id]: final_rooms[target_room_id]['exits'] = {}
+                            final_rooms[target_room_id]['exits'][direction] = from_id
+                            
+                            print(f"[SYSTEM] Link erstellt: {from_id} --({direction})--> {target_room_id}")
+                            
+                            # Optional: Hinweis
+                            desc = final_rooms[target_room_id].get('desc', "")
+                            if direction not in desc.lower():
+                                final_rooms[target_room_id]['desc'] = desc + f" Ein Weg führt nach '{direction}'."
 
-            # Verbindung herstellen
-            if docking_room_id and 'ship_cockpit' in final_rooms:
+            else:
+                # Fallback: Alte Tag-Logik (common_dock) für Abwärtskompatibilität
+                docking_room_id = None
+                for r_id, room_data in final_rooms.items():
+                    if "common_dock" in room_data.get("tags", []):
+                        docking_room_id = r_id
+                        break
                 
-                # A. Ausgang vom Schiff zur Station (out -> Docking Room)
-                final_rooms['ship_cockpit']['exits']['out'] = docking_room_id
-                
-                # B. Ausgang von der Station zum Schiff
-                # WICHTIG: Wir nutzen den Key 'out', da unser Parser 'dock' zu 'out' übersetzt.
-                if 'exits' not in final_rooms[docking_room_id]:
-                    final_rooms[docking_room_id]['exits'] = {}
-                
-                final_rooms[docking_room_id]['exits']['out'] = 'ship_cockpit'
-                
-                # C. Flavor Text hinzufügen (damit der Spieler den Ausgang bemerkt)
-                desc = final_rooms[docking_room_id].get('desc', "")
-                # Wir prüfen, ob schon ein Hinweis existiert, um Doppelungen zu vermeiden
-                if "dock" not in desc.lower() and "schleuse" not in desc.lower():
-                    final_rooms[docking_room_id]['desc'] = desc + " Die Luftschleuse zum Dock (Befehl: dock/out) ist aktiv."
+                if not docking_room_id:
+                    docking_room_id = chapter_data['meta'].get('start_room')
+
+                if docking_room_id and 'ship_cockpit' in final_rooms:
+                    final_rooms['ship_cockpit']['exits']['out'] = docking_room_id
+                    if 'exits' not in final_rooms[docking_room_id]: final_rooms[docking_room_id]['exits'] = {}
+                    final_rooms[docking_room_id]['exits']['out'] = 'ship_cockpit'
+                    
+                    desc = final_rooms[docking_room_id].get('desc', "")
+                    if "dock" not in desc.lower() and "schleuse" not in desc.lower():
+                        final_rooms[docking_room_id]['desc'] = desc + " Die Luftschleuse zum Dock (out/dock) ist aktiv."
 
             # 4. Finales Config bauen
             full_config = {
@@ -135,7 +157,7 @@ class StoryLoader:
                 "west": ["w", "west", "westen", "schleuse"],
                 "up": ["u", "up", "oben", "deck1"],
                 "down": ["d", "down", "unten", "wartung"],
-                "out": ["raus", "out", "ausgang", "dock", "schiff", "kestrel"] # Erweitert um Schiff/Kestrel
+                "out": ["raus", "out", "ausgang", "dock", "schiff", "kestrel"] # Wichtig für das Schiff
             },
             "skip_words": []
         }
