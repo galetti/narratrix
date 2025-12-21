@@ -6,7 +6,6 @@ class InteractionHandler:
     def look(game, args):
         room = game.get_room(game.location)
         if not args:
-            # ... (Keine Änderungen beim Raum-Look, Code bleibt gleich) ...
             game.log('location', room[ATTR_NAME])
             game.log('story', game.render_room_desc(game.location))
             
@@ -70,7 +69,6 @@ class InteractionHandler:
     @staticmethod
     def take(game, args):
         if any(w in args for w in ["all", "alles", "alle"]):
-            # ... (Alles nehmen bleibt gleich) ...
             candidates = [o for o in game.objects.values() if o.get(ATTR_MOVABLE)]
             taken = []
             for item in candidates:
@@ -147,21 +145,16 @@ class InteractionHandler:
                 npc = Resolver.find_mentioned_npc(game, npc_words)
                 if not npc: return game.log('error', "Diese Person ist nicht hier.")
                 
-                game.log('success', f"Du gibst {item[ATTR_NAME]} an {npc[ATTR_NAME]}.")
-                item['location'] = LOC_VOID 
+                # --- FAIL SAFE LOGIC START ---
                 
+                # 1. Trigger berechnen, die dieses Item auslösen würde
                 trigger_ids = [f"received_{item[ATTR_ID]}"]
-                game.add_knowledge(trigger_ids[0])
-                
                 if item.get('type') == TYPE_CONTAINER:
                     contents = [o for o in game.objects.values() if o['location'] == item[ATTR_ID]]
                     for c in contents:
-                        k_id = f"received_{c[ATTR_ID]}"
-                        game.add_knowledge(k_id)
-                        trigger_ids.append(k_id)
+                        trigger_ids.append(f"received_{c[ATTR_ID]}")
 
-                from engine.handlers.dialogue import DialogueHandler
-                
+                # 2. Prüfen, ob der NPC eine Reaktion darauf hat
                 current_state = npc.get('state', 'default')
                 dialogue_root = npc.get('dialogue', {})
                 state_db = dialogue_root.get(current_state, {})
@@ -171,14 +164,25 @@ class InteractionHandler:
                 for topic, entry in state_db.items():
                     if isinstance(entry, dict) and 'condition' in entry:
                         cond = entry['condition']
-                        if cond.get('type') == 'knowledge' and cond.get('value') in trigger_ids:
+                        # Prüfen ob die Condition 'received_X' ist
+                        if isinstance(cond, dict) and cond.get('type') == 'knowledge' and cond.get('value') in trigger_ids:
                             reaction_entry = entry
                             break
                         elif isinstance(cond, str) and cond in trigger_ids:
                             reaction_entry = entry
                             break
                 
+                # 3. Entscheidung: Geben oder Behalten?
                 if reaction_entry:
+                    # NPC will es -> Transfer
+                    game.log('success', f"Du gibst {item[ATTR_NAME]} an {npc[ATTR_NAME]}.")
+                    item['location'] = LOC_VOID 
+                    
+                    for t_id in trigger_ids:
+                        game.add_knowledge(t_id)
+
+                    # Dialog starten
+                    from engine.handlers.dialogue import DialogueHandler
                     game.dialogue_active = True
                     game.dialogue_partner = npc
                     game.log('event', f"--- GESPRÄCH MIT {npc[ATTR_NAME].upper()} ---")
@@ -186,7 +190,11 @@ class InteractionHandler:
                     DialogueHandler._print_dialogue(game, npc, reaction_entry)
                     DialogueHandler.process_effects(game, reaction_entry, npc)
                 else:
-                    DialogueHandler.talk(game, [npc[ATTR_NAME]])
+                    # NPC braucht es nicht -> Abbrechen
+                    game.log('character', f"{npc[ATTR_NAME]} lehnt ab: \"Das brauche ich gerade nicht.\"")
+                    
+                # --- FAIL SAFE LOGIC END ---
+
         except ResolutionError as e:
             game.log('error', str(e))
 
