@@ -3,9 +3,10 @@ import sys
 import os
 
 # Pfad-Hack, damit wir engine und data importieren können
+# (Fügt das Parent-Directory 'narratrix' zum Python-Pfad hinzu)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from data.story_config import CONFIG
+from data.story_loader import StoryLoader
 from engine.game_state import GameState
 from engine.analysis import generate_future_matrix
 from engine.constants import ATTR_NAME
@@ -18,14 +19,14 @@ COL_LINK = (100, 100, 100)
 COL_NPC = (255, 200, 0)
 COL_EVENT = (255, 50, 50)
 COL_TEXT = (200, 200, 200)
-COL_ACCENT = (0, 255, 136) # Added missing accent color
+COL_ACCENT = (0, 255, 136) 
 
 SCREEN_W, SCREEN_H = 800, 600
 
 def run_viewer():
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
-    pygame.display.set_caption("Narratrix Simulation Viewer")
+    pygame.display.set_caption("Narratrix Simulation Viewer v5.0")
     try:
         font = pygame.font.SysFont("Arial", 16)
     except:
@@ -33,10 +34,20 @@ def run_viewer():
         
     clock = pygame.time.Clock()
 
-    # 1. Initiale Simulation
+    # 1. Initiale Simulation mit neuem Loader
+    print("Lade Kapiteldaten...")
+    # Wir laden standardmäßig Episode 1 für die Simulation
+    config = StoryLoader.load_chapter("data.chapters.ep1_station.config")
+    
+    if not config:
+        print("[ERROR] Konnte Config nicht laden. Abbruch.")
+        return
+
     print("Starte Simulation...")
-    initial_game = GameState(CONFIG)
+    initial_game = GameState(config, silent=True)
+    
     # Simuliere 120 Minuten in 5-Minuten-Schritten
+    # WICHTIG: Das Klonen im Analysis-Tool muss mit der neuen GameState-Logik kompatibel sein
     timeline = generate_future_matrix(initial_game, minutes_to_simulate=120, step_size=5)
     print(f"Simulation abgeschlossen. {len(timeline)} Snapshots generiert.")
 
@@ -74,8 +85,10 @@ def run_viewer():
         # A. MAP ZEICHNEN
         current_snap = timeline[slider_val]
         
+        # Wir holen die Räume aus der Config (die ist statisch für die Map-Struktur)
+        rooms = config['rooms']
+        
         # Verbindungen zeichnen
-        rooms = CONFIG['rooms']
         for r_id, room in rooms.items():
             x1 = center_x + room.get('map_x', 0) * scale
             y1 = center_y + room.get('map_y', 0) * scale
@@ -93,14 +106,19 @@ def run_viewer():
             ry = center_y + room.get('map_y', 0) * scale
             
             # Raum Node
-            pygame.draw.circle(screen, COL_NODE, (rx, ry), 30)
+            col = COL_NODE
+            # Wenn Events in diesem Raum im aktuellen Tick aktiv sind, pulsieren
+            room_data = current_snap["rooms"].get(r_id)
+            if room_data and room_data["events"]:
+                col = COL_EVENT
+            
+            pygame.draw.circle(screen, col, (rx, ry), 30)
             
             # Label
             lbl = font.render(room[ATTR_NAME], True, COL_TEXT)
             screen.blit(lbl, (rx - lbl.get_width()//2, ry - 45))
             
             # Inhalte aus Snapshot
-            room_data = current_snap["rooms"].get(r_id)
             if room_data:
                 # NPCs
                 for i, npc_name in enumerate(room_data["npcs"]):
@@ -110,12 +128,14 @@ def run_viewer():
                     n_lbl = font.render(short_name, True, (0,0,0)) 
                     screen.blit(n_lbl, (rx - 10 + (i*10) - 3, ry - 5))
                 
-                # Events
+                # Events Text
                 if room_data["events"]:
-                    # Roter Warnkreis
-                    pygame.draw.circle(screen, COL_EVENT, (rx, ry), 35, 2)
-                    e_lbl = font.render("!", True, COL_EVENT)
-                    screen.blit(e_lbl, (rx + 20, ry - 20))
+                    # Zeige Event-Namen unter dem Raum
+                    y_off = 35
+                    for ev_name in room_data["events"]:
+                        ev_lbl = font.render(ev_name, True, COL_EVENT)
+                        screen.blit(ev_lbl, (rx - ev_lbl.get_width()//2, ry + y_off))
+                        y_off += 15
 
         # B. UI / SLIDER
         time_lbl = font.render(f"ZEIT: T+{current_snap['time']} min", True, COL_TEXT)
