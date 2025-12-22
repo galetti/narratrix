@@ -10,7 +10,6 @@ COMMON_NPCS = [
         "start_loc": "cantina", 
         "location": "cantina", 
         
-        # Neue Struktur: Top-Level "states"
         "initial_state": "panic",
         "states": {
             "panic": {
@@ -34,7 +33,6 @@ COMMON_NPCS = [
                 "behavior": {
                     "movement_chance": 80, 
                     "affinity": ["cantina", "reactor"],
-                    # NEU: Aris geht auf Patrouille, sobald er fokussiert ist
                     "route": ["cantina", "hub", "reactor", "maintenance", "reactor", "hub"], 
                     "route_behavior": "loop"
                 },
@@ -65,15 +63,48 @@ COMMON_NPCS = [
                 }
             }
         }
-        # Fallbacks entfernt
     },
     {
-        "id": "npc_karl", "name": "K.A.R.L.", "aliases": ["ki", "karl"], "is_global": True,
-        "start_loc": "hub", "location": "hub", "affinity": ["hub"], "movement_chance": 0,
-        "state": "offline", "img": "face_ai_glitch", "personality": "Roboter", "desc": "Flackert.",
-        "dialogue": {
-            "offline": {"greeting": "Systemfehler."},
-            "online": {"img": "face_ai_calm", "greeting": "Systeme online. Kestrel ist startklar. Wir warten auf Ihren Befehl."}
+        "id": "npc_karl", 
+        "name": "K.A.R.L.", 
+        "aliases": ["ki"], 
+        "is_global": True,
+        "start_loc": "hub", 
+        "location": "hub", 
+        
+        # Migration auf neue Struktur
+        "initial_state": "offline",
+        "states": {
+            "offline": {
+                "behavior": {
+                    "movement_chance": 0,
+                    "affinity": ["hub"],
+                    "route": []
+                },
+                "visuals": {
+                    "img": "face_ai_glitch",
+                    "desc": "Das Hologramm flackert rot und verzerrt.",
+                    "personality": "Roboter (Defekt)"
+                },
+                "dialogue": {
+                    "greeting": "S-S-Systemfehler. Bitte Root-Chip einlegen."
+                }
+            },
+            "online": {
+                "behavior": {
+                    "movement_chance": 0, # Als Hologramm stationär
+                    "affinity": ["hub"],
+                    "route": []
+                },
+                "visuals": {
+                    "img": "face_ai_calm",
+                    "desc": "Das Hologramm leuchtet ruhig blau.",
+                    "personality": "Hilfsbereit, sarkastisch"
+                },
+                "dialogue": {
+                    "greeting": "Systeme online. Kestrel ist startklar. Wir warten auf Ihren Befehl."
+                }
+            }
         }
     }
 ]

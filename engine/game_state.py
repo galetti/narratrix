@@ -40,14 +40,18 @@ class GameState:
         self.matrix = copy.deepcopy(config['narrative_matrix'])
         self.objects = copy.deepcopy(config['objects'])
         
-        # Initialisiere NPCs (Hydration für neue Struktur)
+        # Initialisiere NPCs (Strict Hydration)
         for npc in self.npcs:
+            # Wir erzwingen jetzt die States-Struktur. 
+            # Alte NPCs ohne 'states' werden als fehlerhaft betrachtet oder ignoriert.
             if 'states' in npc:
-                # Initialen State setzen falls noch nicht vorhanden
                 if 'state' not in npc:
                     npc['state'] = npc.get('initial_state', list(npc['states'].keys())[0])
                 self._hydrate_npc(npc)
                 npc['_last_hydrated_state'] = npc['state']
+            else:
+                if not silent: 
+                    print(f"[WARN] NPC '{npc.get('name')}' hat keine 'states' Definition. Ignoriere AI/Visuals.")
 
         for obj in self.objects.values():
             if ATTR_TEMP not in obj: obj[ATTR_TEMP] = 20
@@ -60,8 +64,7 @@ class GameState:
 
     def _hydrate_npc(self, npc):
         """
-        Kopiert Daten aus der hierarchischen 'states'-Struktur in die flache NPC-Struktur,
-        damit Systeme wie AI und DialogueHandler wie gewohnt arbeiten können.
+        Kopiert Daten aus der hierarchischen 'states'-Struktur in die flache NPC-Struktur.
         """
         current_state = npc.get('state')
         state_data = npc.get('states', {}).get(current_state)
@@ -71,16 +74,14 @@ class GameState:
         # 1. Behavior (AI)
         if 'behavior' in state_data:
             for k, v in state_data['behavior'].items():
-                npc[k] = v # z.B. movement_chance, route, affinity
+                npc[k] = v 
         
         # 2. Visuals (Anzeige)
         if 'visuals' in state_data:
             for k, v in state_data['visuals'].items():
-                npc[k] = v # z.B. img, desc, personality
+                npc[k] = v 
         
         # 3. Dialogue (Interaktion)
-        # Der DialogueHandler erwartet npc['dialogue'][state].
-        # Wir bauen diese Struktur temporär auf.
         if 'dialogue' in state_data:
             if 'dialogue' not in npc: npc['dialogue'] = {}
             npc['dialogue'][current_state] = state_data['dialogue']
@@ -140,7 +141,6 @@ class GameState:
     def get_snapshot(self):
         with self.lock:
             # WICHTIG: Vor dem Snapshot sicherstellen, dass NPCs aktuell sind.
-            # Da DialogueHandler nur 'state' string ändert, müssen wir hier die Props nachziehen.
             self._synchronize_npcs()
             
             room = self.rooms.get(self.location)
