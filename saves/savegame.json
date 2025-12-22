@@ -1,279 +1,900 @@
 {
-  "time": 5,
-  "location": "taverna",
+  "time": 213,
+  "location": "hub",
   "stability": 100,
   "game_over": false,
-  "knowledge": [],
+  "knowledge": [
+    "received_access_chip",
+    "received_stim_caf",
+    "received_medikit",
+    "val_sacrifice_ready"
+  ],
   "objects": {
-    "prism": {
-      "id": "prism",
-      "name": "Prisma",
+    "terminal": {
+      "id": "terminal",
+      "name": "Haupt-Terminal",
       "aliases": [
-        "kristall",
-        "lampe",
-        "licht",
-        "linse"
+        "computer",
+        "screen",
+        "mainframe"
       ],
-      "location": "lighthouse",
+      "location": "hub",
+      "type": "surface",
+      "movable": false,
+      "desc": "Zeigt hunderte Fehlermeldungen. Tippe 'hack' für eine Prognose.",
+      "temp": 20,
+      "matter": "solid"
+    },
+    "replicator": {
+      "id": "replicator",
+      "name": "Nahrungs-Replikator",
+      "aliases": [
+        "automat",
+        "spender",
+        "replikator"
+      ],
+      "location": "cantina",
+      "type": "surface",
+      "movable": false,
       "state": "broken",
-      "movable": false,
-      "desc": "Ein uraltes Artefakt aus Glas. Es ist fast blind vor Schmutz. Ohne Reinigung bündelt es kein Licht."
+      "desc": "Er scheint nur noch heißes Wasser zu produzieren.",
+      "temp": 20,
+      "matter": "solid"
     },
-    "bell": {
-      "id": "bell",
-      "name": "Glocke",
+    "core": {
+      "id": "core",
+      "name": "Reaktorkern",
       "aliases": [
-        "glocke",
-        "kirchenglocke"
+        "kern",
+        "reaktor"
       ],
-      "location": "church",
+      "location": "reactor",
+      "state": "broken",
+      "type": "scenery",
+      "movable": false,
+      "desc": "Er steht kurz vor der Schmelze.",
+      "temp": 20,
+      "matter": "solid"
+    },
+    "vent": {
+      "id": "vent",
+      "name": "Druckventil",
+      "aliases": [
+        "ventil",
+        "rohr"
+      ],
+      "location": "maintenance",
       "state": "normal",
+      "type": "scenery",
       "movable": false,
-      "desc": "Graviert mit Symbolen, die im Auge schmerzen. Wenn sie läutet, öffnet sie Tore."
+      "desc": "Es zischt leise.",
+      "temp": 20,
+      "matter": "solid"
     },
-    "chest": {
-      "id": "chest",
-      "name": "Seemannskiste",
-      "aliases": [
-        "kiste",
-        "truhe",
-        "box"
-      ],
-      "location": "crypt",
+    "chair": {
+      "id": "chair",
+      "name": "Kommandosessel",
+      "location": "bridge",
+      "type": "surface",
       "movable": false,
-      "is_container": true,
-      "is_locked": true,
-      "is_open": false,
-      "key_id": "iron_key",
-      "desc": "Sie gehört einem Kapitän, der wahnsinnig wurde."
+      "desc": "Blutspuren an der Lehne.",
+      "temp": 20,
+      "matter": "solid"
     },
-    "fountain": {
-      "id": "fountain",
-      "name": "Brunnen",
+    "med_cabinet": {
+      "id": "med_cabinet",
+      "name": "Medizin-Schrank",
       "aliases": [
-        "engel",
-        "statue"
+        "schrank"
       ],
-      "location": "plaza",
+      "location": "medbay",
+      "type": "container",
       "movable": false,
-      "scenery": true,
-      "desc": "Der steinerne Engel weint schwarze Tränen."
+      "is_open": true,
+      "desc": "Geplündert.",
+      "temp": 20,
+      "matter": "solid"
     },
-    "iron_key": {
-      "id": "iron_key",
-      "name": "Eisen-Schlüssel",
+    "stim_powder": {
+      "id": "stim_powder",
+      "name": "Stim-Pulver",
       "aliases": [
-        "schlüssel",
-        "eisen"
-      ],
-      "location": "fountain",
-      "movable": true,
-      "desc": "Kaltes, schwarzes Eisen. Es scheint Licht zu absorbieren."
-    },
-    "rag": {
-      "id": "rag",
-      "name": "Lappen",
-      "aliases": [
-        "tuch",
-        "stoff"
-      ],
-      "location": "toolbox",
-      "movable": true,
-      "desc": "Ein altes Stück Leinen."
-    },
-    "oil": {
-      "id": "oil",
-      "name": "Olivenöl",
-      "aliases": [
-        "öl",
-        "flasche"
-      ],
-      "location": "taverna",
-      "movable": true,
-      "desc": "Ranzig, aber es schmiert und reinigt."
-    },
-    "oily_rag": {
-      "id": "oily_rag",
-      "name": "Öliger Lappen",
-      "aliases": [
-        "putzlappen"
+        "pulver",
+        "kaffee",
+        "koffein"
       ],
       "location": "void",
+      "type": "item",
       "movable": true,
-      "desc": "Perfekt, um alte Mechanismen oder Linsen zu reinigen."
+      "matter": "solid",
+      "desc": "Militärisches Aufputschmittel. Trocken.",
+      "temp": 20
     },
-    "dagger": {
-      "id": "dagger",
-      "name": "Obsidian-Dolch",
+    "mug": {
+      "id": "mug",
+      "name": "Isolier-Becher",
       "aliases": [
-        "dolch",
-        "messer",
-        "waffe"
+        "becher",
+        "tasse"
       ],
-      "location": "chest",
+      "location": "inventory",
+      "type": "container",
       "movable": true,
-      "desc": "Die Klinge ist vulkanisches Glas. Blut klebt daran."
+      "matter": "solid",
+      "is_open": true,
+      "desc": "Ein leerer Becher.",
+      "temp": 20
     },
-    "cutters": {
-      "id": "cutters",
-      "name": "Notizbuch",
+    "hot_water": {
+      "id": "hot_water",
+      "name": "Heißes Wasser",
       "aliases": [
-        "buch",
-        "journal",
-        "tagebuch"
+        "wasser"
       ],
-      "location": "taverna",
+      "location": "void",
+      "type": "item",
       "movable": true,
-      "desc": "Ein schwerer Drahtschneider. Die Initialen 'PA' sind in den Griff gekratzt."
+      "matter": "liquid",
+      "temp": 20,
+      "desc": "Kochend."
+    },
+    "stim_caf": {
+      "id": "stim_caf",
+      "name": "Stim-Caf",
+      "aliases": [
+        "kaffee",
+        "getränk"
+      ],
+      "location": "void",
+      "type": "item",
+      "movable": true,
+      "matter": "liquid",
+      "temp": 20,
+      "desc": "Starkes Zeug."
+    },
+    "coolant_canister": {
+      "id": "coolant_canister",
+      "name": "Kühlmittel-Kanister",
+      "aliases": [
+        "kanister",
+        "kühlmittel"
+      ],
+      "location": "void",
+      "type": "item",
+      "movable": true,
+      "matter": "solid",
+      "desc": "Schwer und kalt. Aber er hat ein Leck.",
+      "temp": 20
+    },
+    "sealed_coolant": {
+      "id": "sealed_coolant",
+      "name": "Versiegelter Kanister",
+      "aliases": [
+        "kanister",
+        "kühlmittel"
+      ],
+      "location": "inventory",
+      "type": "item",
+      "movable": true,
+      "matter": "solid",
+      "desc": "Dicht versiegelt und einsatzbereit.",
+      "temp": 20
+    },
+    "patch_kit": {
+      "id": "patch_kit",
+      "name": "Reparatur-Kit",
+      "aliases": [
+        "tape",
+        "kit",
+        "werkzeug"
+      ],
+      "location": "inventory",
+      "type": "item",
+      "movable": true,
+      "matter": "solid",
+      "desc": "Universelles Dichtmittel.",
+      "temp": 20
+    },
+    "med_gel": {
+      "id": "med_gel",
+      "name": "Bio-Gel",
+      "aliases": [
+        "gel",
+        "medizin"
+      ],
+      "location": "void",
+      "type": "item",
+      "movable": true,
+      "matter": "liquid",
+      "desc": "Regenerativ.",
+      "temp": 20
+    },
+    "bandage": {
+      "id": "bandage",
+      "name": "Verband",
+      "aliases": [
+        "mull"
+      ],
+      "location": "void",
+      "type": "item",
+      "movable": true,
+      "matter": "solid",
+      "desc": "Steril.",
+      "temp": 20
+    },
+    "medikit": {
+      "id": "medikit",
+      "name": "Notfall-Verband",
+      "aliases": [
+        "medikit",
+        "verband"
+      ],
+      "location": "void",
+      "type": "item",
+      "movable": true,
+      "matter": "solid",
+      "desc": "Einsatzbereit.",
+      "temp": 20
+    },
+    "access_chip": {
+      "id": "access_chip",
+      "name": "Root-Chip",
+      "aliases": [
+        "chip",
+        "karte"
+      ],
+      "location": "void",
+      "type": "item",
+      "movable": true,
+      "matter": "solid",
+      "desc": "Level 5 Zugang.",
+      "temp": 20
     }
   },
   "npcs": [
     {
-      "name": "Padre Tomas",
+      "id": "npc_aris",
+      "name": "Aris",
       "aliases": [
-        "priester",
-        "tomas",
-        "vater",
-        "pfarrer"
+        "chief",
+        "aris"
       ],
-      "start_loc": "church",
-      "location": "church",
-      "desc": "Seine Soutane ist staubig. Er murmelt ununterbrochen Gebete.",
-      "personality": "Fanatisch, verzweifelt. Er glaubt, das Ende ist eine Prüfung.",
-      "dialogue": {
-        "status": "Die Engel weinen Blut! Wir müssen büßen!",
-        "sabotage": "Ich würde niemals das Heiligtum entweihen... es sei denn, Gott verlangt es.",
-        "zeuge": {
-          "text": "Die Welt muss brennen, damit sie neu geboren werden kann!",
-          "condition": "saw_sabotage"
+      "is_global": true,
+      "start_loc": "cantina",
+      "location": "hub",
+      "initial_state": "panic",
+      "states": {
+        "panic": {
+          "behavior": {
+            "movement_chance": 40,
+            "affinity": [
+              "cantina",
+              "reactor"
+            ],
+            "route": []
+          },
+          "visuals": {
+            "img": "face_aris_tired",
+            "desc": "Er zittert.",
+            "personality": "Gestresst"
+          },
+          "dialogue": {
+            "greeting": "Verdammt! Ich brauche einen Stim!",
+            "stim": {
+              "text": "Misch Pulver und Wasser!"
+            },
+            "kaffee": {
+              "condition": {
+                "type": "knowledge",
+                "value": "received_stim_caf"
+              },
+              "text": "Danke.",
+              "effect": {
+                "type": "set_state",
+                "value": "focused"
+              }
+            }
+          }
         },
-        "default": "Bete mit mir, Fremder. Das Ende ist nah."
-      },
-      "is_saboteur": true,
-      "agenda": [
-        {
-          "start_tick": 10,
-          "end_tick": 30,
-          "target_loc": "engine",
-          "target_obj": "core",
-          "action": "sabotage",
-          "completed": false
+        "focused": {
+          "behavior": {
+            "movement_chance": 80,
+            "affinity": [
+              "cantina",
+              "reactor"
+            ],
+            "route": [
+              "cantina",
+              "hub",
+              "reactor",
+              "maintenance",
+              "reactor",
+              "hub"
+            ],
+            "route_behavior": "loop"
+          },
+          "visuals": {
+            "img": "face_aris_alert",
+            "desc": "Er wirkt ruhig und kompetent.",
+            "personality": "Kompetent"
+          },
+          "dialogue": {
+            "greeting": "Wir müssen das Schiff retten.",
+            "chip": {
+              "condition": {
+                "type": "knowledge",
+                "value": "received_access_chip"
+              },
+              "text": "Ich starte K.A.R.L. neu!",
+              "effect": [
+                {
+                  "type": "move_npc",
+                  "target": "hub"
+                },
+                {
+                  "type": "set_state",
+                  "value": "hacking"
+                },
+                {
+                  "type": "set_npc_state",
+                  "npc": "K.A.R.L.",
+                  "value": "online"
+                }
+              ]
+            }
+          }
         },
-        {
-          "start_tick": 50,
-          "end_tick": 90,
-          "target_loc": "medbay",
-          "target_obj": "vent",
-          "action": "sabotage",
-          "completed": false
+        "hacking": {
+          "behavior": {
+            "movement_chance": 0,
+            "affinity": [
+              "hub"
+            ],
+            "route": []
+          },
+          "visuals": {
+            "img": "face_aris_alert",
+            "desc": "Er tippt wild auf dem Terminal herum.",
+            "personality": "Fokussiert"
+          },
+          "dialogue": {
+            "greeting": "Nicht jetzt!",
+            "default": "Keine Zeit!"
+          }
         }
-      ]
+      },
+      "state": "hacking",
+      "movement_chance": 0,
+      "affinity": [
+        "hub"
+      ],
+      "route": [],
+      "img": "face_aris_alert",
+      "desc": "Er tippt wild auf dem Terminal herum.",
+      "personality": "Fokussiert",
+      "dialogue": {
+        "panic": {
+          "greeting": "Verdammt! Ich brauche einen Stim!",
+          "stim": {
+            "text": "Misch Pulver und Wasser!"
+          },
+          "kaffee": {
+            "condition": {
+              "type": "knowledge",
+              "value": "received_stim_caf"
+            },
+            "text": "Danke.",
+            "effect": {
+              "type": "set_state",
+              "value": "focused"
+            }
+          }
+        },
+        "focused": {
+          "greeting": "Wir müssen das Schiff retten.",
+          "chip": {
+            "condition": {
+              "type": "knowledge",
+              "value": "received_access_chip"
+            },
+            "text": "Ich starte K.A.R.L. neu!",
+            "effect": [
+              {
+                "type": "move_npc",
+                "target": "hub"
+              },
+              {
+                "type": "set_state",
+                "value": "hacking"
+              },
+              {
+                "type": "set_npc_state",
+                "npc": "K.A.R.L.",
+                "value": "online"
+              }
+            ]
+          }
+        },
+        "hacking": {
+          "greeting": "Nicht jetzt!",
+          "default": "Keine Zeit!"
+        }
+      },
+      "_last_hydrated_state": "hacking",
+      "destination": null,
+      "route_behavior": "loop",
+      "route_index": 0
     },
     {
-      "name": "Isabella",
+      "id": "npc_karl",
+      "name": "K.A.R.L.",
       "aliases": [
-        "malerin",
-        "frau",
-        "künstlerin"
+        "ki",
+        "karl"
       ],
-      "start_loc": "lighthouse",
-      "location": "lighthouse",
-      "desc": "Sie malt das Meer. Aber auf ihrer Leinwand ist das Meer rot.",
-      "personality": "Verträumt, unheimlich ruhig. Sie sieht Dinge, die nicht da sind.",
+      "is_global": true,
+      "start_loc": "hub",
+      "location": "hub",
+      "affinity": [
+        "hub"
+      ],
+      "movement_chance": 0,
+      "state": "online",
+      "img": "face_ai_calm",
+      "personality": "Roboter",
+      "desc": "Flackert.",
       "dialogue": {
-        "status": "Die Farben... sie singen so laut heute.",
-        "sabotage": "Warum etwas reparieren, das so schön zerbricht?",
-        "zeuge": {
-          "text": "Wenn ich das Licht lösche, können wir endlich sehen, was im Dunkeln wohnt.",
-          "condition": "saw_sabotage"
+        "offline": {
+          "greeting": "Systemfehler."
         },
-        "default": "Haben Sie schon einmal geträumt, dass Sie ertrinken?"
+        "online": {
+          "img": "face_ai_calm",
+          "greeting": "Systeme online. Kestrel ist startklar. Wir warten auf Ihren Befehl."
+        }
       }
     },
     {
-      "name": "Der Fremde",
+      "id": "npc_val",
+      "name": "Val",
       "aliases": [
-        "mann",
-        "tourist",
-        "archäologe"
+        "commander",
+        "frau"
       ],
-      "start_loc": "taverna",
-      "location": "taverna",
-      "desc": "Er trägt einen Anzug, der hier völlig fehl am Platz wirkt.",
-      "personality": "Rational, panisch. Er sucht nach einer logischen Erklärung.",
-      "dialogue": {
-        "status": "Die geomagnetischen Werte spielen verrückt.",
-        "sabotage": "Ich will hier nur weg!",
-        "zeuge": {
-          "text": "Es ist ein Experiment! Wir sind die Variablen!",
-          "condition": "saw_sabotage"
+      "is_global": false,
+      "start_loc": "bridge",
+      "location": "bridge",
+      "initial_state": "injured",
+      "states": {
+        "injured": {
+          "behavior": {
+            "movement_chance": 0,
+            "affinity": [
+              "bridge"
+            ],
+            "route": []
+          },
+          "visuals": {
+            "img": "face_val_pain",
+            "desc": "Sie liegt über der Konsole. Das Gravitationsfeld des Schwarzen Lochs zerrt bereits an der Station.",
+            "personality": "Schmerzerfüllt"
+          },
+          "dialogue": {
+            "greeting": "Gehen Sie... zum Schiff... ich kann die Station nicht mehr... halten...",
+            "medikit": {
+              "condition": {
+                "type": "knowledge",
+                "value": "received_medikit"
+              },
+              "text": "(Keucht) Das Stimulanz... wirkt. Ich kann mich fokussieren.",
+              "effect": {
+                "type": "set_state",
+                "value": "sacrifice"
+              }
+            }
+          }
         },
-        "default": "Haben Sie ein Boot? Ein Funkgerät?"
-      }
+        "sacrifice": {
+          "behavior": {
+            "movement_chance": 0,
+            "affinity": [
+              "bridge"
+            ],
+            "route": []
+          },
+          "visuals": {
+            "img": "face_val_stern",
+            "desc": "Ihre Hände fliegen über die Konsole, obwohl sie kaum stehen kann.",
+            "personality": "Entschlossen"
+          },
+          "dialogue": {
+            "greeting": "Verschwinden Sie! Ich stabilisiere den Orbit für den Start der Kestrel.",
+            "chip": {
+              "text": "Nehmen Sie den Chip für K.A.R.L.! Aris braucht ihn für den Hyperantrieb. Und jetzt RUNTER VON MEINER BRÜCKE!",
+              "effect": [
+                {
+                  "type": "receive_item",
+                  "item_id": "access_chip"
+                },
+                {
+                  "type": "learn",
+                  "fact": "val_sacrifice_ready"
+                }
+              ]
+            },
+            "default": "Keine Zeit für Sentimentalitäten. Fliegen Sie!"
+          }
+        }
+      },
+      "state": "sacrifice",
+      "movement_chance": 0,
+      "affinity": [
+        "bridge"
+      ],
+      "route": [],
+      "img": "face_val_stern",
+      "desc": "Ihre Hände fliegen über die Konsole, obwohl sie kaum stehen kann.",
+      "personality": "Entschlossen",
+      "dialogue": {
+        "injured": {
+          "greeting": "Gehen Sie... zum Schiff... ich kann die Station nicht mehr... halten...",
+          "medikit": {
+            "condition": {
+              "type": "knowledge",
+              "value": "received_medikit"
+            },
+            "text": "(Keucht) Das Stimulanz... wirkt. Ich kann mich fokussieren.",
+            "effect": {
+              "type": "set_state",
+              "value": "sacrifice"
+            }
+          }
+        },
+        "sacrifice": {
+          "greeting": "Verschwinden Sie! Ich stabilisiere den Orbit für den Start der Kestrel.",
+          "chip": {
+            "text": "Nehmen Sie den Chip für K.A.R.L.! Aris braucht ihn für den Hyperantrieb. Und jetzt RUNTER VON MEINER BRÜCKE!",
+            "effect": [
+              {
+                "type": "receive_item",
+                "item_id": "access_chip"
+              },
+              {
+                "type": "learn",
+                "fact": "val_sacrifice_ready"
+              }
+            ]
+          },
+          "default": "Keine Zeit für Sentimentalitäten. Fliegen Sie!"
+        }
+      },
+      "_last_hydrated_state": "sacrifice"
     }
   ],
   "matrix": [
     {
-      "id": "evt_tide",
-      "title": "Die Schwarze Flut",
-      "description": "Die Wellen unten am Leuchtturm schlagen höher. Das Wasser ist nicht mehr blau, sondern dickflüssig und schwarz wie Öl. Es riecht nach uraltem Verwesungsgestank.",
-      "trigger_time": 30,
-      "target_obj_id": "prism",
-      "penalty": 40,
-      "fail_text": "Das Licht erlischt. Tentakelartige Schatten greifen nach den Klippen. Die Realität bekommt Risse.",
-      "success_text": "Das Prisma bündelt das Licht. Die Schatten weichen kreischend zurück."
+      "id": "evt_global_ambience",
+      "trigger": "time",
+      "trigger_time": 100,
+      "title": "Subraum-Echo",
+      "description": "Das Schiff vibriert leicht, als ein Subraum-Echo die Hülle trifft.",
+      "origin_id": "ship_cockpit",
+      "triggered": true,
+      "triggered_at": 103
     },
     {
-      "id": "evt_bell",
-      "title": "Das Läuten der Toten",
-      "description": "Die Kirchenglocke beginnt von selbst zu schwingen. Ein Ton, so tief, dass er Zähne und Knochen vibrieren lässt.",
-      "trigger_time": 80,
-      "target_obj_id": "bell",
-      "penalty": 60,
-      "fail_text": "Der Schall zersprengt die Fenster der Stadt. Wahnsinn breitet sich in den Köpfen aus.",
-      "success_text": "Die Glocke bleibt stumm. Die Stille ist ein Segen."
+      "id": "evt_meltdown_warning",
+      "trigger": "time",
+      "trigger_time": 20,
+      "title": "Kritische Temperatur",
+      "origin_id": "reactor",
+      "description": "Die Warnleuchten im Reaktorraum springen auf Rot. Die Abschirmung singt.",
+      "sound_msg": "Ein ansteigendes, hohes Fiepen der Turbinen.",
+      "target_obj_id": "core",
+      "penalty": 20,
+      "fail_text": "Strahlungslecks in Sektor 4.",
+      "success_text": "Die Kühlung stabilisiert sich (vorerst).",
+      "triggered": true,
+      "triggered_at": 20
+    },
+    {
+      "id": "evt_val_death",
+      "trigger": "relative",
+      "parent_id": "evt_meltdown_warning",
+      "delay": 20,
+      "title": "Bio-Monitor Alarm",
+      "origin_id": "bridge",
+      "description": "Ein flaches Piepen ertönt von der Bio-Monitor-Konsole. Val's Signal ist kritisch.",
+      "sound_msg": "Ein durchdringender medizinischer Alarmton.",
+      "target_obj_id": "val_body",
+      "triggered": true,
+      "triggered_at": 42
+    },
+    {
+      "id": "evt_karl_ready",
+      "trigger": "condition",
+      "condition": {
+        "type": "knowledge",
+        "value": "karl_online"
+      },
+      "title": "K.A.R.L. Status",
+      "origin_id": "hub",
+      "description": "K.A.R.L.s Stimme dröhnt durch die Station: 'Antrieb online. Notfall-Startsequenz initiiert. T-Minus 5 Minuten bis Separation. Alle Mann an Bord.'",
+      "sound_msg": "Eine synthetische Durchsage hallt durch die Gänge."
+    },
+    {
+      "id": "evt_launch",
+      "trigger": "relative",
+      "parent_id": "evt_karl_ready",
+      "delay": 5,
+      "title": "Start der Kestrel",
+      "origin_id": "ship_cockpit",
+      "description": "Die Andockklammern sprengen sich ab. Mit einem gewaltigen Ruck zünden die Triebwerke und das Schiff schießt in den Weltraum.",
+      "sound_msg": "Das ohrenbetäubende Grollen startender Triebwerke."
+    },
+    {
+      "id": "evt_station_destruction",
+      "trigger": "relative",
+      "parent_id": "evt_launch",
+      "delay": 5,
+      "title": "Ereignishorizont",
+      "origin_id": "reactor",
+      "description": "Die Station gibt den Gravitationskräften nach und implodiert. Alles wird schwarz.",
+      "sound_msg": "Ein knirschendes Bersten von Metall.",
+      "target_obj_id": "core",
+      "penalty": 1000,
+      "fail_text": "Signal verloren."
     }
   ],
   "logs": [
     {
-      "type": "location",
-      "text": "Plaza Mayor",
-      "turn": 0
-    },
-    {
       "type": "story",
-      "text": "Die Mittagssonne brennt gnadenlos. Der Staub schmeckt nach Asche. Ein vertrockneter Brunnen steht in der Mitte. Nach Norden führt eine Gasse zur Taverne, im Westen ragt die Kirche auf.",
-      "turn": 0
-    },
-    {
-      "type": "location",
-      "text": "Taverna 'El Ojo'",
-      "turn": 5
-    },
-    {
-      "type": "story",
-      "text": "Es ist dunkel und kühl. Schinken hängen von der Decke, bedeckt mit Schimmel. Auf dem Tresen steht eine Flasche Olivenöl. Eine Hintertür führt zurück zur Plaza.",
-      "turn": 5
+      "text": "Es riecht nach Ozon. Ein Nahrungs-Replikator [DEFEKT] an der Wand raucht.",
+      "turn": 188
     },
     {
       "type": "info",
-      "text": "Gegenstände: Olivenöl, Notizbuch",
-      "turn": 5
+      "text": "Ausgänge: Norden",
+      "turn": 188
+    },
+    {
+      "type": "user",
+      "text": "> n",
+      "turn": 188
+    },
+    {
+      "type": "location",
+      "text": "Zentraler Hub",
+      "turn": 193
+    },
+    {
+      "type": "story",
+      "text": "Das Herz der Station. Ein großes Haupt-Terminal dominiert die Mitte. K.A.R.L.s Hologramm flackert.",
+      "turn": 193
+    },
+    {
+      "type": "info",
+      "text": "Ausgänge: Norden, Osten, Süden, Westen",
+      "turn": 193
     },
     {
       "type": "character",
-      "text": "Personen: Der Fremde",
-      "turn": 5
+      "text": "Personen: Aris, K.A.R.L.",
+      "turn": 193
     },
     {
-      "type": "error",
-      "text": "Das siehst du hier nicht.",
-      "turn": 5
+      "type": "user",
+      "text": "> e",
+      "turn": 193
     },
     {
-      "type": "error",
-      "text": "Ich weiß nicht, wie man 'get' soll.",
-      "turn": 5
+      "type": "location",
+      "text": "Reaktorkern",
+      "turn": 198
+    },
+    {
+      "type": "story",
+      "text": "Tödliche Hitze. Der Reaktorkern [DEFEKT] pulsiert violett.",
+      "turn": 198
+    },
+    {
+      "type": "info",
+      "text": "Ausgänge: Westen, Unten",
+      "turn": 198
+    },
+    {
+      "type": "user",
+      "text": "> w",
+      "turn": 198
+    },
+    {
+      "type": "location",
+      "text": "Zentraler Hub",
+      "turn": 203
+    },
+    {
+      "type": "story",
+      "text": "Das Herz der Station. Ein großes Haupt-Terminal dominiert die Mitte. K.A.R.L.s Hologramm flackert.",
+      "turn": 203
+    },
+    {
+      "type": "info",
+      "text": "Ausgänge: Norden, Osten, Süden, Westen",
+      "turn": 203
+    },
+    {
+      "type": "character",
+      "text": "Personen: K.A.R.L.",
+      "turn": 203
+    },
+    {
+      "type": "user",
+      "text": "> s",
+      "turn": 203
+    },
+    {
+      "type": "location",
+      "text": "Messe",
+      "turn": 208
+    },
+    {
+      "type": "story",
+      "text": "Es riecht nach Ozon. Ein Nahrungs-Replikator [DEFEKT] an der Wand raucht.",
+      "turn": 208
+    },
+    {
+      "type": "info",
+      "text": "Ausgänge: Norden",
+      "turn": 208
+    },
+    {
+      "type": "character",
+      "text": "Personen: Aris",
+      "turn": 208
+    },
+    {
+      "type": "user",
+      "text": "> rede mit aris",
+      "turn": 208
+    },
+    {
+      "type": "event",
+      "text": "--- GESPRÄCH MIT ARIS ---",
+      "turn": 208
+    },
+    {
+      "type": "info",
+      "text": "(Tippe Themen oder 'gib [Item]')",
+      "turn": 208
+    },
+    {
+      "type": "character",
+      "text": "Aris: \"Wir müssen das Schiff retten.\"",
+      "turn": 208
+    },
+    {
+      "type": "user",
+      "text": "> gib kanister",
+      "turn": 208
+    },
+    {
+      "type": "character",
+      "text": "Aris lehnt ab: \"Das brauche ich gerade nicht.\"",
+      "turn": 208
+    },
+    {
+      "type": "user",
+      "text": "> gib chip",
+      "turn": 208
+    },
+    {
+      "type": "success",
+      "text": "Du gibst Root-Chip an Aris.",
+      "turn": 208
+    },
+    {
+      "type": "event",
+      "text": "--- GESPRÄCH MIT ARIS ---",
+      "turn": 208
+    },
+    {
+      "type": "character",
+      "text": "Aris: \"Ich starte K.A.R.L. neu!\"",
+      "turn": 208
+    },
+    {
+      "type": "event",
+      "text": "[Aris macht sich auf den Weg.]",
+      "turn": 208
+    },
+    {
+      "type": "event",
+      "text": "--- GESPRÄCH BEENDET (Partner gegangen) ---",
+      "turn": 208
+    },
+    {
+      "type": "success",
+      "text": "(Status von K.A.R.L. aktualisiert)",
+      "turn": 208
+    },
+    {
+      "type": "user",
+      "text": "> n",
+      "turn": 208
+    },
+    {
+      "type": "location",
+      "text": "Zentraler Hub",
+      "turn": 213
+    },
+    {
+      "type": "story",
+      "text": "Das Herz der Station. Ein großes Haupt-Terminal dominiert die Mitte. K.A.R.L.s Hologramm flackert.",
+      "turn": 213
+    },
+    {
+      "type": "info",
+      "text": "Ausgänge: Norden, Osten, Süden, Westen",
+      "turn": 213
+    },
+    {
+      "type": "character",
+      "text": "Personen: Aris, K.A.R.L.",
+      "turn": 213
+    },
+    {
+      "type": "user",
+      "text": "> rede mit karl",
+      "turn": 213
+    },
+    {
+      "type": "event",
+      "text": "--- GESPRÄCH MIT K.A.R.L. ---",
+      "turn": 213
+    },
+    {
+      "type": "info",
+      "text": "(Tippe Themen oder 'gib [Item]')",
+      "turn": 213
+    },
+    {
+      "type": "character",
+      "text": "K.A.R.L.: \"Systeme online. Kestrel ist startklar. Wir warten auf Ihren Befehl.\"",
+      "turn": 213
+    },
+    {
+      "type": "user",
+      "text": "> kestrel",
+      "turn": 213
+    },
+    {
+      "type": "character",
+      "text": "K.A.R.L. schaut dich fragend an.",
+      "turn": 213
+    },
+    {
+      "type": "user",
+      "text": "> start",
+      "turn": 213
+    },
+    {
+      "type": "character",
+      "text": "K.A.R.L. schaut dich fragend an.",
+      "turn": 213
+    },
+    {
+      "type": "user",
+      "text": "> bye",
+      "turn": 213
+    },
+    {
+      "type": "event",
+      "text": "--- GESPRÄCH BEENDET ---",
+      "turn": 213
+    },
+    {
+      "type": "user",
+      "text": "> save",
+      "turn": 213
     }
   ]
 }
