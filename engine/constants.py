@@ -9,7 +9,7 @@ TYPE_SURFACE = "surface"
 TYPE_ITEM = "item"
 TYPE_SCENERY = "scenery"
 
-# Aggregatzustände (NEU)
+# Aggregatzustände
 MATTER_SOLID = "solid"
 MATTER_LIQUID = "liquid"
 MATTER_GAS = "gas"
@@ -20,16 +20,17 @@ LOC_VOID = "void" # Aus dem Spiel entfernt
 
 # Attribute
 ATTR_AFFINITY = "affinity"
-ATTR_MOVABLE = "movable"
+# ATTR_MOVABLE ist obsolet -> Logik prüft nun auf weight < inf
+ATTR_WEIGHT = "weight" # NEU
 ATTR_ALIASES = "aliases"
 ATTR_DESC = "desc"
 ATTR_ID = "id"
 ATTR_NAME = "name"
-ATTR_TEMP = "temp" # Temperatur in Grad Celsius (NEU)
-ATTR_MATTER = "matter" # Fest/Flüssig (NEU)
+ATTR_TEMP = "temp" 
+ATTR_MATTER = "matter" 
 
 # Dialog & AI
-AI_CHANCE_MOVE_DEFAULT = 20 # Umbenannt von AI_CHANCE_MOVE
+AI_CHANCE_MOVE_DEFAULT = 20
 AI_CHANCE_STAY = 80
 
 # Filter für Resolver

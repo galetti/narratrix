@@ -1,6 +1,4 @@
 # data/common/items.py
-# Layer 1: Items, die der Spieler immer besitzt oder die zum Schiff gehören.
-
 from engine.constants import *
 
 COMMON_ITEMS = {
@@ -11,19 +9,19 @@ COMMON_ITEMS = {
         "aliases": ["tool", "werkzeug", "scanner", "multitool"], 
         "location": LOC_INVENTORY, 
         "type": TYPE_ITEM, 
-        "movable": True, 
+        "weight": 0.5, # Handlich
         "matter": MATTER_SOLID, 
         "desc": "Ein Standard-Werkzeug für Wartung und Hacking. Unverzichtbar."
     },
     "id_card": {
         "id": "id_card", 
-        "name": "USC-Dienstausweis", # Umbenannt
+        "name": "USC-Dienstausweis", 
         "aliases": ["ausweis", "karte", "id", "dienstausweis"], 
         "location": LOC_INVENTORY, 
         "type": TYPE_ITEM, 
-        "movable": True, 
+        "weight": 0.01, # Sehr leicht
         "matter": MATTER_SOLID, 
-        "desc": "Ausgestellt vom United Space Command. Rang: Spezialist. Autorität: Begrenzt." # Angepasste Beschreibung
+        "desc": "Ausgestellt vom United Space Command. Rang: Spezialist. Autorität: Begrenzt."
     },
     
     # --- Schiff-Inventar ---
@@ -33,7 +31,7 @@ COMMON_ITEMS = {
         "aliases": ["schrank"], 
         "location": "ship_quarters", 
         "type": TYPE_CONTAINER, 
-        "movable": False, 
+        "weight": float('inf'), # Fest verbaut
         "is_open": False,
         "desc": "Hier bewahrst du deine Ausrüstung auf."
     },
@@ -43,7 +41,7 @@ COMMON_ITEMS = {
         "aliases": ["bett"], 
         "location": "ship_quarters", 
         "type": TYPE_SURFACE, 
-        "movable": False, 
+        "weight": float('inf'), # Fest verbaut
         "desc": "Nicht sehr bequem, aber deins."
     }
 }

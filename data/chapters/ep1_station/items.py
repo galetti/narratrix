@@ -2,94 +2,132 @@
 from engine.constants import *
 
 ITEMS = {
-    # --- SCENERY ---
+    # --- SCENERY (Unbeweglich = Unendlich schwer) ---
     "terminal": {
         "id": "terminal", "name": "Haupt-Terminal", "aliases": ["computer", "screen", "mainframe"], 
-        "location": "hub", "type": TYPE_SURFACE, "movable": False, 
+        "location": "hub", "type": TYPE_SURFACE, 
+        "weight": float('inf'), 
         "desc": "Zeigt hunderte Fehlermeldungen. Tippe 'hack' für eine Prognose."
     },
     "replicator": {
         "id": "replicator", "name": "Nahrungs-Replikator", "aliases": ["automat", "spender", "replikator"], 
-        "location": "cantina", "type": TYPE_SURFACE, "movable": False, "state": STATE_BROKEN,
+        "location": "cantina", "type": TYPE_SURFACE, "state": STATE_BROKEN,
+        "weight": float('inf'),
         "desc": "Er scheint nur noch heißes Wasser zu produzieren."
     },
     "core": {
         "id": "core", "name": "Reaktorkern", "aliases": ["kern", "reaktor"], 
-        "location": "reactor", "state": STATE_BROKEN, "type": TYPE_SCENERY, "movable": False, 
+        "location": "reactor", "state": STATE_BROKEN, "type": TYPE_SCENERY, 
+        "weight": float('inf'),
         "desc": "Er steht kurz vor der Schmelze.", "temp": 800
     },
     "vent": {
         "id": "vent", "name": "Druckventil", "aliases": ["ventil", "rohr"], 
-        "location": "maintenance", "state": STATE_NORMAL, "type": TYPE_SCENERY, "movable": False, 
+        "location": "maintenance", "state": STATE_NORMAL, "type": TYPE_SCENERY, 
+        "weight": float('inf'),
         "desc": "Es zischt leise.", "temp": 70
     },
     "chair": {
-        "id": "chair", "name": "Kommandosessel", "location": "bridge", "type": TYPE_SURFACE, "movable": False, "desc": "Blutspuren an der Lehne."
+        "id": "chair", "name": "Kommandosessel", "location": "bridge", "type": TYPE_SURFACE, 
+        "weight": 45.0, # Theoretisch beweglich, aber zu schwer fürs Inventar (Logic Soft-Lock später möglich)
+        "desc": "Blutspuren an der Lehne."
     },
     "med_cabinet": {
-        "id": "med_cabinet", "name": "Medizin-Schrank", "aliases": ["schrank"], "location": "medbay", "type": TYPE_CONTAINER, "movable": False, "is_open": True, "desc": "Geplündert."
+        "id": "med_cabinet", "name": "Medizin-Schrank", "aliases": ["schrank"], "location": "medbay", "type": TYPE_CONTAINER, 
+        "weight": float('inf'), 
+        "is_open": True, "desc": "Geplündert."
     },
     "airlock_control": {
         "id": "airlock_control", "name": "Luftschleusen-Steuerung", "aliases": ["steuerung", "panel"],
-        "location": "maintenance", "type": TYPE_SURFACE, "movable": False, "desc": "Kontrolliert den Zugang zum Dock."
+        "location": "maintenance", "type": TYPE_SURFACE, 
+        "weight": float('inf'),
+        "desc": "Kontrolliert den Zugang zum Dock."
+    },
+    "scale": {
+        "id": "scale", "name": "Präzisionswaage", "aliases": ["waage"], 
+        "location": "medbay", "type": TYPE_SURFACE, 
+        "weight": 2.0, # Man KÖNNTE die Waage mitnehmen!
+        "desc": "Eine digitale Waage. Du kannst Dinge darauf legen."
     },
 
-    # --- ITEMS (Lokale Gegenstände) ---
+    # --- ITEMS (Beweglich) ---
     "stim_powder": {
         "id": "stim_powder", "name": "Stim-Pulver", "aliases": ["pulver", "kaffee", "koffein"], 
-        "location": "terminal", "type": TYPE_ITEM, "movable": True, "matter": MATTER_SOLID, 
+        "location": "terminal", "type": TYPE_ITEM, "matter": MATTER_SOLID, 
+        "weight": 0.1, 
         "desc": "Militärisches Aufputschmittel. Trocken."
     },
     "mug": {
         "id": "mug", "name": "Isolier-Becher", "aliases": ["becher", "tasse"], 
-        "location": "replicator", "type": TYPE_CONTAINER, 
-        "movable": True, "matter": MATTER_SOLID, "is_open": True, 
+        "location": "replicator", "type": TYPE_CONTAINER, "matter": MATTER_SOLID, "is_open": True, 
+        "weight": 0.3, 
         "desc": "Ein leerer Becher."
     },
     "hot_water": {
         "id": "hot_water", "name": "Heißes Wasser", "aliases": ["wasser"], 
-        "location": "replicator", "type": TYPE_ITEM, "movable": True, "matter": MATTER_LIQUID, "temp": 95,
+        "location": "replicator", "type": TYPE_ITEM, "matter": MATTER_LIQUID, "temp": 95,
+        "weight": 0.2,
         "desc": "Kochend."
     },
     "stim_caf": {
         "id": "stim_caf", "name": "Stim-Caf", "aliases": ["kaffee", "getränk"], 
-        "location": LOC_VOID, "type": TYPE_ITEM, "movable": True, "matter": MATTER_LIQUID, "temp": 90,
+        "location": LOC_VOID, "type": TYPE_ITEM, "matter": MATTER_LIQUID, "temp": 90,
+        "weight": 0.2,
         "desc": "Starkes Zeug."
     },
     "coolant_canister": {
         "id": "coolant_canister", "name": "Kühlmittel-Kanister", "aliases": ["kanister", "kühlmittel"], 
-        "location": "maintenance", 
-        "type": TYPE_ITEM, "movable": True, "matter": MATTER_SOLID,
+        "location": "maintenance", "type": TYPE_ITEM, "matter": MATTER_SOLID,
+        "weight": 15.0, # Schwer
         "desc": "Schwer und kalt. Aber er hat ein Leck."
     },
     "sealed_coolant": {
         "id": "sealed_coolant", "name": "Versiegelter Kanister", "aliases": ["kanister", "kühlmittel"], 
-        "location": LOC_VOID, 
-        "type": TYPE_ITEM, "movable": True, "matter": MATTER_SOLID,
+        "location": LOC_VOID, "type": TYPE_ITEM, "matter": MATTER_SOLID,
+        "weight": 15.1,
         "desc": "Dicht versiegelt und einsatzbereit."
     },
     "patch_kit": {
         "id": "patch_kit", "name": "Reparatur-Kit", "aliases": ["tape", "kit", "werkzeug"], 
-        "location": "bridge", "type": TYPE_ITEM, "movable": True, "matter": MATTER_SOLID, 
+        "location": "bridge", "type": TYPE_ITEM, "matter": MATTER_SOLID, 
+        "weight": 0.5,
         "desc": "Universelles Dichtmittel."
     },
     "med_gel": {
-        "id": "med_gel", "name": "Bio-Gel", "aliases": ["gel", "medizin"], "location": "med_cabinet", "type": TYPE_ITEM, "movable": True, "matter": MATTER_LIQUID, "desc": "Regenerativ."
+        "id": "med_gel", "name": "Bio-Gel", "aliases": ["gel", "medizin"], "location": "med_cabinet", "type": TYPE_ITEM, "matter": MATTER_LIQUID, 
+        "weight": 0.1,
+        "desc": "Regenerativ."
     },
     "bandage": {
-        "id": "bandage", "name": "Verband", "aliases": ["mull"], "location": "med_cabinet", "type": TYPE_ITEM, "movable": True, "matter": MATTER_SOLID, "desc": "Steril."
+        "id": "bandage", "name": "Verband", "aliases": ["mull"], "location": "med_cabinet", "type": TYPE_ITEM, "matter": MATTER_SOLID, 
+        "weight": 0.05,
+        "desc": "Steril."
     },
     "medikit": {
-        "id": "medikit", "name": "Notfall-Verband", "aliases": ["medikit", "verband"], "location": LOC_VOID, "type": TYPE_ITEM, "movable": True, "matter": MATTER_SOLID, "desc": "Einsatzbereit."
+        "id": "medikit", "name": "Notfall-Verband", "aliases": ["medikit", "verband"], "location": LOC_VOID, "type": TYPE_ITEM, "matter": MATTER_SOLID, 
+        "weight": 0.15,
+        "desc": "Einsatzbereit."
     },
     "access_chip": {
-        "id": "access_chip", "name": "Root-Chip", "aliases": ["chip", "karte"], "location": LOC_VOID, "type": TYPE_ITEM, "movable": True, "matter": MATTER_SOLID, "desc": "Level 5 Zugang."
+        "id": "access_chip", "name": "Root-Chip", "aliases": ["chip", "karte"], "location": LOC_VOID, "type": TYPE_ITEM, "matter": MATTER_SOLID, 
+        "weight": 0.01,
+        "desc": "Level 5 Zugang."
     },
     "scrap_metal": {
-        "id": "scrap_metal", "name": "Metallschrott", "aliases": ["schrott", "metall"], "location": "maintenance", "type": TYPE_ITEM, "movable": True, "matter": MATTER_SOLID, "desc": "Ein Stück verbogenes Metall."
+        "id": "scrap_metal", "name": "Metallschrott", "aliases": ["schrott", "metall"], "location": "maintenance", "type": TYPE_ITEM, "matter": MATTER_SOLID, 
+        "weight": 2.5,
+        "desc": "Ein Stück verbogenes Metall."
     },
     "crowbar": {
-        "id": "crowbar", "name": "Brecheisen", "aliases": ["eisen", "hebel"], "location": LOC_VOID, "type": TYPE_ITEM, "movable": True, "matter": MATTER_SOLID, "desc": "Ein improvisiertes Brecheisen."
+        "id": "crowbar", "name": "Brecheisen", "aliases": ["eisen", "hebel"], "location": LOC_VOID, "type": TYPE_ITEM, "matter": MATTER_SOLID, 
+        "weight": 2.4,
+        "desc": "Ein improvisiertes Brecheisen."
+    },
+    "strange_rock": {
+        "id": "strange_rock", "name": "Dichter Stein", "aliases": ["stein", "brocken"], 
+        "location": "medbay", "type": TYPE_ITEM, "matter": MATTER_SOLID,
+        "weight": 100.0, 
+        "desc": "Ein faustgroßer Stein, der aber unmöglich schwer ist."
     }
 }
 

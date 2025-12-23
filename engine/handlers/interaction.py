@@ -25,7 +25,7 @@ class InteractionHandler:
                 elif obj.get('type') == TYPE_CONTAINER and obj.get('is_open'):
                     contents = [sub[ATTR_NAME] for sub in game.objects.values() if sub['location'] == obj[ATTR_ID]]
                     if contents: game.log('info', f"Im offenen {obj[ATTR_NAME]}: {', '.join(contents)}")
-                elif obj.get('type') == TYPE_ITEM or (not obj.get('type') and obj.get(ATTR_MOVABLE)):
+                elif obj.get('type') == TYPE_ITEM or (not obj.get('type') and obj.get(ATTR_WEIGHT, float('inf')) < float('inf')):
                      visible_objs.append(obj[ATTR_NAME])
             if visible_objs: game.log('info', f"Am Boden: {', '.join(visible_objs)}")
             visible_npcs = [n[ATTR_NAME] for n in game.npcs if n['location'] == game.location]
@@ -46,6 +46,15 @@ class InteractionHandler:
                 elif temp < 5: status.append("Es ist eiskalt.")
                 
                 if target.get(ATTR_MATTER) == MATTER_LIQUID: status.append("Es ist flüssig.")
+
+                # Waagen-Logik (unverändert)
+                if target['id'] == 'scale':
+                    contents = [o for o in game.objects.values() if o['location'] == 'scale']
+                    total_weight = sum(o.get('weight', 0) for o in contents)
+                    if total_weight > 0:
+                        status.append(f"Display: {total_weight:.2f} kg")
+                    else:
+                        status.append("Display: 0.00 kg")
 
                 if target.get('type') == TYPE_CONTAINER:
                     if target.get('is_locked'): status.append("Verschlossen.")
@@ -69,7 +78,8 @@ class InteractionHandler:
     @staticmethod
     def take(game, args):
         if any(w in args for w in ["all", "alles", "alle"]):
-            candidates = [o for o in game.objects.values() if o.get(ATTR_MOVABLE)]
+            # Alles nehmen (Nur Dinge mit endlichem Gewicht)
+            candidates = [o for o in game.objects.values() if o.get(ATTR_WEIGHT, float('inf')) < float('inf')]
             taken = []
             for item in candidates:
                 if item.get(ATTR_MATTER) == MATTER_LIQUID: continue 
@@ -100,8 +110,11 @@ class InteractionHandler:
                 if target['location'] == LOC_INVENTORY:
                     game.log('info', "Hast du schon.")
                     return
-                elif not target.get(ATTR_MOVABLE):
-                    game.log('error', "Das ist fest verankert.")
+                
+                # NEU: Prüfen auf Gewicht statt Flag
+                weight = target.get(ATTR_WEIGHT, float('inf'))
+                if weight == float('inf'):
+                    game.log('error', "Das ist viel zu schwer oder fest verankert.")
                     return
                 
                 if target.get(ATTR_MATTER) == MATTER_LIQUID:
@@ -122,109 +135,64 @@ class InteractionHandler:
         except ResolutionError as e:
             game.log('error', str(e))
 
+    # ... give, open, put, inventory, use, break_, fix, drop_item, wait bleiben gleich ...
     @staticmethod
     def give(game, args):
         separators = ["an", "to", "dem", "der"]
         sep_indices = [i for i, w in enumerate(args) if w.lower() in separators]
-        
-        item_words = []
-        npc_words = []
-        
-        if sep_indices:
-            idx = sep_indices[0]
-            item_words = args[:idx]
-            npc_words = args[idx+1:]
-        else:
-            if len(args) < 2: return game.log('error', "Was an wen?")
-            item_words = args[:-1]
-            npc_words = [args[-1]]
-            
+        item_words = args[:sep_indices[0]] if sep_indices else args[:-1]
+        npc_words = args[idx+1:] if sep_indices else [args[-1]]
         try:
             item = Resolver.resolve_target(game, item_words, location_filter=FILTER_INVENTORY, verb='give_item')
             if item:
                 npc = Resolver.find_mentioned_npc(game, npc_words)
                 if not npc: return game.log('error', "Diese Person ist nicht hier.")
-                
-                # --- FAIL SAFE LOGIC START ---
-                
-                # 1. Trigger berechnen, die dieses Item auslösen würde
                 trigger_ids = [f"received_{item[ATTR_ID]}"]
                 if item.get('type') == TYPE_CONTAINER:
                     contents = [o for o in game.objects.values() if o['location'] == item[ATTR_ID]]
-                    for c in contents:
-                        trigger_ids.append(f"received_{c[ATTR_ID]}")
-
-                # 2. Prüfen, ob der NPC eine Reaktion darauf hat
+                    for c in contents: trigger_ids.append(f"received_{c[ATTR_ID]}")
                 current_state = npc.get('state', 'default')
                 dialogue_root = npc.get('dialogue', {})
                 state_db = dialogue_root.get(current_state, {})
-                
                 reaction_entry = None
-                
                 for topic, entry in state_db.items():
                     if isinstance(entry, dict) and 'condition' in entry:
                         cond = entry['condition']
-                        # Prüfen ob die Condition 'received_X' ist
-                        if isinstance(cond, dict) and cond.get('type') == 'knowledge' and cond.get('value') in trigger_ids:
-                            reaction_entry = entry
-                            break
-                        elif isinstance(cond, str) and cond in trigger_ids:
-                            reaction_entry = entry
-                            break
-                
-                # 3. Entscheidung: Geben oder Behalten?
+                        if isinstance(cond, dict) and cond.get('type') == 'knowledge' and cond.get('value') in trigger_ids: reaction_entry = entry; break
+                        elif isinstance(cond, str) and cond in trigger_ids: reaction_entry = entry; break
                 if reaction_entry:
-                    # NPC will es -> Transfer
                     game.log('success', f"Du gibst {item[ATTR_NAME]} an {npc[ATTR_NAME]}.")
                     item['location'] = LOC_VOID 
-                    
-                    for t_id in trigger_ids:
-                        game.add_knowledge(t_id)
-
-                    # Dialog starten
+                    for t_id in trigger_ids: game.add_knowledge(t_id)
                     from engine.handlers.dialogue import DialogueHandler
                     game.dialogue_active = True
                     game.dialogue_partner = npc
                     game.log('event', f"--- GESPRÄCH MIT {npc[ATTR_NAME].upper()} ---")
-                    
                     DialogueHandler._print_dialogue(game, npc, reaction_entry)
                     DialogueHandler.process_effects(game, reaction_entry, npc)
-                else:
-                    # NPC braucht es nicht -> Abbrechen
-                    game.log('character', f"{npc[ATTR_NAME]} lehnt ab: \"Das brauche ich gerade nicht.\"")
-                    
-                # --- FAIL SAFE LOGIC END ---
-
-        except ResolutionError as e:
-            game.log('error', str(e))
+                else: game.log('character', f"{npc[ATTR_NAME]} lehnt ab: \"Das brauche ich gerade nicht.\"")
+        except ResolutionError as e: game.log('error', str(e))
 
     @staticmethod
     def open(game, args):
         clean_args = Resolver.clean_args(args)
         try:
             target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_RECURSIVE, verb='open')
-            
             if target: 
                 if target.get('type') == TYPE_SURFACE: return game.log('info', "Das ist offen sichtbar.")
                 if target.get('type') != TYPE_CONTAINER: return game.log('error', "Das lässt sich nicht öffnen.")
-                
                 if target.get('is_locked'):
                     key_id = target.get('key_id')
                     if key_id:
                         has_key = any(o[ATTR_ID] == key_id and o['location'] == LOC_INVENTORY for o in game.objects.values())
-                        if has_key:
-                            key_obj = game.objects[key_id]; game.log('info', f"(Ich schließe mit {key_obj[ATTR_NAME]} auf...)"); target['is_locked'] = False
+                        if has_key: key_obj = game.objects[key_id]; game.log('info', f"(Ich schließe mit {key_obj[ATTR_NAME]} auf...)"); target['is_locked'] = False
                         else: return game.log('error', "Verschlossen. Du brauchst einen Schlüssel.")
                     else: return game.log('error', "Verschlossen.")
-                
-                if target.get('is_open'):
-                    return game.log('info', "Ist schon offen.")
-
+                if target.get('is_open'): return game.log('info', "Ist schon offen.")
                 target['is_open'] = True
                 game.log('success', f"{target[ATTR_NAME]} geöffnet.")
                 InteractionHandler.look(game, clean_args)
-        except ResolutionError as e:
-            game.log('error', str(e))
+        except ResolutionError as e: game.log('error', str(e))
 
     @staticmethod
     def put(game, args):
@@ -233,7 +201,6 @@ class InteractionHandler:
         sep_indices = [i for i, w in enumerate(args) if w.lower() in separators]
         item_words = args[:sep_indices[0]] if sep_indices else args[:-1]
         container_words = args[sep_indices[0]+1:] if sep_indices else [args[-1]]
-        
         try:
             item = Resolver.resolve_target(game, item_words, location_filter=FILTER_INVENTORY, verb='put_item')
             if item: 
@@ -242,11 +209,12 @@ class InteractionHandler:
                     if container == item: return game.log('error', "Geht nicht.")
                     if container.get('type') not in [TYPE_CONTAINER, TYPE_SURFACE]: return game.log('error', "Da kannst du nichts reinlegen.")
                     if container.get('type') == TYPE_CONTAINER and not container.get('is_open'): return game.log('error', f"Der {container[ATTR_NAME]} ist geschlossen.")
-                    
                     item['location'] = container[ATTR_ID]; prep = "auf" if container.get('type') == TYPE_SURFACE else "in"
                     game.log('success', f"Du legst {item[ATTR_NAME]} {prep} {container[ATTR_NAME]}."); game.tick(2)
-        except ResolutionError as e:
-            game.log('error', str(e))
+                    if container['id'] == 'scale':
+                        weight = item.get('weight', 0)
+                        game.log('info', f"Das Display der Waage springt an: {weight:.2f} kg")
+        except ResolutionError as e: game.log('error', str(e))
 
     @staticmethod
     def inventory(game, args):
@@ -275,14 +243,12 @@ class InteractionHandler:
             item1_name = " ".join(args[:idx])
             item2_name = " ".join(args[idx+1:])
         elif len(args) >= 2:
-            item1_name = args[0]
-            item2_name = args[-1]
+            item1_name = args[0]; item2_name = args[-1]
             if len(args) > 2: mid = len(args) // 2; item1_name = " ".join(args[:mid]); item2_name = " ".join(args[mid:])
         else:
             game.log('info', f"Womit möchtest du {' '.join(args)} benutzen?")
             game.pending_interaction = {'verb': 'use', 'args': args}
             return
-
         result_msg = game.perform_combine(item1_name, item2_name)
         if "Fehler" in result_msg or "nicht" in result_msg.lower(): game.log('error', result_msg)
         else: game.log('success', result_msg); game.tick(2)
@@ -298,8 +264,7 @@ class InteractionHandler:
                 if key_obj and key_obj['location'] == LOC_INVENTORY:
                      game.log('success', f"Du brichst das Schloss mit dem {key_obj[ATTR_NAME]} auf."); target['is_locked'] = False; target['is_open'] = True; game.tick(5); InteractionHandler.look(game, clean_args)
                 else: game.log('error', "Du brauchst Werkzeug.")
-        except ResolutionError as e:
-            game.log('error', str(e))
+        except ResolutionError as e: game.log('error', str(e))
 
     @staticmethod
     def fix(game, args):
@@ -309,8 +274,7 @@ class InteractionHandler:
             if target: 
                 if target.get('state') in [STATE_SABOTAGED, STATE_BROKEN]: target['state'] = STATE_NORMAL; game.log('success', f"Repariert."); game.tick(15)
                 else: game.log('info', "Scheint intakt zu sein.")
-        except ResolutionError as e:
-            game.log('error', str(e))
+        except ResolutionError as e: game.log('error', str(e))
     
     @staticmethod
     def drop_item(game, args):
@@ -318,8 +282,7 @@ class InteractionHandler:
         try:
             target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_INVENTORY, verb='drop')
             if target: target['location'] = game.location; game.log('success', f"{target[ATTR_NAME]} fallen gelassen."); game.tick(1)
-        except ResolutionError as e:
-            game.log('error', str(e))
+        except ResolutionError as e: game.log('error', str(e))
         
     @staticmethod
     def wait(game, args):
