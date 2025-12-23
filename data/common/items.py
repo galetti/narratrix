@@ -8,7 +8,7 @@ COMMON_ITEMS = {
     "multitool": {
         "id": "multitool", 
         "name": "Omni-Tool", 
-        "aliases": ["tool", "werkzeug", "scanner", "multitool"], # Alias 'multitool' hinzugefügt
+        "aliases": ["tool", "werkzeug", "scanner", "multitool"], 
         "location": LOC_INVENTORY, 
         "type": TYPE_ITEM, 
         "movable": True, 
@@ -17,13 +17,13 @@ COMMON_ITEMS = {
     },
     "id_card": {
         "id": "id_card", 
-        "name": "BSI-Ausweis", 
-        "aliases": ["ausweis", "karte", "id"], 
+        "name": "USC-Dienstausweis", # Umbenannt
+        "aliases": ["ausweis", "karte", "id", "dienstausweis"], 
         "location": LOC_INVENTORY, 
         "type": TYPE_ITEM, 
         "movable": True, 
         "matter": MATTER_SOLID, 
-        "desc": "Rang: Spezialist. Autorität: Begrenzt."
+        "desc": "Ausgestellt vom United Space Command. Rang: Spezialist. Autorität: Begrenzt." # Angepasste Beschreibung
     },
     
     # --- Schiff-Inventar ---
