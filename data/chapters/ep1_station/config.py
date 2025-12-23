@@ -2,7 +2,11 @@
 from .rooms import ROOMS
 from .items import ITEMS, COMBINATIONS
 from .events import NARRATIVE_MATRIX
-from .npcs import NPCS # Importiert die lokalen NPCs (Val)
+from .events_flavor import FLAVOR_MATRIX # Import der Flavor Events
+from .npcs import NPCS
+
+# Kombiniere Story- und Flavor-Events
+FULL_MATRIX = NARRATIVE_MATRIX + FLAVOR_MATRIX
 
 # Manifest für den Loader
 CHAPTER_CONFIG = {
@@ -14,6 +18,15 @@ CHAPTER_CONFIG = {
     "rooms": ROOMS,
     "objects": ITEMS,
     "combinations": COMBINATIONS,
-    "matrix": NARRATIVE_MATRIX,
-    "npcs": NPCS # Val wird hier geladen und mit Common NPCs gemerged
+    "matrix": FULL_MATRIX, # Nutzung der kombinierten Matrix
+    "npcs": NPCS,
+    
+    # Explizite Definition der Links zum Common Layer
+    "links": [
+        {
+            "from_common": "ship_cockpit", 
+            "dir": "out", 
+            "to_chapter_tag": "common_dock"
+        }
+    ]
 }

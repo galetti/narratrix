@@ -29,6 +29,10 @@ ITEMS = {
     "med_cabinet": {
         "id": "med_cabinet", "name": "Medizin-Schrank", "aliases": ["schrank"], "location": "medbay", "type": TYPE_CONTAINER, "movable": False, "is_open": True, "desc": "Geplündert."
     },
+    "airlock_control": {
+        "id": "airlock_control", "name": "Luftschleusen-Steuerung", "aliases": ["steuerung", "panel"],
+        "location": "maintenance", "type": TYPE_SURFACE, "movable": False, "desc": "Kontrolliert den Zugang zum Dock."
+    },
 
     # --- ITEMS (Lokale Gegenstände) ---
     "stim_powder": {
@@ -80,6 +84,12 @@ ITEMS = {
     },
     "access_chip": {
         "id": "access_chip", "name": "Root-Chip", "aliases": ["chip", "karte"], "location": LOC_VOID, "type": TYPE_ITEM, "movable": True, "matter": MATTER_SOLID, "desc": "Level 5 Zugang."
+    },
+    "scrap_metal": {
+        "id": "scrap_metal", "name": "Metallschrott", "aliases": ["schrott", "metall"], "location": "maintenance", "type": TYPE_ITEM, "movable": True, "matter": MATTER_SOLID, "desc": "Ein Stück verbogenes Metall."
+    },
+    "crowbar": {
+        "id": "crowbar", "name": "Brecheisen", "aliases": ["eisen", "hebel"], "location": LOC_VOID, "type": TYPE_ITEM, "movable": True, "matter": MATTER_SOLID, "desc": "Ein improvisiertes Brecheisen."
     }
 }
 
@@ -96,12 +106,20 @@ COMBINATIONS = [
     },
     {
         "items": ["coolant_canister", "patch_kit"], 
-        "result": "sealed_coolant", "consume": ["coolant_canister"], 
-        "message": "Du klebst das Leck mit dem Dichtmittel zu. Es scheint zu halten."
+        "tools": ["multitool"],
+        "result": "sealed_coolant", "consume": ["patch_kit"], 
+        "message": "Mit Hilfe des Multitools klebst du das Leck mit dem Dichtmittel zu. Es scheint zu halten."
     },
     {
         "items": ["med_gel", "bandage"],
         "result": "medikit", "consume": ["med_gel", "bandage"],
         "message": "Du präparierst einen sterilen Verband mit dem Gel."
+    },
+    {
+        "items": ["scrap_metal"],
+        "tools": ["multitool"],
+        "result": "crowbar",
+        "consume": ["scrap_metal"],
+        "message": "Du biegst das Metall mit dem Multitool zurecht und fertigst ein grobes Brecheisen an."
     }
 ]
