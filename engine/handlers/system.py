@@ -1,36 +1,123 @@
 import os
 import json
+import threading
 from engine.handlers.interaction import InteractionHandler
 from engine.analysis import generate_future_matrix
 from engine.constants import *
 
 class SystemHandler:
+    
+    @staticmethod
+    def help(game, args):
+        game.log('info', "--- HILFE & BEFEHLE ---")
+        game.log('info', "Bewegung:     gehe [nord/süd/ost/west/oben/unten/raus] (n, s, o, w, u, d)")
+        game.log('info', "Exploration:  schau [objekt] (l, x), nimm [objekt]")
+        game.log('info', "Interaktion:  benutze [objekt] mit [objekt]")
+        game.log('info', "Inventar:     i, inv, inventar")
+        game.log('info', "Gespräch:     rede mit [person], gib [item] an [person]")
+        game.log('info', "System:       save, load, map, quit, help (h)")
+        game.log('info', "Tipp:         Pfeiltasten für Korrekturen & History.")
+
     @staticmethod
     def save(game, args):
         save_dir = "saves"
         if not os.path.exists(save_dir): os.makedirs(save_dir)
-        filename = f"{''.join(x for x in args[0] if x.isalnum())}.json" if args else "savegame.json"
-        filepath = os.path.join(save_dir, filename)
+        
+        filename = None
+        
+        # Fall 1: Argument angegeben (Quick Save)
+        if args:
+            filename = f"{''.join(x for x in args[0] if x.isalnum())}.json"
+            filepath = os.path.join(save_dir, filename)
+        else:
+            # Fall 2: Datei-Dialog
+            try:
+                import tkinter as tk
+                from tkinter import filedialog
+                root = tk.Tk()
+                root.withdraw() # Hauptfenster verstecken
+                root.attributes('-topmost', True) # Über Pygame legen
+                
+                # Absoluter Pfad für den Dialog-Start
+                start_dir = os.path.abspath(save_dir)
+                
+                selected_path = filedialog.asksaveasfilename(
+                    initialdir=start_dir,
+                    title="Spielstand speichern",
+                    defaultextension=".json",
+                    filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")]
+                )
+                root.destroy()
+                
+                if not selected_path: return # Abgebrochen
+                filepath = selected_path
+                filename = os.path.basename(filepath)
+            except Exception as e:
+                # Fallback für Headless oder Fehler
+                print(f"[WARN] GUI Dialog fehlgeschlagen: {e}")
+                filename = "savegame.json"
+                filepath = os.path.join(save_dir, filename)
+
+        # Speichern Logik
         state = {
             "time": game.time, "location": game.location, "stability": game.stability, "game_over": game.game_over,
             "knowledge": list(game.knowledge), "objects": game.objects, "npcs": game.npcs, "matrix": game.matrix, "logs": game.logs[-50:]
         }
-        with open(filepath, 'w', encoding='utf-8') as f: json.dump(state, f, indent=2, ensure_ascii=False)
-        game.log('success', f"Gespeichert: {filename}")
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f: 
+                json.dump(state, f, indent=2, ensure_ascii=False)
+            game.log('success', f"Gespeichert: {filename}")
+        except Exception as e:
+            game.log('error', f"Fehler beim Speichern: {e}")
 
     @staticmethod
     def load(game, args):
         save_dir = "saves"
-        filename = f"{''.join(x for x in args[0] if x.isalnum())}.json" if args else "savegame.json"
-        filepath = os.path.join(save_dir, filename)
-        if not os.path.exists(filepath): return game.log('error', "Spielstand nicht gefunden.")
-        with open(filepath, 'r', encoding='utf-8') as f: state = json.load(f)
-        game.time = state.get("time"); game.location = state.get("location"); game.stability = state.get("stability")
-        game.game_over = state.get("game_over"); game.knowledge = set(state.get("knowledge"))
-        game.objects = state.get("objects"); game.npcs = state.get("npcs"); game.matrix = state.get("matrix"); game.logs = state.get("logs")
-        game.disambiguation = None; game.dialogue_active = False 
-        game.log('success', f"Geladen: {filename}")
-        InteractionHandler.look(game, [])
+        filepath = None
+        
+        if args:
+            filename = f"{''.join(x for x in args[0] if x.isalnum())}.json"
+            filepath = os.path.join(save_dir, filename)
+        else:
+            # Datei-Dialog
+            try:
+                import tkinter as tk
+                from tkinter import filedialog
+                root = tk.Tk()
+                root.withdraw()
+                root.attributes('-topmost', True)
+                
+                start_dir = os.path.abspath(save_dir)
+                
+                selected_path = filedialog.askopenfilename(
+                    initialdir=start_dir,
+                    title="Spielstand laden",
+                    filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")]
+                )
+                root.destroy()
+                
+                if not selected_path: return
+                filepath = selected_path
+            except Exception as e:
+                game.log('error', f"GUI Dialog Fehler: {e}")
+                return
+
+        if not os.path.exists(filepath): 
+            return game.log('error', "Spielstand nicht gefunden.")
+            
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f: state = json.load(f)
+            
+            # State wiederherstellen
+            game.time = state.get("time"); game.location = state.get("location"); game.stability = state.get("stability")
+            game.game_over = state.get("game_over"); game.knowledge = set(state.get("knowledge"))
+            game.objects = state.get("objects"); game.npcs = state.get("npcs"); game.matrix = state.get("matrix"); game.logs = state.get("logs")
+            game.disambiguation = None; game.dialogue_active = False 
+            
+            game.log('success', f"Geladen: {os.path.basename(filepath)}")
+            InteractionHandler.look(game, [])
+        except Exception as e:
+            game.log('error', f"Ladefehler: {e}")
 
     @staticmethod
     def oracle(game, args):

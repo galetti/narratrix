@@ -1,15 +1,69 @@
 {
-  "time": 213,
+  "time": 0,
   "location": "hub",
   "stability": 100,
   "game_over": false,
-  "knowledge": [
-    "received_access_chip",
-    "received_stim_caf",
-    "received_medikit",
-    "val_sacrifice_ready"
-  ],
+  "knowledge": [],
   "objects": {
+    "multitool": {
+      "id": "multitool",
+      "name": "Omni-Tool",
+      "aliases": [
+        "tool",
+        "werkzeug",
+        "scanner",
+        "multitool"
+      ],
+      "location": "inventory",
+      "type": "item",
+      "weight": 0.5,
+      "matter": "solid",
+      "desc": "Ein Standard-Werkzeug für Wartung und Hacking. Unverzichtbar.",
+      "temp": 20
+    },
+    "id_card": {
+      "id": "id_card",
+      "name": "USC-Dienstausweis",
+      "aliases": [
+        "ausweis",
+        "karte",
+        "id",
+        "dienstausweis"
+      ],
+      "location": "inventory",
+      "type": "item",
+      "weight": 0.01,
+      "matter": "solid",
+      "desc": "Ausgestellt vom United Space Command. Rang: Spezialist. Autorität: Begrenzt.",
+      "temp": 20
+    },
+    "ship_locker": {
+      "id": "ship_locker",
+      "name": "Spind",
+      "aliases": [
+        "schrank"
+      ],
+      "location": "ship_quarters",
+      "type": "container",
+      "weight": Infinity,
+      "is_open": false,
+      "desc": "Hier bewahrst du deine Ausrüstung auf.",
+      "temp": 20,
+      "matter": "solid"
+    },
+    "bed": {
+      "id": "bed",
+      "name": "Koje",
+      "aliases": [
+        "bett"
+      ],
+      "location": "ship_quarters",
+      "type": "surface",
+      "weight": Infinity,
+      "desc": "Nicht sehr bequem, aber deins.",
+      "temp": 20,
+      "matter": "solid"
+    },
     "terminal": {
       "id": "terminal",
       "name": "Haupt-Terminal",
@@ -20,7 +74,7 @@
       ],
       "location": "hub",
       "type": "surface",
-      "movable": false,
+      "weight": Infinity,
       "desc": "Zeigt hunderte Fehlermeldungen. Tippe 'hack' für eine Prognose.",
       "temp": 20,
       "matter": "solid"
@@ -35,8 +89,8 @@
       ],
       "location": "cantina",
       "type": "surface",
-      "movable": false,
       "state": "broken",
+      "weight": Infinity,
       "desc": "Er scheint nur noch heißes Wasser zu produzieren.",
       "temp": 20,
       "matter": "solid"
@@ -51,9 +105,9 @@
       "location": "reactor",
       "state": "broken",
       "type": "scenery",
-      "movable": false,
+      "weight": Infinity,
       "desc": "Er steht kurz vor der Schmelze.",
-      "temp": 20,
+      "temp": 800,
       "matter": "solid"
     },
     "vent": {
@@ -66,9 +120,9 @@
       "location": "maintenance",
       "state": "normal",
       "type": "scenery",
-      "movable": false,
+      "weight": Infinity,
       "desc": "Es zischt leise.",
-      "temp": 20,
+      "temp": 70,
       "matter": "solid"
     },
     "chair": {
@@ -76,7 +130,7 @@
       "name": "Kommandosessel",
       "location": "bridge",
       "type": "surface",
-      "movable": false,
+      "weight": 45.0,
       "desc": "Blutspuren an der Lehne.",
       "temp": 20,
       "matter": "solid"
@@ -89,9 +143,36 @@
       ],
       "location": "medbay",
       "type": "container",
-      "movable": false,
+      "weight": Infinity,
       "is_open": true,
       "desc": "Geplündert.",
+      "temp": 20,
+      "matter": "solid"
+    },
+    "airlock_control": {
+      "id": "airlock_control",
+      "name": "Luftschleusen-Steuerung",
+      "aliases": [
+        "steuerung",
+        "panel"
+      ],
+      "location": "maintenance",
+      "type": "surface",
+      "weight": Infinity,
+      "desc": "Kontrolliert den Zugang zum Dock.",
+      "temp": 20,
+      "matter": "solid"
+    },
+    "scale": {
+      "id": "scale",
+      "name": "Präzisionswaage",
+      "aliases": [
+        "waage"
+      ],
+      "location": "medbay",
+      "type": "surface",
+      "weight": 2.0,
+      "desc": "Eine digitale Waage. Du kannst Dinge darauf legen.",
       "temp": 20,
       "matter": "solid"
     },
@@ -103,10 +184,10 @@
         "kaffee",
         "koffein"
       ],
-      "location": "void",
+      "location": "terminal",
       "type": "item",
-      "movable": true,
       "matter": "solid",
+      "weight": 0.1,
       "desc": "Militärisches Aufputschmittel. Trocken.",
       "temp": 20
     },
@@ -117,11 +198,11 @@
         "becher",
         "tasse"
       ],
-      "location": "inventory",
+      "location": "replicator",
       "type": "container",
-      "movable": true,
       "matter": "solid",
       "is_open": true,
+      "weight": 0.3,
       "desc": "Ein leerer Becher.",
       "temp": 20
     },
@@ -131,11 +212,11 @@
       "aliases": [
         "wasser"
       ],
-      "location": "void",
+      "location": "replicator",
       "type": "item",
-      "movable": true,
       "matter": "liquid",
-      "temp": 20,
+      "temp": 95,
+      "weight": 0.2,
       "desc": "Kochend."
     },
     "stim_caf": {
@@ -147,9 +228,9 @@
       ],
       "location": "void",
       "type": "item",
-      "movable": true,
       "matter": "liquid",
-      "temp": 20,
+      "temp": 90,
+      "weight": 0.2,
       "desc": "Starkes Zeug."
     },
     "coolant_canister": {
@@ -159,10 +240,10 @@
         "kanister",
         "kühlmittel"
       ],
-      "location": "void",
+      "location": "maintenance",
       "type": "item",
-      "movable": true,
       "matter": "solid",
+      "weight": 15.0,
       "desc": "Schwer und kalt. Aber er hat ein Leck.",
       "temp": 20
     },
@@ -173,10 +254,10 @@
         "kanister",
         "kühlmittel"
       ],
-      "location": "inventory",
+      "location": "void",
       "type": "item",
-      "movable": true,
       "matter": "solid",
+      "weight": 15.1,
       "desc": "Dicht versiegelt und einsatzbereit.",
       "temp": 20
     },
@@ -188,10 +269,10 @@
         "kit",
         "werkzeug"
       ],
-      "location": "inventory",
+      "location": "bridge",
       "type": "item",
-      "movable": true,
       "matter": "solid",
+      "weight": 0.5,
       "desc": "Universelles Dichtmittel.",
       "temp": 20
     },
@@ -202,10 +283,10 @@
         "gel",
         "medizin"
       ],
-      "location": "void",
+      "location": "med_cabinet",
       "type": "item",
-      "movable": true,
       "matter": "liquid",
+      "weight": 0.1,
       "desc": "Regenerativ.",
       "temp": 20
     },
@@ -215,10 +296,10 @@
       "aliases": [
         "mull"
       ],
-      "location": "void",
+      "location": "med_cabinet",
       "type": "item",
-      "movable": true,
       "matter": "solid",
+      "weight": 0.05,
       "desc": "Steril.",
       "temp": 20
     },
@@ -231,8 +312,8 @@
       ],
       "location": "void",
       "type": "item",
-      "movable": true,
       "matter": "solid",
+      "weight": 0.15,
       "desc": "Einsatzbereit.",
       "temp": 20
     },
@@ -245,9 +326,51 @@
       ],
       "location": "void",
       "type": "item",
-      "movable": true,
       "matter": "solid",
+      "weight": 0.01,
       "desc": "Level 5 Zugang.",
+      "temp": 20
+    },
+    "scrap_metal": {
+      "id": "scrap_metal",
+      "name": "Metallschrott",
+      "aliases": [
+        "schrott",
+        "metall"
+      ],
+      "location": "maintenance",
+      "type": "item",
+      "matter": "solid",
+      "weight": 2.5,
+      "desc": "Ein Stück verbogenes Metall.",
+      "temp": 20
+    },
+    "crowbar": {
+      "id": "crowbar",
+      "name": "Brecheisen",
+      "aliases": [
+        "eisen",
+        "hebel"
+      ],
+      "location": "void",
+      "type": "item",
+      "matter": "solid",
+      "weight": 2.4,
+      "desc": "Ein improvisiertes Brecheisen.",
+      "temp": 20
+    },
+    "strange_rock": {
+      "id": "strange_rock",
+      "name": "Dichter Stein",
+      "aliases": [
+        "stein",
+        "brocken"
+      ],
+      "location": "medbay",
+      "type": "item",
+      "matter": "solid",
+      "weight": 100.0,
+      "desc": "Ein faustgroßer Stein, der aber unmöglich schwer ist.",
       "temp": 20
     }
   },
@@ -261,7 +384,7 @@
       ],
       "is_global": true,
       "start_loc": "cantina",
-      "location": "hub",
+      "location": "cantina",
       "initial_state": "panic",
       "states": {
         "panic": {
@@ -363,15 +486,16 @@
           }
         }
       },
-      "state": "hacking",
-      "movement_chance": 0,
+      "state": "panic",
+      "movement_chance": 40,
       "affinity": [
-        "hub"
+        "cantina",
+        "reactor"
       ],
       "route": [],
-      "img": "face_aris_alert",
-      "desc": "Er tippt wild auf dem Terminal herum.",
-      "personality": "Fokussiert",
+      "img": "face_aris_tired",
+      "desc": "Er zittert.",
+      "personality": "Gestresst",
       "dialogue": {
         "panic": {
           "greeting": "Verdammt! Ich brauche einen Stim!",
@@ -389,69 +513,71 @@
               "value": "focused"
             }
           }
-        },
-        "focused": {
-          "greeting": "Wir müssen das Schiff retten.",
-          "chip": {
-            "condition": {
-              "type": "knowledge",
-              "value": "received_access_chip"
-            },
-            "text": "Ich starte K.A.R.L. neu!",
-            "effect": [
-              {
-                "type": "move_npc",
-                "target": "hub"
-              },
-              {
-                "type": "set_state",
-                "value": "hacking"
-              },
-              {
-                "type": "set_npc_state",
-                "npc": "K.A.R.L.",
-                "value": "online"
-              }
-            ]
-          }
-        },
-        "hacking": {
-          "greeting": "Nicht jetzt!",
-          "default": "Keine Zeit!"
         }
       },
-      "_last_hydrated_state": "hacking",
-      "destination": null,
-      "route_behavior": "loop",
-      "route_index": 0
+      "_last_hydrated_state": "panic"
     },
     {
       "id": "npc_karl",
       "name": "K.A.R.L.",
       "aliases": [
-        "ki",
-        "karl"
+        "ki"
       ],
       "is_global": true,
       "start_loc": "hub",
       "location": "hub",
+      "initial_state": "offline",
+      "states": {
+        "offline": {
+          "behavior": {
+            "movement_chance": 0,
+            "affinity": [
+              "hub"
+            ],
+            "route": []
+          },
+          "visuals": {
+            "img": "face_ai_glitch",
+            "desc": "Das Hologramm flackert rot und verzerrt.",
+            "personality": "Roboter (Defekt)"
+          },
+          "dialogue": {
+            "greeting": "S-S-Systemfehler. Bitte Root-Chip einlegen."
+          }
+        },
+        "online": {
+          "behavior": {
+            "movement_chance": 0,
+            "affinity": [
+              "hub"
+            ],
+            "route": []
+          },
+          "visuals": {
+            "img": "face_ai_calm",
+            "desc": "Das Hologramm leuchtet ruhig blau.",
+            "personality": "Hilfsbereit, sarkastisch"
+          },
+          "dialogue": {
+            "greeting": "Systeme online. Kestrel ist startklar. Wir warten auf Ihren Befehl."
+          }
+        }
+      },
+      "state": "offline",
+      "movement_chance": 0,
       "affinity": [
         "hub"
       ],
-      "movement_chance": 0,
-      "state": "online",
-      "img": "face_ai_calm",
-      "personality": "Roboter",
-      "desc": "Flackert.",
+      "route": [],
+      "img": "face_ai_glitch",
+      "desc": "Das Hologramm flackert rot und verzerrt.",
+      "personality": "Roboter (Defekt)",
       "dialogue": {
         "offline": {
-          "greeting": "Systemfehler."
-        },
-        "online": {
-          "img": "face_ai_calm",
-          "greeting": "Systeme online. Kestrel ist startklar. Wir warten auf Ihren Befehl."
+          "greeting": "S-S-Systemfehler. Bitte Root-Chip einlegen."
         }
-      }
+      },
+      "_last_hydrated_state": "offline"
     },
     {
       "id": "npc_val",
@@ -475,7 +601,7 @@
           },
           "visuals": {
             "img": "face_val_pain",
-            "desc": "Sie liegt über der Konsole. Das Gravitationsfeld des Schwarzen Lochs zerrt bereits an der Station.",
+            "desc": "Sie liegt über der Konsole, eine Hand auf eine klaffende Wunde an ihrer Seite gepresst. Das Gravitationsfeld des Schwarzen Lochs zerrt bereits spürbar an der Station.",
             "personality": "Schmerzerfüllt"
           },
           "dialogue": {
@@ -485,12 +611,14 @@
                 "type": "knowledge",
                 "value": "received_medikit"
               },
-              "text": "(Keucht) Das Stimulanz... wirkt. Ich kann mich fokussieren.",
+              "text": "(Keucht) Das Stimulanz... wirkt. Der Schmerz lässt nach. Ich kann mich wieder fokussieren.",
               "effect": {
                 "type": "set_state",
                 "value": "sacrifice"
               }
-            }
+            },
+            "hilfe": "Ich brauche... medizinisches Gel... und Verbände... In der Medbay...",
+            "status": "Der Reaktor... instabil... Aris muss ihn kühlen..."
           }
         },
         "sacrifice": {
@@ -503,13 +631,13 @@
           },
           "visuals": {
             "img": "face_val_stern",
-            "desc": "Ihre Hände fliegen über die Konsole, obwohl sie kaum stehen kann.",
+            "desc": "Ihre Hände fliegen über die Konsole, obwohl sie kaum stehen kann. Ihr Blick ist starr auf den Ereignishorizont gerichtet.",
             "personality": "Entschlossen"
           },
           "dialogue": {
             "greeting": "Verschwinden Sie! Ich stabilisiere den Orbit für den Start der Kestrel.",
             "chip": {
-              "text": "Nehmen Sie den Chip für K.A.R.L.! Aris braucht ihn für den Hyperantrieb. Und jetzt RUNTER VON MEINER BRÜCKE!",
+              "text": "Nehmen Sie den Chip für K.A.R.L.! Aris braucht ihn für den Hyperantrieb. Und jetzt RUNTER VON MEINER BRÜCKE! Wenn die Schleuse klemmt, nutzen Sie Gewalt!",
               "effect": [
                 {
                   "type": "receive_item",
@@ -521,19 +649,19 @@
                 }
               ]
             },
-            "default": "Keine Zeit für Sentimentalitäten. Fliegen Sie!"
+            "default": "Keine Zeit für Sentimentalitäten. Fliegen Sie! Retten Sie die Crew!"
           }
         }
       },
-      "state": "sacrifice",
+      "state": "injured",
       "movement_chance": 0,
       "affinity": [
         "bridge"
       ],
       "route": [],
-      "img": "face_val_stern",
-      "desc": "Ihre Hände fliegen über die Konsole, obwohl sie kaum stehen kann.",
-      "personality": "Entschlossen",
+      "img": "face_val_pain",
+      "desc": "Sie liegt über der Konsole, eine Hand auf eine klaffende Wunde an ihrer Seite gepresst. Das Gravitationsfeld des Schwarzen Lochs zerrt bereits spürbar an der Station.",
+      "personality": "Schmerzerfüllt",
       "dialogue": {
         "injured": {
           "greeting": "Gehen Sie... zum Schiff... ich kann die Station nicht mehr... halten...",
@@ -542,32 +670,17 @@
               "type": "knowledge",
               "value": "received_medikit"
             },
-            "text": "(Keucht) Das Stimulanz... wirkt. Ich kann mich fokussieren.",
+            "text": "(Keucht) Das Stimulanz... wirkt. Der Schmerz lässt nach. Ich kann mich wieder fokussieren.",
             "effect": {
               "type": "set_state",
               "value": "sacrifice"
             }
-          }
-        },
-        "sacrifice": {
-          "greeting": "Verschwinden Sie! Ich stabilisiere den Orbit für den Start der Kestrel.",
-          "chip": {
-            "text": "Nehmen Sie den Chip für K.A.R.L.! Aris braucht ihn für den Hyperantrieb. Und jetzt RUNTER VON MEINER BRÜCKE!",
-            "effect": [
-              {
-                "type": "receive_item",
-                "item_id": "access_chip"
-              },
-              {
-                "type": "learn",
-                "fact": "val_sacrifice_ready"
-              }
-            ]
           },
-          "default": "Keine Zeit für Sentimentalitäten. Fliegen Sie!"
+          "hilfe": "Ich brauche... medizinisches Gel... und Verbände... In der Medbay...",
+          "status": "Der Reaktor... instabil... Aris muss ihn kühlen..."
         }
       },
-      "_last_hydrated_state": "sacrifice"
+      "_last_hydrated_state": "injured"
     }
   ],
   "matrix": [
@@ -577,9 +690,7 @@
       "trigger_time": 100,
       "title": "Subraum-Echo",
       "description": "Das Schiff vibriert leicht, als ein Subraum-Echo die Hülle trifft.",
-      "origin_id": "ship_cockpit",
-      "triggered": true,
-      "triggered_at": 103
+      "origin_id": "ship_cockpit"
     },
     {
       "id": "evt_meltdown_warning",
@@ -592,9 +703,7 @@
       "target_obj_id": "core",
       "penalty": 20,
       "fail_text": "Strahlungslecks in Sektor 4.",
-      "success_text": "Die Kühlung stabilisiert sich (vorerst).",
-      "triggered": true,
-      "triggered_at": 20
+      "success_text": "Die Kühlung stabilisiert sich (vorerst)."
     },
     {
       "id": "evt_val_death",
@@ -605,9 +714,7 @@
       "origin_id": "bridge",
       "description": "Ein flaches Piepen ertönt von der Bio-Monitor-Konsole. Val's Signal ist kritisch.",
       "sound_msg": "Ein durchdringender medizinischer Alarmton.",
-      "target_obj_id": "val_body",
-      "triggered": true,
-      "triggered_at": 42
+      "target_obj_id": "val_body"
     },
     {
       "id": "evt_karl_ready",
@@ -643,258 +750,65 @@
       "target_obj_id": "core",
       "penalty": 1000,
       "fail_text": "Signal verloren."
+    },
+    {
+      "id": "amb_creak",
+      "trigger": "time",
+      "trigger_time": 15,
+      "title": "Strukturelle Belastung",
+      "origin_id": "hub",
+      "description": "Ein tiefes Ächzen geht durch das Metall der Station, als ob ein riesiges Tier atmen würde.",
+      "sound_msg": "Ein metallisches Knarren."
+    },
+    {
+      "id": "amb_flicker",
+      "trigger": "time",
+      "trigger_time": 35,
+      "title": "Energie-Schwankung",
+      "origin_id": "hub",
+      "description": "Das Licht flackert kurz und taucht alles in Dunkelheit, bevor die Notbeleuchtung wieder anspringt.",
+      "sound_msg": "Ein elektrisches Summen."
+    },
+    {
+      "id": "amb_quake",
+      "trigger": "time",
+      "trigger_time": 60,
+      "title": "Gravitations-Welle",
+      "origin_id": "reactor",
+      "description": "Der Boden bebt heftig unter deinen Füßen. Tassen fallen von Tischen.",
+      "sound_msg": "Ein tiefes Grollen."
     }
   ],
   "logs": [
     {
-      "type": "story",
-      "text": "Es riecht nach Ozon. Ein Nahrungs-Replikator [DEFEKT] an der Wand raucht.",
-      "turn": 188
-    },
-    {
-      "type": "info",
-      "text": "Ausgänge: Norden",
-      "turn": 188
-    },
-    {
-      "type": "user",
-      "text": "> n",
-      "turn": 188
-    },
-    {
       "type": "location",
       "text": "Zentraler Hub",
-      "turn": 193
+      "turn": 0
     },
     {
       "type": "story",
-      "text": "Das Herz der Station. Ein großes Haupt-Terminal dominiert die Mitte. K.A.R.L.s Hologramm flackert.",
-      "turn": 193
+      "text": "Das Herz der Station. Rotes Notlicht pulsiert. Ein großes Haupt-Terminal dominiert die Mitte. K.A.R.L.s Hologramm flackert und wirft verzerrte Schatten.",
+      "turn": 0
     },
     {
       "type": "info",
       "text": "Ausgänge: Norden, Osten, Süden, Westen",
-      "turn": 193
-    },
-    {
-      "type": "character",
-      "text": "Personen: Aris, K.A.R.L.",
-      "turn": 193
-    },
-    {
-      "type": "user",
-      "text": "> e",
-      "turn": 193
-    },
-    {
-      "type": "location",
-      "text": "Reaktorkern",
-      "turn": 198
-    },
-    {
-      "type": "story",
-      "text": "Tödliche Hitze. Der Reaktorkern [DEFEKT] pulsiert violett.",
-      "turn": 198
+      "turn": 0
     },
     {
       "type": "info",
-      "text": "Ausgänge: Westen, Unten",
-      "turn": 198
-    },
-    {
-      "type": "user",
-      "text": "> w",
-      "turn": 198
-    },
-    {
-      "type": "location",
-      "text": "Zentraler Hub",
-      "turn": 203
-    },
-    {
-      "type": "story",
-      "text": "Das Herz der Station. Ein großes Haupt-Terminal dominiert die Mitte. K.A.R.L.s Hologramm flackert.",
-      "turn": 203
-    },
-    {
-      "type": "info",
-      "text": "Ausgänge: Norden, Osten, Süden, Westen",
-      "turn": 203
+      "text": "Auf dem Haupt-Terminal: Stim-Pulver",
+      "turn": 0
     },
     {
       "type": "character",
       "text": "Personen: K.A.R.L.",
-      "turn": 203
-    },
-    {
-      "type": "user",
-      "text": "> s",
-      "turn": 203
-    },
-    {
-      "type": "location",
-      "text": "Messe",
-      "turn": 208
-    },
-    {
-      "type": "story",
-      "text": "Es riecht nach Ozon. Ein Nahrungs-Replikator [DEFEKT] an der Wand raucht.",
-      "turn": 208
-    },
-    {
-      "type": "info",
-      "text": "Ausgänge: Norden",
-      "turn": 208
-    },
-    {
-      "type": "character",
-      "text": "Personen: Aris",
-      "turn": 208
-    },
-    {
-      "type": "user",
-      "text": "> rede mit aris",
-      "turn": 208
-    },
-    {
-      "type": "event",
-      "text": "--- GESPRÄCH MIT ARIS ---",
-      "turn": 208
-    },
-    {
-      "type": "info",
-      "text": "(Tippe Themen oder 'gib [Item]')",
-      "turn": 208
-    },
-    {
-      "type": "character",
-      "text": "Aris: \"Wir müssen das Schiff retten.\"",
-      "turn": 208
-    },
-    {
-      "type": "user",
-      "text": "> gib kanister",
-      "turn": 208
-    },
-    {
-      "type": "character",
-      "text": "Aris lehnt ab: \"Das brauche ich gerade nicht.\"",
-      "turn": 208
-    },
-    {
-      "type": "user",
-      "text": "> gib chip",
-      "turn": 208
-    },
-    {
-      "type": "success",
-      "text": "Du gibst Root-Chip an Aris.",
-      "turn": 208
-    },
-    {
-      "type": "event",
-      "text": "--- GESPRÄCH MIT ARIS ---",
-      "turn": 208
-    },
-    {
-      "type": "character",
-      "text": "Aris: \"Ich starte K.A.R.L. neu!\"",
-      "turn": 208
-    },
-    {
-      "type": "event",
-      "text": "[Aris macht sich auf den Weg.]",
-      "turn": 208
-    },
-    {
-      "type": "event",
-      "text": "--- GESPRÄCH BEENDET (Partner gegangen) ---",
-      "turn": 208
-    },
-    {
-      "type": "success",
-      "text": "(Status von K.A.R.L. aktualisiert)",
-      "turn": 208
-    },
-    {
-      "type": "user",
-      "text": "> n",
-      "turn": 208
-    },
-    {
-      "type": "location",
-      "text": "Zentraler Hub",
-      "turn": 213
-    },
-    {
-      "type": "story",
-      "text": "Das Herz der Station. Ein großes Haupt-Terminal dominiert die Mitte. K.A.R.L.s Hologramm flackert.",
-      "turn": 213
-    },
-    {
-      "type": "info",
-      "text": "Ausgänge: Norden, Osten, Süden, Westen",
-      "turn": 213
-    },
-    {
-      "type": "character",
-      "text": "Personen: Aris, K.A.R.L.",
-      "turn": 213
-    },
-    {
-      "type": "user",
-      "text": "> rede mit karl",
-      "turn": 213
-    },
-    {
-      "type": "event",
-      "text": "--- GESPRÄCH MIT K.A.R.L. ---",
-      "turn": 213
-    },
-    {
-      "type": "info",
-      "text": "(Tippe Themen oder 'gib [Item]')",
-      "turn": 213
-    },
-    {
-      "type": "character",
-      "text": "K.A.R.L.: \"Systeme online. Kestrel ist startklar. Wir warten auf Ihren Befehl.\"",
-      "turn": 213
-    },
-    {
-      "type": "user",
-      "text": "> kestrel",
-      "turn": 213
-    },
-    {
-      "type": "character",
-      "text": "K.A.R.L. schaut dich fragend an.",
-      "turn": 213
-    },
-    {
-      "type": "user",
-      "text": "> start",
-      "turn": 213
-    },
-    {
-      "type": "character",
-      "text": "K.A.R.L. schaut dich fragend an.",
-      "turn": 213
-    },
-    {
-      "type": "user",
-      "text": "> bye",
-      "turn": 213
-    },
-    {
-      "type": "event",
-      "text": "--- GESPRÄCH BEENDET ---",
-      "turn": 213
+      "turn": 0
     },
     {
       "type": "user",
       "text": "> save",
-      "turn": 213
+      "turn": 0
     }
   ]
 }

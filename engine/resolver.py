@@ -18,6 +18,11 @@ class Resolver:
         return [w for w in args if w.lower() not in ignore]
 
     @staticmethod
+    def normalize_term(text):
+        """Ersetzt Bindestriche und Unterstriche durch Leerzeichen für flexibleres Matching."""
+        return text.lower().replace("-", " ").replace("_", " ").strip()
+
+    @staticmethod
     def _collect_candidates(game, location_filter):
         """Sammelt Kandidaten basierend auf dem Filter. Zentrale Logik für alle Suchen."""
         candidates = []
@@ -61,20 +66,23 @@ class Resolver:
     @staticmethod
     def resolve_target(game, search_words, location_filter=None, verb='unknown'):
         if not search_words: 
-            return None # Kein Fehler, einfach keine Eingabe
+            return None 
         
-        search_query = " ".join(search_words).lower()
+        # Normalisierter Suchstring (z.B. "stim pulver")
+        search_query = Resolver.normalize_term(" ".join(search_words))
         
         # 1. Existenz-Check (Gibt es das Wort überhaupt im Spiel?)
-        # Wir suchen in ALLEN Objekten des Spiels (Common + Chapter)
         anywhere_match = False
         for obj in game.objects.values():
-             if search_query in obj[ATTR_NAME].lower() or any(search_query in a for a in obj.get(ATTR_ALIASES, [])):
+             # Auch Namen und Aliases normalisieren
+             obj_name = Resolver.normalize_term(obj[ATTR_NAME])
+             aliases = [Resolver.normalize_term(a) for a in obj.get(ATTR_ALIASES, [])]
+             
+             if search_query in obj_name or any(search_query in a for a in aliases):
                  anywhere_match = True
                  break
         
         if not anywhere_match:
-            # Grund 1: Unbekanntes Wort
             raise ResolutionError(f"Ich weiß nicht, was ein '{search_query}' ist.", "unknown_word")
 
         # 2. Kandidaten am aktuellen Ort sammeln
@@ -83,13 +91,15 @@ class Resolver:
         # 3. Filtern nach Name/Alias
         matches = []
         for cand in candidates:
-            if search_query in cand[ATTR_NAME].lower() or any(search_query in a for a in cand.get(ATTR_ALIASES, [])):
+            cand_name = Resolver.normalize_term(cand[ATTR_NAME])
+            cand_aliases = [Resolver.normalize_term(a) for a in cand.get(ATTR_ALIASES, [])]
+            
+            if search_query in cand_name or any(search_query in a for a in cand_aliases):
                 if cand not in matches:
                     matches.append(cand)
         
         # 4. Ergebnis & Fehlerbehandlung
         if len(matches) == 0:
-            # Grund 2: Existiert, ist aber nicht hier
             if location_filter == FILTER_INVENTORY:
                  raise ResolutionError(f"Du hast kein '{search_query}' dabei.", "not_in_inventory")
             else:
@@ -102,19 +112,20 @@ class Resolver:
         names = [m[ATTR_NAME] for m in matches]
         game.log('info', f"Meinst du: {', '.join(names)}?")
         
-        # Disambiguierung starten
         game.disambiguation = {
             'verb': verb,
             'candidates': matches,
             'original_args': search_words
         }
-        return None # Return None, aber Log wurde geschrieben & State gesetzt
+        return None
 
     @staticmethod
     def find_mentioned_npc(game, words):
-        query = " ".join(words).lower()
+        query = Resolver.normalize_term(" ".join(words))
         local_npcs = [n for n in game.npcs if n['location'] == game.location]
         for npc in local_npcs:
-            if npc[ATTR_NAME].lower() in query: return npc
-            if ATTR_ALIASES in npc and any(alias in query for alias in npc[ATTR_ALIASES]): return npc
+            n_name = Resolver.normalize_term(npc[ATTR_NAME])
+            n_aliases = [Resolver.normalize_term(a) for a in npc.get(ATTR_ALIASES, [])]
+            
+            if n_name in query or any(alias in query for alias in n_aliases): return npc
         return None

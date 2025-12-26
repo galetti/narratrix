@@ -2,65 +2,45 @@ import importlib
 import copy
 import sys
 
-# FIX: Importiere aus 'common', nicht 'global'
 try:
     from data.common.config import COMMON_CONFIG
 except ImportError as e:
     print(f"[CRITICAL] Konnte Common-Layer nicht laden: {e}")
-    # Fallback, damit das Spiel startet (wenn auch leer)
     COMMON_CONFIG = {"rooms": {}, "objects": {}, "npcs": [], "matrix": [], "combinations": []}
 
 class StoryLoader:
-    """
-    Verwaltet das Laden und Zusammenführen von Common Daten (Layer 1)
-    und Kapitel-Daten (Layer 2).
-    """
     
     @staticmethod
     def load_chapter(chapter_module_path):
         try:
-            # 1. Dynamischer Import des Kapitel-Configs (Layer 2)
             module = importlib.import_module(chapter_module_path)
             chapter_data = module.CHAPTER_CONFIG
             
             print(f"[SYSTEM] Lade Kapitel: {chapter_data['meta']['title']}")
             
-            # 2. Daten Mergen (Layer 1 + Layer 2)
-            
-            # Räume zusammenführen (Dictionary Update)
             final_rooms = copy.deepcopy(COMMON_CONFIG.get('rooms', {}))
             final_rooms.update(copy.deepcopy(chapter_data.get('rooms', {})))
             
-            # Objekte/Items zusammenführen (Dictionary Update)
             final_objects = copy.deepcopy(COMMON_CONFIG.get('objects', {}))
             final_objects.update(copy.deepcopy(chapter_data.get('objects', {})))
             
-            # Kombinationen zusammenführen (Listen addieren)
             final_combinations = copy.deepcopy(COMMON_CONFIG.get('combinations', []))
             final_combinations.extend(copy.deepcopy(chapter_data.get('combinations', [])))
             
-            # Matrix/Events zusammenführen (Listen addieren)
             final_matrix = copy.deepcopy(COMMON_CONFIG.get('matrix', []))
             final_matrix.extend(copy.deepcopy(chapter_data.get('matrix', [])))
 
-            # NPCs zusammenführen (Listen addieren)
             final_npcs = copy.deepcopy(COMMON_CONFIG.get('npcs', [])) + copy.deepcopy(chapter_data.get('npcs', []))
-            
-            # 3. Dynamische Verknüpfung (Link System)
-            # Wir suchen nach der 'links'-Definition in der Kapitel-Config.
-            # Falls vorhanden, nutzen wir diese. Ansonsten Fallback auf Tags/Startraum.
             
             links = chapter_data.get('links', [])
             
             if links:
-                # Neue, explizite Link-Logik
                 for link in links:
                     from_id = link.get('from_common')
                     direction = link.get('dir')
                     to_tag = link.get('to_chapter_tag')
                     
                     if from_id and direction and to_tag:
-                        # Zielraum im Kapitel suchen (basierend auf Tag)
                         target_room_id = None
                         for r_id, room_data in final_rooms.items():
                             if to_tag in room_data.get("tags", []):
@@ -68,24 +48,19 @@ class StoryLoader:
                                 break
                         
                         if target_room_id and from_id in final_rooms:
-                            # Link erstellen (Common -> Chapter)
                             if 'exits' not in final_rooms[from_id]: final_rooms[from_id]['exits'] = {}
                             final_rooms[from_id]['exits'][direction] = target_room_id
                             
-                            # Rücklink erstellen (Chapter -> Common)
-                            # Wir nutzen denselben Richtungs-Key (z.B. 'out'), da unser Parser Synonyme handhabt.
                             if 'exits' not in final_rooms[target_room_id]: final_rooms[target_room_id]['exits'] = {}
                             final_rooms[target_room_id]['exits'][direction] = from_id
                             
                             print(f"[SYSTEM] Link erstellt: {from_id} --({direction})--> {target_room_id}")
                             
-                            # Optional: Hinweis
                             desc = final_rooms[target_room_id].get('desc', "")
                             if direction not in desc.lower():
                                 final_rooms[target_room_id]['desc'] = desc + f" Ein Weg führt nach '{direction}'."
 
             else:
-                # Fallback: Alte Tag-Logik (common_dock) für Abwärtskompatibilität
                 docking_room_id = None
                 for r_id, room_data in final_rooms.items():
                     if "common_dock" in room_data.get("tags", []):
@@ -104,7 +79,6 @@ class StoryLoader:
                     if "dock" not in desc.lower() and "schleuse" not in desc.lower():
                         final_rooms[docking_room_id]['desc'] = desc + " Die Luftschleuse zum Dock (out/dock) ist aktiv."
 
-            # 4. Finales Config bauen
             full_config = {
                 "meta": chapter_data['meta'],
                 "vocabulary": StoryLoader._get_default_vocabulary(),
@@ -128,7 +102,6 @@ class StoryLoader:
 
     @staticmethod
     def _get_default_vocabulary():
-        # Zentrales Vokabular für alle Kapitel
         return {
             "verbs": {
                 "look": ["schau", "l", "x", "untersuche", "betrachte", "lies", "scan", "status"],
@@ -148,7 +121,8 @@ class StoryLoader:
                 "load": ["laden", "load"],
                 "oracle": ["orakel", "vorhersage", "vision", "prognose", "sehe", "log"],
                 "map": ["map", "karte", "plan", "radar"],
-                "hack": ["hack", "hacken", "zugriff", "system", "override"]
+                "hack": ["hack", "hacken", "zugriff", "system", "override"],
+                "help": ["hilfe", "help", "h", "?", "commands", "befehle"] # NEU
             },
             "directions": {
                 "north": ["n", "nord", "norden", "brücke"],
@@ -157,7 +131,7 @@ class StoryLoader:
                 "west": ["w", "west", "westen", "schleuse"],
                 "up": ["u", "up", "oben", "deck1"],
                 "down": ["d", "down", "unten", "wartung"],
-                "out": ["raus", "out", "ausgang", "dock", "schiff", "kestrel"] # Wichtig für das Schiff
+                "out": ["raus", "out", "ausgang", "dock", "schiff", "kestrel"] 
             },
             "skip_words": []
         }

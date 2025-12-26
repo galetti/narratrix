@@ -23,7 +23,7 @@ class ActionDispatcher:
         'break': InteractionHandler.break_,
         'fix': InteractionHandler.fix,
         'give': InteractionHandler.give, 'gib': InteractionHandler.give,
-        'wait': InteractionHandler.wait, 'warte': InteractionHandler.wait, # NEU
+        'wait': InteractionHandler.wait, 'warte': InteractionHandler.wait,
 
         # Movement
         'move': MovementHandler.handle, 'gehe': MovementHandler.handle, 'lauf': MovementHandler.handle,
@@ -35,7 +35,8 @@ class ActionDispatcher:
         'save': SystemHandler.save,
         'load': SystemHandler.load,
         'oracle': SystemHandler.oracle, 'orakel': SystemHandler.oracle, 'hack': SystemHandler.oracle,
-        'map': SystemHandler.map, 'karte': SystemHandler.map
+        'map': SystemHandler.map, 'karte': SystemHandler.map,
+        'help': SystemHandler.help # NEU
     }
 
     @staticmethod
