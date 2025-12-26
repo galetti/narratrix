@@ -27,7 +27,7 @@ class Resolver:
         """Sammelt Kandidaten basierend auf dem Filter. Zentrale Logik für alle Suchen."""
         candidates = []
         
-        # Hilfsfunktion für Container-Inhalt
+        # Hilfsfunktion für Container-Inhalt (REKURSIV)
         def add_contents_of(container_list, check_open=True):
             for obj in container_list:
                 # Wir schauen in Container und auf Surfaces
@@ -36,6 +36,8 @@ class Resolver:
                     if not check_open or obj.get('type') == TYPE_SURFACE or obj.get('is_open', True):
                         contents = [o for o in game.objects.values() if o['location'] == obj[ATTR_ID]]
                         candidates.extend(contents)
+                        # REKURSION: Auch in die gefundenen Objekte reinschauen (z.B. Item auf Waage im Schrank)
+                        add_contents_of(contents, check_open)
 
         # 1. Sammle Basis-Listen
         room_objs = [o for o in game.objects.values() if o['location'] == game.location]
@@ -43,21 +45,21 @@ class Resolver:
 
         if location_filter == FILTER_ROOM:
             candidates.extend(room_objs)
+            add_contents_of(room_objs, check_open=True)
             
         elif location_filter == FILTER_INVENTORY:
             candidates.extend(inv_objs)
-            # Auch im Inventar schauen wir in offene Container (z.B. Becher)
             add_contents_of(inv_objs, check_open=True)
             
         elif location_filter == FILTER_RECURSIVE:
-            # Alles im Raum + Inhalt (Surface/Offen) + Inventar + Inhalt
+            # Alles im Raum (tief) + Inventar (tief)
             candidates.extend(room_objs)
             add_contents_of(room_objs, check_open=True)
             
             candidates.extend(inv_objs)
             add_contents_of(inv_objs, check_open=True)
             
-        else: # Default (Raum + Inventar, flach)
+        else: # Default (Raum + Inventar, flach - Fallback, sollte kaum genutzt werden)
             candidates.extend(room_objs)
             candidates.extend(inv_objs)
             

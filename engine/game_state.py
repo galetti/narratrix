@@ -7,6 +7,7 @@ from engine.constants import *
 from engine.systems.crafting import CraftingSystem
 from engine.systems.pathfinder import Pathfinder
 from engine.systems.ai import AISystem
+from engine.systems.object_behavior import ObjectBehaviorSystem # NEU
 
 class GameState:
     def __init__(self, config, silent=False):
@@ -42,8 +43,6 @@ class GameState:
         
         # Initialisiere NPCs (Strict Hydration)
         for npc in self.npcs:
-            # Wir erzwingen jetzt die States-Struktur. 
-            # Alte NPCs ohne 'states' werden als fehlerhaft betrachtet oder ignoriert.
             if 'states' in npc:
                 if 'state' not in npc:
                     npc['state'] = npc.get('initial_state', list(npc['states'].keys())[0])
@@ -61,6 +60,7 @@ class GameState:
         self.crafting = CraftingSystem(self)
         self.pathfinder = Pathfinder(self)
         self.ai = AISystem(self)
+        self.object_behavior = ObjectBehaviorSystem(self) # NEU
 
     def _hydrate_npc(self, npc):
         """
@@ -140,7 +140,6 @@ class GameState:
 
     def get_snapshot(self):
         with self.lock:
-            # WICHTIG: Vor dem Snapshot sicherstellen, dass NPCs aktuell sind.
             self._synchronize_npcs()
             
             room = self.rooms.get(self.location)
@@ -226,5 +225,8 @@ class GameState:
 
         # AI Update
         self.ai.process_all_npcs()
+        
+        # NEU: Object Behavior Update (Agenda)
+        self.object_behavior.process_all_objects()
 
         if self.stability <= 0: self.log('alarm', "GAME OVER: STATION KRITISCH."); self.game_over = True
