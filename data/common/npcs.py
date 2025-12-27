@@ -5,13 +5,37 @@ COMMON_NPCS = [
     {
         "id": "npc_aris", 
         "name": "Aris", 
-        "aliases": ["chief", "aris"], 
+        "aliases": ["chief", "aris", "ingenieur"], 
         "is_global": True,
         "start_loc": "cantina", 
         "location": "cantina", 
         
-        "initial_state": "panic",
+        "initial_state": "panic", # Default ist Panik (für Ep1), wird in Ep0 per Event überschrieben
         "states": {
+            # --- ZUSTAND: ENTSPANNT (Episode 0) ---
+            "relaxed": {
+                "behavior": {
+                    "movement_chance": 20, 
+                    "affinity": ["reactor", "hub", "cantina"], 
+                    "route": []
+                },
+                "visuals": {
+                    "img": "face_aris_alert", # 
+                    "desc": "Der Chefingenieur wirkt zufrieden. Er summt leise vor sich hin.",
+                    "personality": "Freundlich, Jovial"
+                },
+                "dialogue": {
+                    "greeting": "Hey! Gut, dass du da bist. Der Hyperantrieb macht zwar Zicken, aber das hat bis morgen Zeit.",
+                    "fiona": "Die Neue? Sie ist nett. Ein bisschen verrückt nach Pflanzen, aber wer ist hier draußen schon normal?",
+                    "essen": "Ich hoffe, der Replikator spuckt heute Abend was Essbares aus. Ich hab einen Bärenhunger.",
+                    "geschenk": {
+                        "condition": {"type": "knowledge", "value": "received_gift"}, 
+                        "text": "Oh, Pralinen von der Erde? Du bist der Beste! Die hebe ich mir für nach dem Dienst auf.", 
+                        "effect": {"type": "learn", "fact": "aris_friend"}
+                    }
+                }
+            },
+            # --- ZUSTAND: PANIK (Episode 1 Start) ---
             "panic": {
                 "behavior": {
                     "movement_chance": 40, 
@@ -20,12 +44,12 @@ COMMON_NPCS = [
                 },
                 "visuals": {
                     "img": "face_aris_tired", 
-                    "desc": "Er zittert.",
+                    "desc": "Er zittert am ganzen Leib. Öl verschmiert sein Gesicht.",
                     "personality": "Gestresst"
                 },
                 "dialogue": {
                     "greeting": "Verdammt! Ich brauche einen Stim!",
-                    "stim": {"text": "Misch Pulver und Wasser!"},
+                    "stim": {"text": "Misch Pulver und Wasser! Schnell!"},
                     "kaffee": {"condition": {"type": "knowledge", "value": "received_stim_caf"}, "text": "Danke.", "effect": {"type": "set_state", "value": "focused"}}
                 }
             },
@@ -65,6 +89,33 @@ COMMON_NPCS = [
         }
     },
     {
+        "id": "npc_val", "name": "Val", "aliases": ["commander", "frau"], "is_global": True, # Val ist global definiert, in Ep1 aber lokal überschrieben. Hier der Common-Eintrag.
+        "start_loc": "bridge", "location": "bridge",
+        "initial_state": "injured",
+        "states": {
+            # --- ZUSTAND: NORMAL (Episode 0) ---
+            "relaxed": {
+                "behavior": {"movement_chance": 10, "affinity": ["bridge", "hub"]},
+                "visuals": {
+                    "img": "face_val_stern", # 
+                    "desc": "Commander Val strahlt natürliche Autorität aus. Sie wirkt entspannt, aber wachsam.",
+                    "personality": "Professionell"
+                },
+                "dialogue": {
+                    "greeting": "Willkommen an Bord, Spezialist. Wir schätzen die Unterstützung des USC.",
+                    "status": "Alle Systeme nominal. Genießen Sie den Abend, morgen früh geht die Wartung los.",
+                    "fiona": "Dr. Hellman leistet gute Arbeit, auch wenn ihre Methoden etwas... unkonventionell sind."
+                }
+            },
+            # --- ZUSTAND: VERLETZT (Episode 1 Fallback) ---
+            "injured": {
+                "behavior": {"movement_chance": 0},
+                "visuals": {"img": "face_val_pain", "desc": "Sie blutet stark."},
+                "dialogue": {"greeting": "Bericht..."}
+            }
+        }
+    },
+    {
         "id": "npc_karl", 
         "name": "K.A.R.L.", 
         "aliases": ["ki"], 
@@ -72,37 +123,29 @@ COMMON_NPCS = [
         "start_loc": "hub", 
         "location": "hub", 
         
-        # Migration auf neue Struktur
         "initial_state": "offline",
         "states": {
             "offline": {
-                "behavior": {
-                    "movement_chance": 0,
-                    "affinity": ["hub"],
-                    "route": []
-                },
-                "visuals": {
-                    "img": "face_ai_glitch",
-                    "desc": "Das Hologramm flackert rot und verzerrt.",
-                    "personality": "Roboter (Defekt)"
-                },
-                "dialogue": {
-                    "greeting": "S-S-Systemfehler. Bitte Root-Chip einlegen."
-                }
+                "behavior": {"movement_chance": 0, "affinity": ["hub"], "route": []},
+                "visuals": {"img": "face_ai_glitch", "desc": "Das Hologramm flackert rot.", "personality": "Defekt"},
+                "dialogue": {"greeting": "S-S-Systemfehler."}
             },
             "online": {
-                "behavior": {
-                    "movement_chance": 0, # Als Hologramm stationär
-                    "affinity": ["hub"],
-                    "route": []
-                },
+                "behavior": {"movement_chance": 0, "affinity": ["hub"]},
+                "visuals": {"img": "face_ai_calm", "desc": "Das Hologramm leuchtet ruhig blau.", "personality": "Hilfsbereit"},
+                "dialogue": {"greeting": "Systeme online."}
+            },
+            # --- ZUSTAND: DIENSTLEISTER (Episode 0) ---
+            "service": {
+                "behavior": {"movement_chance": 0, "affinity": ["hub"]},
                 "visuals": {
-                    "img": "face_ai_calm",
-                    "desc": "Das Hologramm leuchtet ruhig blau.",
-                    "personality": "Hilfsbereit, sarkastisch"
+                    "img": "face_ai_calm", # 
+                    "desc": "Das Hologramm projeziert ein freundliches Lächeln.",
+                    "personality": "Höflich"
                 },
                 "dialogue": {
-                    "greeting": "Systeme online. Kestrel ist startklar. Wir warten auf Ihren Befehl."
+                    "greeting": "Guten Abend, Sir. Kann ich Ihnen behilflich sein?",
+                    "essen": "Das Abendmenü heute ist 'Reis-Variationen'. Ich habe die Kalorien für die Crew bereits optimiert."
                 }
             }
         }

@@ -11,11 +11,12 @@ warnings.filterwarnings("ignore", category=UserWarning, module='pygame')
 
 # --- LOAD SYSTEM ---
 from data.story_loader import StoryLoader
-import engine.theme as theme # Importiere das neue Theme
+import engine.theme as theme
 
 from engine.game_state import GameState
 from engine.action_dispatcher import ActionDispatcher 
 from engine.parser.rule_based import RuleBasedParser
+from engine.constants import LOC_INVENTORY
 
 try:
     from engine.parser.spacy_parser import SpacyParser
@@ -54,7 +55,7 @@ class GameGUI:
     def __init__(self):
         pygame.init()
         self.screen = pygame.display.set_mode((INIT_WIDTH, INIT_HEIGHT), pygame.RESIZABLE)
-        pygame.display.set_caption("NARRATRIX v5.4 - Refactored UI") 
+        pygame.display.set_caption("NARRATRIX v5.5 - Chapter 0") 
         
         try: pygame.scrap.init()
         except pygame.error: print("[WARN] Clipboard konnte nicht initialisiert werden.")
@@ -70,20 +71,34 @@ class GameGUI:
             self.font_big = pygame.font.SysFont("Arial", theme.FONT_SIZE_GAME_OVER)
 
         self.assets = AssetLoader() 
-        self.restart_game()
+        # Start mit Episode 0 (Ankunft)
+        self.current_chapter = "data.chapters.ep0_arrival.config"
+        self.load_game_chapter(self.current_chapter)
 
-    def restart_game(self):
-        """Lädt das Spiel komplett neu."""
-        # --- KAPITEL LADEN ---
-        initial_config = StoryLoader.load_chapter("data.chapters.ep1_station.config")
+    def load_game_chapter(self, chapter_path, transfer_state=None):
+        """Lädt ein Kapitel. Optional mit State-Transfer (Inventar/Wissen)."""
+        new_config = StoryLoader.load_chapter(chapter_path)
         
-        if not initial_config:
-            print("[FATAL] Konnte Startkapitel nicht laden! Überprüfe data/common und data/chapters.")
+        if not new_config:
+            print(f"[FATAL] Konnte Kapitel '{chapter_path}' nicht laden!")
             sys.exit(1)
 
-        self.game = GameState(initial_config)
+        self.game = GameState(new_config)
         
-        # INPUT STATE RESET
+        # State Transfer Logic
+        if transfer_state:
+            # 1. Wissen übernehmen
+            self.game.knowledge = transfer_state.get('knowledge', set())
+            
+            # 2. Inventar übernehmen
+            # Wir suchen Items im neuen GameState, die die gleiche ID haben wie im alten Inventar
+            old_inventory_ids = transfer_state.get('inventory_ids', [])
+            for item_id in old_inventory_ids:
+                if item_id in self.game.objects:
+                    self.game.objects[item_id]['location'] = LOC_INVENTORY
+                    print(f"[SYSTEM] Transferiere Item: {item_id}")
+        
+        # Input Reset
         self.user_text = ""
         self.cursor_pos = 0
         self.cursor_blink = 0
@@ -102,6 +117,11 @@ class GameGUI:
 
         self.submit_command("look", echo=False)
 
+    def restart_game(self):
+        # Restart lädt Kapitel 0 neu (ohne Transfer)
+        self.current_chapter = "data.chapters.ep0_arrival.config"
+        self.load_game_chapter(self.current_chapter)
+
     def run(self):
         while True:
             self.handle_events(); self.update(); self.draw(); self.clock.tick(30)
@@ -111,7 +131,6 @@ class GameGUI:
             if event.type == pygame.QUIT: pygame.quit(); sys.exit()
             elif event.type == pygame.VIDEORESIZE: self.screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
             
-            # --- GAME OVER HANDLING ---
             if self.game.game_over:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_SPACE or event.key == pygame.K_r:
@@ -120,18 +139,15 @@ class GameGUI:
                         pygame.quit(); sys.exit()
                 continue
 
-            # --- SCROLLING INPUT (Mausrad) ---
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 4: # Mausrad Hoch
-                    self.scroll_offset += theme.SCROLL_SPEED_MOUSE
-                elif event.button == 5: # Mausrad Runter
+                if event.button == 4: self.scroll_offset += theme.SCROLL_SPEED_MOUSE
+                elif event.button == 5: 
                     self.scroll_offset -= theme.SCROLL_SPEED_MOUSE
                     if self.scroll_offset < 0: self.scroll_offset = 0
             
             elif event.type == pygame.KEYDOWN:
                 if self.is_processing: continue 
                 
-                # --- NAVIGATION & EDITIERUNG ---
                 if event.key == pygame.K_PAGEUP:
                     self.scroll_offset += theme.SCROLL_SPEED_KEY
                 elif event.key == pygame.K_PAGEDOWN:
@@ -144,10 +160,8 @@ class GameGUI:
                 elif event.key == pygame.K_RIGHT:
                     self.cursor_pos = min(len(self.user_text), self.cursor_pos + 1)
                     self.cursor_blink = 0
-                elif event.key == pygame.K_HOME:
-                    self.cursor_pos = 0
-                elif event.key == pygame.K_END:
-                    self.cursor_pos = len(self.user_text)
+                elif event.key == pygame.K_HOME: self.cursor_pos = 0
+                elif event.key == pygame.K_END: self.cursor_pos = len(self.user_text)
 
                 elif event.key == pygame.K_c and (pygame.key.get_mods() & pygame.KMOD_CTRL):
                     snapshot = self.game.get_logs()
@@ -197,7 +211,36 @@ class GameGUI:
             self.is_processing = False
         t = threading.Thread(target=worker); t.start()
 
-    def update(self): self.cursor_blink += 1
+    def update(self): 
+        self.cursor_blink += 1
+        
+        # NEU: Check auf Kapitelwechsel
+        if self.game.pending_chapter_load:
+            target_chapter = self.game.pending_chapter_load
+            print(f"[SYSTEM] Wechsle zu Kapitel: {target_chapter}")
+            
+            # State retten
+            transfer_state = {
+                "knowledge": self.game.knowledge,
+                "inventory_ids": [o['id'] for o in self.game.objects.values() if o['location'] == LOC_INVENTORY]
+            }
+            
+            # Pfad bauen (Annahme: Kapitel-ID = Ordnername)
+            # Ziel: data.chapters.ep1_station.config
+            # Wir müssen mappen oder Konvention nutzen
+            
+            # Mapping für Sicherheit
+            chapter_map = {
+                "ep1_station": "data.chapters.ep1_station.config",
+                "ep0_arrival": "data.chapters.ep0_arrival.config"
+            }
+            
+            path = chapter_map.get(target_chapter)
+            if path:
+                self.load_game_chapter(path, transfer_state)
+            else:
+                self.game.log('error', f"[SYSTEM] Fehler: Kapitel '{target_chapter}' nicht gefunden.")
+                self.game.pending_chapter_load = None # Reset um Loop zu verhindern
 
     def wrap_text(self, text, font, max_width):
         words = text.split(' '); lines = []; current_line = []
@@ -213,7 +256,6 @@ class GameGUI:
         snapshot = self.game.get_snapshot()
         self.screen.fill(theme.COLOR_BG); w, h = self.screen.get_size()
         
-        # --- GAME OVER SCREEN ---
         if snapshot['game_over']:
             self.draw_game_over(w, h, snapshot)
             pygame.display.flip()
@@ -229,7 +271,6 @@ class GameGUI:
         pygame.display.flip()
 
     def draw_game_over(self, w, h, snap):
-        # Dunkler roter Hintergrund, pulsierend
         pulse = abs(math.sin(self.cursor_blink * 0.05)) * 50
         base_r, base_g, base_b = theme.COLOR_GAME_OVER_BG
         bg_col = (min(255, base_r + int(pulse)), base_g, base_b)

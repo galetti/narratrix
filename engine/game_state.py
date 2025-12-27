@@ -3,11 +3,11 @@ import re
 import threading
 from engine.constants import *
 
-# Neue Sub-Systeme importieren
+# Sub-Systeme
 from engine.systems.crafting import CraftingSystem
 from engine.systems.pathfinder import Pathfinder
 from engine.systems.ai import AISystem
-from engine.systems.object_behavior import ObjectBehaviorSystem # NEU
+from engine.systems.object_behavior import ObjectBehaviorSystem
 
 class GameState:
     def __init__(self, config, silent=False):
@@ -17,9 +17,11 @@ class GameState:
         self.logs = []
         self.lock = threading.RLock()
         
-        # Layer 3: Persistente Daten
+        # Layer 3: Persistente Daten & System Flags
         self.persistent_flags = set() 
+        self.pending_chapter_load = None 
         
+        # Startraum ermitteln
         start_room = config.get('meta', {}).get('start_room')
         if not start_room and 'start' in config['rooms']: start_room = 'start'
         if not start_room or start_room not in config['rooms']:
@@ -36,6 +38,7 @@ class GameState:
         self.dialogue_partner = None
         self.knowledge = set()
 
+        # Tiefe Kopien der Daten, um den Config-State nicht zu verändern
         self.rooms = copy.deepcopy(config['rooms'])
         self.npcs = copy.deepcopy(config['npcs'])
         self.matrix = copy.deepcopy(config['narrative_matrix'])
@@ -45,6 +48,7 @@ class GameState:
         for npc in self.npcs:
             if 'states' in npc:
                 if 'state' not in npc:
+                    # Setze initialen State aus Config oder nehme den ersten
                     npc['state'] = npc.get('initial_state', list(npc['states'].keys())[0])
                 self._hydrate_npc(npc)
                 npc['_last_hydrated_state'] = npc['state']
@@ -52,6 +56,7 @@ class GameState:
                 if not silent: 
                     print(f"[WARN] NPC '{npc.get('name')}' hat keine 'states' Definition. Ignoriere AI/Visuals.")
 
+        # Physik-Initialisierung
         for obj in self.objects.values():
             if ATTR_TEMP not in obj: obj[ATTR_TEMP] = 20
             if ATTR_MATTER not in obj: obj[ATTR_MATTER] = MATTER_SOLID
@@ -60,7 +65,7 @@ class GameState:
         self.crafting = CraftingSystem(self)
         self.pathfinder = Pathfinder(self)
         self.ai = AISystem(self)
-        self.object_behavior = ObjectBehaviorSystem(self) # NEU
+        self.object_behavior = ObjectBehaviorSystem(self)
 
     def _hydrate_npc(self, npc):
         """
@@ -112,22 +117,24 @@ class GameState:
             new_state.inventory = copy.deepcopy(self.inventory)
         return new_state
 
-    # --- CORE METHODS (Rendering / Logging) ---
     def render_room_desc(self, room_id):
         room = self.rooms.get(room_id)
         if not room: return f"ERROR: Raum '{room_id}' nicht gefunden."
         text = room[ATTR_DESC]
+        
         def replace_match(match):
             key = match.group(1)
             obj = self.objects.get(key)
             if not obj: return f"ERROR:{key}"
             display_text = obj[ATTR_NAME]
+            
             if obj.get('state') == STATE_SABOTAGED: display_text += " [SABOTIERT]"
             elif obj.get('state') == STATE_BROKEN: display_text += " [DEFEKT]"
             elif obj.get('is_container'):
                 if obj.get('is_open'): display_text += " [OFFEN]"
                 else: display_text += " [VERSCHLOSSEN]"
             return display_text
+            
         return re.sub(r"\{(\w+)\}", replace_match, text)
 
     def log(self, type_str, text):
@@ -146,8 +153,10 @@ class GameState:
             partner_name = None; partner_img = None
             if self.dialogue_active and self.dialogue_partner:
                 partner_name = self.dialogue_partner[ATTR_NAME]; partner_img = self.dialogue_partner.get('img')
+                
             return {
                 "time": self.time, "stability": self.stability, "game_over": self.game_over,
+                "pending_chapter_load": self.pending_chapter_load,
                 "room_name": room[ATTR_NAME] if room else "Unbekannt",
                 "room_img": room.get('img', '???') if room else '???',
                 "dialogue_active": self.dialogue_active,
@@ -177,43 +186,89 @@ class GameState:
     def _check_trigger_condition(self, node):
         if node.get('triggered', False): return False
         trigger_type = node.get('trigger', 'time')
-        if trigger_type == 'time': return self.time >= node.get('trigger_time', 99999)
+        
+        if trigger_type == 'time': 
+            return self.time >= node.get('trigger_time', 99999)
         elif trigger_type == 'relative':
-            parent_id = node.get('parent_id'); delay = node.get('delay', 0)
+            parent_id = node.get('parent_id')
+            delay = node.get('delay', 0)
             parent = next((n for n in self.matrix if n['id'] == parent_id), None)
-            if parent and parent.get('triggered', False): return self.time >= (parent.get('triggered_at', 0) + delay)
+            if parent and parent.get('triggered', False): 
+                return self.time >= (parent.get('triggered_at', 0) + delay)
         elif trigger_type == 'condition':
-            cond = node.get('condition', {}); c_type = cond.get('type')
-            if c_type == 'knowledge': return cond.get('value') in self.knowledge
+            cond = node.get('condition', {})
+            c_type = cond.get('type')
+            
+            if c_type == 'knowledge': 
+                return cond.get('value') in self.knowledge
             elif c_type == 'item_location':
-                item_id = cond.get('item'); loc = cond.get('location')
+                item_id = cond.get('item')
+                loc = cond.get('location')
                 obj = self.objects.get(item_id)
                 return obj and obj['location'] == loc
+                
         return False
 
     def tick(self, minutes):
         self.time += minutes
         
-        # Physik (Temp)
+        # Physik (Temperatur-Angleichung)
         for obj in self.objects.values():
             if ATTR_TEMP in obj:
-                current = obj[ATTR_TEMP]; target = 20
+                current = obj[ATTR_TEMP]
+                target = 20 # Raumtemperatur
                 if current != target:
-                    diff = target - current; change = diff * 0.1
+                    diff = target - current
+                    change = diff * 0.1
                     if abs(change) < 0.5: obj[ATTR_TEMP] = target
                     else: obj[ATTR_TEMP] += change
         
-        # Events
+        # Events verarbeiten
         for node in self.matrix:
             if self._check_trigger_condition(node):
-                node['triggered'] = True; node['triggered_at'] = self.time
+                node['triggered'] = True
+                node['triggered_at'] = self.time
+                
+                # --- EVENT EFFECTS ENGINE ---
+                # Führt Effekte aus (z.B. NPC-Status setzen)
+                if 'effects' in node:
+                    effects = node['effects']
+                    if not isinstance(effects, list): effects = [effects]
+                    for eff in effects:
+                        e_type = eff.get('type')
+                        
+                        if e_type == 'set_npc_state':
+                            target_name = eff.get('npc')
+                            new_state = eff.get('value')
+                            target = next((n for n in self.npcs if n[ATTR_NAME] == target_name or target_name in n.get(ATTR_ALIASES, [])), None)
+                            if target: target['state'] = new_state
+                        
+                        elif e_type == 'learn':
+                            fact = eff.get('fact')
+                            if fact: self.add_knowledge(fact)
+                
+                # Spezialfall: Kapitelwechsel
+                if node.get('type') == 'chapter_switch':
+                    target_chapter = node.get('target_chapter')
+                    self.log('story', node.get('description', 'Kapitelwechsel...'))
+                    self.pending_chapter_load = target_chapter
+                    return # Stop Tick Processing, GUI übernimmt
+
+                # Standard Event-Ausgabe
                 origin = node.get('origin_id')
                 if origin == self.location:
-                    self.log('event', f"EVENT: {node['title']}"); self.log('story', node['description'])
+                    self.log('event', f"EVENT: {node['title']}")
+                    self.log('story', node['description'])
                 else:
-                    sound_dir = self.get_direction_to(origin); sound_txt = node.get('sound_msg', "Geräusch.")
-                    if sound_dir: self.log('event', f"Du hörst aus {sound_dir}: {sound_txt}")
-                    else: self.log('event', f"Irgendwo in der Ferne: {sound_txt}")
+                    # Geräusch aus der Ferne
+                    sound_dir = self.get_direction_to(origin)
+                    sound_txt = node.get('sound_msg', "Geräusch.")
+                    if sound_dir: 
+                        self.log('event', f"Du hörst aus {sound_dir}: {sound_txt}")
+                    else: 
+                        self.log('event', f"Irgendwo in der Ferne: {sound_txt}")
+                
+                # Ziel-Objekt Prüfung (Schaden an der Station)
                 target_id = node.get('target_obj_id')
                 if target_id:
                     target = self.objects.get(target_id)
@@ -223,10 +278,10 @@ class GameState:
                     else:
                         if 'success_text' in node: self.log('success', f"STATUS: {node['success_text']}")
 
-        # AI Update
+        # System Updates
         self.ai.process_all_npcs()
-        
-        # NEU: Object Behavior Update (Agenda)
         self.object_behavior.process_all_objects()
 
-        if self.stability <= 0: self.log('alarm', "GAME OVER: STATION KRITISCH."); self.game_over = True
+        if self.stability <= 0: 
+            self.log('alarm', "GAME OVER: STATION KRITISCH.")
+            self.game_over = True
