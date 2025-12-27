@@ -43,9 +43,17 @@ ITEMS = {
         "weight": float('inf'),
         "desc": "Kontrolliert den Zugang zum Dock."
     },
+    # NEU: Tisch als feste Ablage
+    "med_table": {
+        "id": "med_table", "name": "Metalltisch", "aliases": ["tisch"], 
+        "location": "medbay", "type": TYPE_SURFACE, 
+        "weight": float('inf'), 
+        "desc": "Ein steriler Metalltisch."
+    },
     "scale": {
         "id": "scale", "name": "Präzisionswaage", "aliases": ["waage"], 
-        "location": "medbay", "type": TYPE_SURFACE, 
+        "location": "med_table", # Liegt jetzt auf dem Tisch
+        "type": TYPE_SURFACE, 
         "weight": 2.0, 
         "desc": "Eine digitale Waage. Du kannst Dinge darauf legen."
     },
@@ -134,31 +142,23 @@ ITEMS = {
 COMBINATIONS = [
     {
         "items": ["mug", "hot_water"], 
-        "result": "hot_water", 
-        # Hier nehmen wir an, dass der Replikator unendlich Wasser gibt, daher verbrauchen wir die Quelle NICHT.
-        # Das Resultat (neues Wasser) landet im Becher.
-        "consume": [], 
+        "result": "hot_water", "consume": [], 
         "message": "Du füllst das heiße Wasser in den Becher."
     },
     {
         "items": ["stim_powder", "hot_water"], 
-        "result": "stim_caf", 
-        # Beide werden verbraucht, um den Kaffee zu erzeugen
-        "consume": ["stim_powder", "hot_water"], 
+        "result": "stim_caf", "consume": ["stim_powder", "hot_water"], 
         "message": "Das Pulver löst sich zischend im Wasser auf. Es wird zu Stim-Caf."
     },
     {
         "items": ["coolant_canister", "patch_kit"], 
         "tools": ["multitool"],
-        "result": "sealed_coolant", 
-        # FIX: Der kaputte Kanister MUSS verbraucht werden, da er durch den ganzen ersetzt wird!
-        "consume": ["coolant_canister", "patch_kit"], 
+        "result": "sealed_coolant", "consume": ["coolant_canister", "patch_kit"], 
         "message": "Mit Hilfe des Multitools klebst du das Leck mit dem Dichtmittel zu. Es scheint zu halten."
     },
     {
         "items": ["med_gel", "bandage"],
-        "result": "medikit", 
-        "consume": ["med_gel", "bandage"],
+        "result": "medikit", "consume": ["med_gel", "bandage"],
         "message": "Du präparierst einen sterilen Verband mit dem Gel."
     },
     {

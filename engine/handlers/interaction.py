@@ -116,7 +116,6 @@ class InteractionHandler:
     def take(game, args):
         if any(w in args for w in ["all", "alles", "alle"]):
             candidates = Resolver._collect_candidates(game, FILTER_RECURSIVE)
-            # Filtern auf Items, die hier sind (nicht im Inventar) und beweglich
             candidates = [o for o in candidates if o['location'] != LOC_INVENTORY and o.get(ATTR_WEIGHT, float('inf')) < float('inf')]
             
             taken = []
@@ -143,15 +142,40 @@ class InteractionHandler:
 
                 target['location'] = LOC_INVENTORY
                 game.log('success', f"{target[ATTR_NAME]} genommen.")
+                
+                # Wenn es eine Oberfläche ist (z.B. Waage), rutschen Inhalte ins Inventar
+                if target.get('type') == TYPE_SURFACE:
+                    contents = [o for o in game.objects.values() if o['location'] == target[ATTR_ID]]
+                    if contents:
+                        names = []
+                        for item in contents:
+                            item['location'] = LOC_INVENTORY
+                            names.append(item[ATTR_NAME])
+                        if names:
+                            game.log('info', f"Du verstaust auch: {', '.join(names)}.")
+
                 game.tick(1)
         except ResolutionError as e: game.log('error', str(e))
 
     @staticmethod
     def give(game, args):
+        if not args: return game.log('error', "Was an wen?")
+        
         separators = ["an", "to", "dem", "der"]
         sep_indices = [i for i, w in enumerate(args) if w.lower() in separators]
-        item_words = args[:sep_indices[0]] if sep_indices else args[:-1]
-        npc_words = args[idx+1:] if sep_indices else [args[-1]]
+        
+        item_words = []
+        npc_words = []
+        
+        # EXPLIZITER IF/ELSE BLOCK STATT ONE-LINER (Fix für NameError 'idx')
+        if sep_indices:
+            idx = sep_indices[0]
+            item_words = args[:idx]
+            npc_words = args[idx+1:]
+        else:
+            item_words = args[:-1]
+            npc_words = [args[-1]]
+            
         try:
             item = Resolver.resolve_target(game, item_words, location_filter=FILTER_INVENTORY, verb='give_item')
             if item:
@@ -234,9 +258,8 @@ class InteractionHandler:
                     if container.get('type') not in [TYPE_CONTAINER, TYPE_SURFACE]: return game.log('error', "Da kannst du nichts reinlegen.")
                     if container.get('type') == TYPE_CONTAINER and not container.get('is_open'): return game.log('error', f"Der {container[ATTR_NAME]} ist geschlossen.")
                     
-                    # SCALE LOGIC FIX
+                    # Waagen-Logik
                     if container['id'] == 'scale':
-                        # Prüfen, ob die Waage stabil steht (nicht im Inventar)
                         if InteractionHandler._is_held_by_player(game, container):
                             return game.log('error', "Die Waage muss auf einem stabilen Untergrund stehen.")
 
@@ -244,7 +267,6 @@ class InteractionHandler:
                     game.log('success', f"Du legst {item[ATTR_NAME]} {prep} {container[ATTR_NAME]}."); game.tick(2)
                     
                     if container['id'] == 'scale':
-                        # Summe berechnen
                         contents = [o for o in game.objects.values() if o['location'] == 'scale']
                         total_weight = sum(o.get('weight', 0) for o in contents)
                         game.log('info', f"Das Display der Waage springt an: {total_weight:.2f} kg")
