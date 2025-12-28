@@ -7,7 +7,6 @@ try:
     from data.common.config import COMMON_CONFIG
 except ImportError as e:
     print(f"[CRITICAL] Konnte Common-Layer nicht laden: {e}")
-    # Fallback, damit das Spiel startet (wenn auch leer)
     COMMON_CONFIG = {"rooms": {}, "objects": {}, "npcs": [], "matrix": [], "combinations": []}
 
 class StoryLoader:
@@ -21,6 +20,29 @@ class StoryLoader:
         try:
             # 1. Dynamischer Import des Kapitel-Configs (Layer 2)
             module = importlib.import_module(chapter_module_path)
+            # WICHTIG: Reload erzwingen, damit Änderungen im laufenden Prozess übernommen werden!
+            importlib.reload(module)
+            
+            # Auch die Sub-Module (rooms, items, etc.) müssen evtl. neu geladen werden,
+            # wenn sie im Config-Modul importiert wurden.
+            # Da Config meistens 'from .rooms import ROOMS' macht, reicht reload(module) oft nicht,
+            # wenn module.ROOMS eine direkte Referenz ist.
+            # Wir müssen rekursiv reloaden oder die Struktur der Configs ändern.
+            # Einfacher Hack: Wir verlassen uns darauf, dass Config bei Reload die Imports neu ausführt.
+            # Besser: Wir reloaden explizit die bekannten Submodule des Kapitels.
+            
+            base_package = module.__package__
+            if base_package:
+                for sub in ['rooms', 'items', 'npcs', 'events', 'events_flavor']:
+                    try:
+                        sub_mod = importlib.import_module(f"{base_package}.{sub}")
+                        importlib.reload(sub_mod)
+                    except ImportError:
+                        pass # Nicht jedes Kapitel hat alle Submodule
+            
+            # Config Modul selbst nochmal reloaden, um die aktualisierten Dicts zu holen
+            importlib.reload(module)
+            
             chapter_data = module.CHAPTER_CONFIG
             
             print(f"[SYSTEM] Lade Kapitel: {chapter_data['meta']['title']}")
@@ -125,7 +147,6 @@ class StoryLoader:
                 "move": ["gehe", "go", "lauf", "klettere", "schwebe", "wandere", "steig", "bewege"],
                 "take": ["nimm", "greif", "einstecken", "sammle", "aufheben"],
                 "drop": ["drop", "fallenlassen", "abwerfen", "hinlegen", "ablegen", "entferne", "lass"],
-                # NEU: "stellen" und "stelle" hinzugefügt
                 "put": ["put", "legen", "stecken", "tun", "platziere", "stell", "packe", "fülle", "stellen", "stelle"],
                 "give": ["gib", "geben", "reich", "schenke", "give", "versorge"],
                 "use": ["benutze", "opfere", "anwenden", "kombiniere", "fülle", "injiziere"],
