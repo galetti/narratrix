@@ -5,42 +5,33 @@ class InteractionHandler:
     
     @staticmethod
     def _is_open_container(obj):
-        """Helper: Prüft ob ein Objekt ein zugänglicher Container ist."""
         if obj.get('type') == TYPE_SURFACE: return True
         if obj.get('type') == TYPE_CONTAINER and obj.get('is_open', True): return True
         return False
 
     @staticmethod
     def _is_held_by_player(game, obj):
-        """Prüft rekursiv, ob sich ein Objekt im Inventar des Spielers befindet."""
         current = obj
         while True:
             loc = current['location']
             if loc == LOC_INVENTORY: return True
-            if loc in game.rooms: return False # Liegt in einem Raum
-            
-            # Parent suchen
+            if loc in game.rooms: return False 
             parent = game.objects.get(loc)
-            if not parent: return False # Sollte nicht passieren (Void/Error)
+            if not parent: return False
             current = parent
 
     @staticmethod
     def _format_contents_recursive(game, obj_id, depth=0):
-        """Erzeugt einen String für den Inhalt, inklusive Unter-Containern."""
         if depth > 2: return "" 
-        
         contents = [sub for sub in game.objects.values() if sub['location'] == obj_id]
         if not contents: return ""
-        
         names = []
         for item in contents:
             name = item[ATTR_NAME]
             if InteractionHandler._is_open_container(item):
                 sub_text = InteractionHandler._format_contents_recursive(game, item[ATTR_ID], depth+1)
-                if sub_text:
-                    name += f" ({sub_text})"
+                if sub_text: name += f" ({sub_text})"
             names.append(name)
-            
         return ", ".join(names)
 
     @staticmethod
@@ -49,7 +40,6 @@ class InteractionHandler:
         if not args:
             game.log('location', room[ATTR_NAME])
             game.log('story', game.render_room_desc(game.location))
-            
             exits = room.get('exits', {})
             if exits:
                 trans = {"north": "Norden", "south": "Süden", "east": "Osten", "west": "Westen", "up": "Oben", "down": "Unten", "out": "Ausgang"}
@@ -59,18 +49,14 @@ class InteractionHandler:
 
             visible_objs = []
             local_objects = [o for o in game.objects.values() if o['location'] == game.location]
-            
             for obj in local_objects:
                 if InteractionHandler._is_open_container(obj):
                     content_str = InteractionHandler._format_contents_recursive(game, obj[ATTR_ID])
                     prep = "Auf dem" if obj.get('type') == TYPE_SURFACE else "Im offenen"
-                    if content_str: 
-                        game.log('info', f"{prep} {obj[ATTR_NAME]}: {content_str}")
+                    if content_str: game.log('info', f"{prep} {obj[ATTR_NAME]}: {content_str}")
                 elif obj.get('type') == TYPE_ITEM or (not obj.get('type') and obj.get(ATTR_WEIGHT, float('inf')) < float('inf')):
                      visible_objs.append(obj[ATTR_NAME])
-            
             if visible_objs: game.log('info', f"Am Boden: {', '.join(visible_objs)}")
-            
             visible_npcs = [n[ATTR_NAME] for n in game.npcs if n['location'] == game.location]
             if visible_npcs: game.log('character', f"Personen: {', '.join(visible_npcs)}")
             return
@@ -86,11 +72,11 @@ class InteractionHandler:
                 if temp > 50: status.append("Es ist HEISS.")
                 elif temp > 30: status.append("Es ist warm.")
                 elif temp < 5: status.append("Es ist eiskalt.")
-                
                 if target.get(ATTR_MATTER) == MATTER_LIQUID: status.append("Es ist flüssig.")
 
-                if target['id'] == 'scale':
-                    contents = [o for o in game.objects.values() if o['location'] == 'scale']
+                # GENERIC SCALE LOGIC
+                if target.get('is_scale'):
+                    contents = [o for o in game.objects.values() if o['location'] == target[ATTR_ID]]
                     total_weight = sum(o.get('weight', 0) for o in contents)
                     status.append(f"Display: {total_weight:.2f} kg")
 
@@ -109,26 +95,22 @@ class InteractionHandler:
                 
                 if status: desc += " " + " ".join(status)
                 game.log('story', desc)
-        except ResolutionError as e:
-            game.log('error', str(e))
+        except ResolutionError as e: game.log('error', str(e))
 
     @staticmethod
     def take(game, args):
         if any(w in args for w in ["all", "alles", "alle"]):
             candidates = Resolver._collect_candidates(game, FILTER_RECURSIVE)
             candidates = [o for o in candidates if o['location'] != LOC_INVENTORY and o.get(ATTR_WEIGHT, float('inf')) < float('inf')]
-            
             taken = []
             for item in candidates:
                 if item.get(ATTR_MATTER) == MATTER_LIQUID: continue 
                 item['location'] = LOC_INVENTORY
                 taken.append(item[ATTR_NAME])
-                
             if taken:
                 game.log('success', f"Genommen: {', '.join(taken)}")
                 game.tick(len(taken))
-            else:
-                game.log('info', "Hier gibt es nichts zum Mitnehmen.")
+            else: game.log('info', "Hier gibt es nichts zum Mitnehmen.")
             return
 
         clean_args = Resolver.clean_args(args)
@@ -143,7 +125,6 @@ class InteractionHandler:
                 target['location'] = LOC_INVENTORY
                 game.log('success', f"{target[ATTR_NAME]} genommen.")
                 
-                # Wenn es eine Oberfläche ist (z.B. Waage), rutschen Inhalte ins Inventar
                 if target.get('type') == TYPE_SURFACE:
                     contents = [o for o in game.objects.values() if o['location'] == target[ATTR_ID]]
                     if contents:
@@ -151,31 +132,17 @@ class InteractionHandler:
                         for item in contents:
                             item['location'] = LOC_INVENTORY
                             names.append(item[ATTR_NAME])
-                        if names:
-                            game.log('info', f"Du verstaust auch: {', '.join(names)}.")
-
+                        if names: game.log('info', f"Du verstaust auch: {', '.join(names)}.")
                 game.tick(1)
         except ResolutionError as e: game.log('error', str(e))
 
     @staticmethod
     def give(game, args):
         if not args: return game.log('error', "Was an wen?")
-        
         separators = ["an", "to", "dem", "der"]
         sep_indices = [i for i, w in enumerate(args) if w.lower() in separators]
-        
-        item_words = []
-        npc_words = []
-        
-        # EXPLIZITER IF/ELSE BLOCK STATT ONE-LINER (Fix für NameError 'idx')
-        if sep_indices:
-            idx = sep_indices[0]
-            item_words = args[:idx]
-            npc_words = args[idx+1:]
-        else:
-            item_words = args[:-1]
-            npc_words = [args[-1]]
-            
+        item_words = args[:sep_indices[0]] if sep_indices else args[:-1]
+        npc_words = args[idx+1:] if sep_indices else [args[-1]]
         try:
             item = Resolver.resolve_target(game, item_words, location_filter=FILTER_INVENTORY, verb='give_item')
             if item:
@@ -216,18 +183,14 @@ class InteractionHandler:
                 if target.get('type') == TYPE_SURFACE: return game.log('info', "Das ist offen sichtbar.")
                 if target.get('type') != TYPE_CONTAINER: return game.log('error', "Das lässt sich nicht öffnen.")
                 
-                # Complex Mechanism Check
                 mechanism = target.get('mechanism')
                 if mechanism:
                     mech_type = mechanism.get('type')
                     if mech_type == 'rusty':
-                        if not mechanism.get('solved', False):
-                            return game.log('error', mechanism.get('fail_msg', "Es klemmt."))
+                        if not mechanism.get('solved', False): return game.log('error', mechanism.get('fail_msg', "Es klemmt."))
                     elif mech_type == 'electronic':
-                        if not mechanism.get('powered', True):
-                            return game.log('error', "Kein Strom.")
-                        if not mechanism.get('unlocked', False):
-                            return game.log('error', mechanism.get('fail_msg', "Zugriff verweigert."))
+                        if not mechanism.get('powered', True): return game.log('error', "Kein Strom.")
+                        if not mechanism.get('unlocked', False): return game.log('error', mechanism.get('fail_msg', "Zugriff verweigert."))
 
                 if target.get('is_locked'):
                     key_id = target.get('key_id')
@@ -258,16 +221,16 @@ class InteractionHandler:
                     if container.get('type') not in [TYPE_CONTAINER, TYPE_SURFACE]: return game.log('error', "Da kannst du nichts reinlegen.")
                     if container.get('type') == TYPE_CONTAINER and not container.get('is_open'): return game.log('error', f"Der {container[ATTR_NAME]} ist geschlossen.")
                     
-                    # Waagen-Logik
-                    if container['id'] == 'scale':
+                    # GENERIC SCALE LOGIC
+                    if container.get('is_scale'):
                         if InteractionHandler._is_held_by_player(game, container):
                             return game.log('error', "Die Waage muss auf einem stabilen Untergrund stehen.")
 
                     item['location'] = container[ATTR_ID]; prep = "auf" if container.get('type') == TYPE_SURFACE else "in"
                     game.log('success', f"Du legst {item[ATTR_NAME]} {prep} {container[ATTR_NAME]}."); game.tick(2)
                     
-                    if container['id'] == 'scale':
-                        contents = [o for o in game.objects.values() if o['location'] == 'scale']
+                    if container.get('is_scale'):
+                        contents = [o for o in game.objects.values() if o['location'] == container[ATTR_ID]]
                         total_weight = sum(o.get('weight', 0) for o in contents)
                         game.log('info', f"Das Display der Waage springt an: {total_weight:.2f} kg")
         except ResolutionError as e: game.log('error', str(e))

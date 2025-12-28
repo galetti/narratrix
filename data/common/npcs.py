@@ -10,9 +10,8 @@ COMMON_NPCS = [
         "start_loc": "cantina", 
         "location": "cantina", 
         
-        "initial_state": "panic", # Default ist Panik (für Ep1), wird in Ep0 per Event überschrieben
+        "initial_state": "panic",
         "states": {
-            # --- ZUSTAND: ENTSPANNT (Episode 0) ---
             "relaxed": {
                 "behavior": {
                     "movement_chance": 20, 
@@ -20,7 +19,7 @@ COMMON_NPCS = [
                     "route": []
                 },
                 "visuals": {
-                    "img": "face_aris_alert", # 
+                    "img": "face_aris_alert", 
                     "desc": "Der Chefingenieur wirkt zufrieden. Er summt leise vor sich hin.",
                     "personality": "Freundlich, Jovial"
                 },
@@ -35,7 +34,6 @@ COMMON_NPCS = [
                     }
                 }
             },
-            # --- ZUSTAND: PANIK (Episode 1 Start) ---
             "panic": {
                 "behavior": {
                     "movement_chance": 40, 
@@ -89,15 +87,14 @@ COMMON_NPCS = [
         }
     },
     {
-        "id": "npc_val", "name": "Val", "aliases": ["commander", "frau"], "is_global": True, # Val ist global definiert, in Ep1 aber lokal überschrieben. Hier der Common-Eintrag.
+        "id": "npc_val", "name": "Val", "aliases": ["commander", "frau"], "is_global": True, 
         "start_loc": "bridge", "location": "bridge",
         "initial_state": "injured",
         "states": {
-            # --- ZUSTAND: NORMAL (Episode 0) ---
             "relaxed": {
                 "behavior": {"movement_chance": 10, "affinity": ["bridge", "hub"]},
                 "visuals": {
-                    "img": "face_val_stern", # 
+                    "img": "face_val_stern", 
                     "desc": "Commander Val strahlt natürliche Autorität aus. Sie wirkt entspannt, aber wachsam.",
                     "personality": "Professionell"
                 },
@@ -107,7 +104,6 @@ COMMON_NPCS = [
                     "fiona": "Dr. Hellman leistet gute Arbeit, auch wenn ihre Methoden etwas... unkonventionell sind."
                 }
             },
-            # --- ZUSTAND: VERLETZT (Episode 1 Fallback) ---
             "injured": {
                 "behavior": {"movement_chance": 0},
                 "visuals": {"img": "face_val_pain", "desc": "Sie blutet stark."},
@@ -135,11 +131,10 @@ COMMON_NPCS = [
                 "visuals": {"img": "face_ai_calm", "desc": "Das Hologramm leuchtet ruhig blau.", "personality": "Hilfsbereit"},
                 "dialogue": {"greeting": "Systeme online."}
             },
-            # --- ZUSTAND: DIENSTLEISTER (Episode 0) ---
             "service": {
                 "behavior": {"movement_chance": 0, "affinity": ["hub"]},
                 "visuals": {
-                    "img": "face_ai_calm", # 
+                    "img": "face_ai_calm", 
                     "desc": "Das Hologramm projeziert ein freundliches Lächeln.",
                     "personality": "Höflich"
                 },
