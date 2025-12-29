@@ -34,10 +34,26 @@ COMMON_NPCS = [
                     }
                 }
             },
+            # NEU: Schlafenszeit
+            "sleeping": {
+                "behavior": {
+                    "movement_chance": 100, # Er geht sofort ins Bett
+                    "affinity": ["crew_quarters"],
+                    "route": []
+                },
+                "visuals": {
+                    "img": "face_aris_alert", # Wir haben kein 'sleeping' face, also neutral
+                    "desc": "Aris ist auf dem Weg in seine Koje.",
+                    "personality": "Müde"
+                },
+                "dialogue": {
+                    "greeting": "Gute Nacht. Morgen ist auch noch ein Tag."
+                }
+            },
             "panic": {
                 "behavior": {
                     "movement_chance": 40, 
-                    "affinity": ["cantina", "reactor"],
+                    "affinity": ["cantina", "reactor"], 
                     "route": []
                 },
                 "visuals": {
@@ -102,6 +118,22 @@ COMMON_NPCS = [
                     "greeting": "Willkommen an Bord, Spezialist. Wir schätzen die Unterstützung des USC.",
                     "status": "Alle Systeme nominal. Genießen Sie den Abend, morgen früh geht die Wartung los.",
                     "fiona": "Dr. Hellman leistet gute Arbeit, auch wenn ihre Methoden etwas... unkonventionell sind."
+                }
+            },
+            # NEU: Schlafenszeit
+            "sleeping": {
+                "behavior": {
+                    "movement_chance": 100,
+                    "affinity": ["crew_quarters"],
+                    "route": []
+                },
+                "visuals": {
+                    "img": "face_val_stern",
+                    "desc": "Sie ist auf dem Weg in die Quartiere.",
+                    "personality": "Müde"
+                },
+                "dialogue": {
+                    "greeting": "Der Dienst ist beendet. Ruhen Sie sich aus."
                 }
             },
             "injured": {

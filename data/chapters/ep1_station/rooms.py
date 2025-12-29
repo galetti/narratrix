@@ -19,8 +19,17 @@ ROOMS = {
     "cantina": {
         "id": "cantina", "name": "Messe", "map_x": 0, "map_y": 1,
         "desc": "Es riecht nach Ozon und verbranntem Plastik. Tische sind umgeworfen. Ein {replicator} an der Wand raucht vor sich hin.",
-        "exits": {"north": "hub"},
+        "exits": {"north": "hub", "south": "crew_quarters"}, # Link zu Quartieren
         "img": "scifi_mess"
+    },
+    # NEU: Quartiere (Zerstört)
+    "crew_quarters": {
+        "id": "crew_quarters",
+        "name": "Mannschaftsquartiere",
+        "map_x": 0, "map_y": 2,
+        "desc": "Der Korridor ist dunkel. Einige Kabinentüren sind verformt und lassen sich nicht öffnen. Persönliche Gegenstände liegen verstreut am Boden. Es ist gespenstisch still.",
+        "exits": {"north": "cantina"},
+        "img": "scifi_quarters" # 
     },
     "reactor": {
         "id": "reactor", "name": "Reaktorkern", "map_x": 1, "map_y": 0,
@@ -39,9 +48,8 @@ ROOMS = {
         "id": "medbay", "name": "Krankenstation", "map_x": -1, "map_y": 0,
         "desc": "Verwüstet. Glasscherben bedecken den Boden. Ein leerer {med_cabinet} steht offen. Ein {med_table} steht an der Wand. Es riecht steril und nach Eisen.",
         "exits": {"east": "hub"},
-        # NEU: Man kann durch die dünne Wand in den Hub hören
         "acoustics": {
-            "hub": 0.2 # Dünne Wand (ohne Tür) -> Mit Stethoskop gut hörbar!
+            "hub": 0.2
         },
         "img": "scifi_medbay"
     }

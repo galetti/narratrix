@@ -10,22 +10,27 @@ ROOMS = {
     },
     "bridge": {
         "id": "bridge", "name": "Kommandobrücke", "map_x": 0, "map_y": -1,
-        # Val ist ein NPC, sie sollte NICHT in der statischen Beschreibung stehen, 
-        # es sei denn, sie bewegt sich nie (was in Ep0 'relaxed' aber möglich ist).
-        # Besser: Wir entfernen sie hier auch, damit es konsistent ist.
-        "desc": "Der Blick durch das Sichtfenster zeigt die Sterne. Alle Konsolen blinken in beruhigendem Grün.",
+        "desc": "Commander Val steht am großen Sichtfenster und betrachtet die Sterne. Alle Konsolen blinken in beruhigendem Grün.",
         "exits": {"south": "hub"},
-        "img": "scifi_bridge_clean"
+        "img": "scifi_bridge_clean" 
     },
     "cantina": {
         "id": "cantina", "name": "Messe", "map_x": 0, "map_y": 1,
         "desc": "Es ist warm hier und duftet nach Kaffee und Synthetik-Essen. Tische laden zum Verweilen ein. Der {replicator} an der Wand ist betriebsbereit.",
-        "exits": {"north": "hub"},
+        "exits": {"north": "hub", "south": "crew_quarters"}, # Ausgang nach Süden hinzugefügt
         "img": "scifi_mess_clean" 
+    },
+    # NEU: Mannschaftsquartiere
+    "crew_quarters": {
+        "id": "crew_quarters", 
+        "name": "Mannschaftsquartiere", 
+        "map_x": 0, "map_y": 2, # Südlich der Kantine (0, 1)
+        "desc": "Ein langer Koridor mit persönlichen Schlafkabinen für die Stations-Crew. Es ist ruhig und privat hier. Ein paar persönliche Gegenstände liegen herum.",
+        "exits": {"north": "cantina"},
+        "img": "scifi_quarters_clean" # 
     },
     "reactor": {
         "id": "reactor", "name": "Reaktorkern", "map_x": 1, "map_y": 0,
-        # FIX: Aris entfernt. Er ist ein dynamischer NPC.
         "desc": "Ein sanftes, rhythmisches Wummern erfüllt den Raum. Der {core} arbeitet präzise. Es ist warm, aber nicht unangenehm.",
         "exits": {"west": "hub", "down": "maintenance"},
         "img": "scifi_reactor_clean" 
@@ -39,9 +44,11 @@ ROOMS = {
     },
     "medbay": {
         "id": "medbay", "name": "Krankenstation", "map_x": -1, "map_y": 0,
-        # Fiona ist auch ein NPC. Raus damit aus der Static Desc.
         "desc": "Steril und weiß. Auf dem {med_table} stehen diverse Instrumente und eine {scale}. Pflanzenproben stehen in den Regalen.",
         "exits": {"east": "hub"},
+        "acoustics": {
+            "hub": 0.2
+        },
         "img": "scifi_medbay_clean" 
     }
 }
