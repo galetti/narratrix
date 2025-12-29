@@ -18,19 +18,25 @@ class DialogueHandler:
         game.dialogue_active = True
         game.dialogue_partner = target_npc
         
+        # Begrüßung ausgeben
         current_state = target_npc.get('state', 'default')
         
-        game.log('event', f"--- GESPRÄCH MIT {target_npc[ATTR_NAME].upper()} ---")
-        game.log('info', "(Tippe Themen oder 'gib [Item]')")
-        
-        dialogue_db = target_npc.get('dialogue', {})
-        state_db = dialogue_db.get(current_state, {})
-        
-        greeting = state_db.get('greeting', "...")
-        if not greeting and current_state != 'default':
-             greeting = dialogue_db.get('default', {}).get('greeting', "...")
+        # Datenzugriff (Kompatibilität mit neuer State-Struktur und alter Struktur)
+        dialogue_db = {}
+        if 'states' in target_npc:
+            state_data = target_npc['states'].get(current_state, {})
+            dialogue_db = state_data.get('dialogue', {})
+        else:
+            # Fallback alte Struktur
+            dialogue_db = target_npc.get('dialogue', {}).get(current_state, {})
 
+        greeting = dialogue_db.get('greeting', "...")
+        
+        game.log('event', f"--- GESPRÄCH MIT {target_npc[ATTR_NAME].upper()} ---")
         DialogueHandler._print_dialogue(game, target_npc, greeting)
+        
+        # Themen-Liste anzeigen
+        DialogueHandler._show_topics(game, target_npc, dialogue_db)
 
     @staticmethod
     def step(game, user_input):
@@ -41,8 +47,8 @@ class DialogueHandler:
             game.dialogue_active = False
             return
 
-        exit_words = ["bye", "ende", "tschüss", "weg", "stop", "exit", "leave"]
-        if any(w in text for w in exit_words):
+        exit_words = ["bye", "ende", "tschüss", "weg", "stop", "exit", "leave", "q"]
+        if any(w == text for w in exit_words):
             game.log('event', "--- GESPRÄCH BEENDET ---")
             game.dialogue_active = False
             game.dialogue_partner = None
@@ -57,40 +63,128 @@ class DialogueHandler:
                 InteractionHandler.give(game, new_args)
             else:
                 InteractionHandler.give(game, args[1:])
+            # Nach dem Geben Themen neu anzeigen
+            current_state = npc.get('state', 'default')
+            dialogue_db = DialogueHandler._get_dialogue_db(npc, current_state)
+            DialogueHandler._show_topics(game, npc, dialogue_db)
             return
 
+        # --- LOGIK: ZAHL ODER TEXT? ---
         current_state = npc.get('state', 'default')
-        dialogue_root = npc.get('dialogue', {})
+        dialogue_db = DialogueHandler._get_dialogue_db(npc, current_state)
         
-        state_db = dialogue_root.get(current_state, {})
-        global_db = dialogue_root.get('global', {})
+        # 1. Verfügbare Themen ermitteln (für Nummern-Mapping)
+        visible_topics = DialogueHandler._get_visible_topics(game, dialogue_db)
+        
+        chosen_entry = None
+        chosen_topic_key = None
 
-        found_topic = None
-        source_db = None
-        entry = None
-
-        for topic in state_db.keys():
-            if topic in ['greeting', 'desc', 'img', 'personality']: continue
-            if topic in text:
-                candidate = state_db[topic]
-                if DialogueHandler._check_condition_wrapper(game, candidate):
-                    found_topic = topic; source_db = state_db; entry = candidate; break
+        # Fall A: Zahleneingabe
+        if text.isdigit():
+            idx = int(text) - 1
+            if 0 <= idx < len(visible_topics):
+                chosen_topic_key, chosen_entry = visible_topics[idx]
         
-        if not found_topic:
-            for topic in global_db.keys():
-                if topic in text:
-                    candidate = global_db[topic]
-                    if DialogueHandler._check_condition_wrapper(game, candidate):
-                        found_topic = topic; source_db = global_db; entry = candidate; break
-        
-        if found_topic and entry:
-            DialogueHandler._print_dialogue(game, npc, entry)
-            # FIX: Nutze die neue Multi-Effekt Methode
-            DialogueHandler.process_effects(game, entry, npc)
+        # Fall B: Texteingabe (Keyword Search - sucht auch in VERSTECKTEN Themen)
         else:
+            for topic, entry in dialogue_db.items():
+                if topic in ['greeting', 'default']: continue
+                
+                # Check Condition (auch bei direkter Eingabe muss Condition erfüllt sein)
+                if not DialogueHandler._check_condition_wrapper(game, entry):
+                    continue
+
+                # Matching: Key oder explizite Keywords?
+                # Einfaches Matching auf Key
+                if topic in text:
+                    chosen_entry = entry
+                    chosen_topic_key = topic
+                    break
+                
+                # Wenn entry ein Dict ist, könnten wir Alias-Keywords prüfen (optionales Feature)
+                # if isinstance(entry, dict) and 'keywords' in entry ...
+
+        # Verarbeitung
+        if chosen_entry:
+            # Player Echo für Auswahl
+            if text.isdigit():
+                label = chosen_topic_key
+                if isinstance(chosen_entry, dict) and 'label' in chosen_entry:
+                    label = chosen_entry['label']
+                game.log('user', f"> {label}")
+
+            DialogueHandler._print_dialogue(game, npc, chosen_entry)
+            DialogueHandler.process_effects(game, chosen_entry, npc)
+            
+            # Themen neu anzeigen (falls sich was geändert hat)
+            # Wir holen DB neu, da State sich geändert haben könnte
+            new_state = npc.get('state', 'default')
+            new_db = DialogueHandler._get_dialogue_db(npc, new_state)
+            DialogueHandler._show_topics(game, npc, new_db)
+            
+        else:
+            # Fallback / LLM
             use_llm = game.config.get('use_llm_dialogue', False)
-            if use_llm: DialogueHandler._print_dialogue(game, npc, "LLM_AUTO_REPLY", prompt_context=text)
-            else: game.log('character', f"{npc[ATTR_NAME]} schaut dich fragend an.")
+            if use_llm: 
+                DialogueHandler._print_dialogue(game, npc, "LLM_AUTO_REPLY", prompt_context=text)
+            else: 
+                # Prüfen ob es eine 'default' Antwort für Unbekanntes gibt
+                default_reply = dialogue_db.get('default')
+                if default_reply:
+                    DialogueHandler._print_dialogue(game, npc, default_reply)
+                else:
+                    game.log('character', f"{npc[ATTR_NAME]} schaut dich fragend an.")
+            
+            # Themen nochmal anzeigen zur Hilfe
+            DialogueHandler._show_topics(game, npc, dialogue_db)
+
+    # --- HELPER ---
+
+    @staticmethod
+    def _get_dialogue_db(npc, state):
+        """Holt das Dialog-Dict, egal ob alte oder neue Struktur."""
+        if 'states' in npc:
+            return npc['states'].get(state, {}).get('dialogue', {})
+        return npc.get('dialogue', {}).get(state, {})
+
+    @staticmethod
+    def _get_visible_topics(game, dialogue_db):
+        """Liefert Liste von (Key, Entry) Tupeln, die im Menü angezeigt werden sollen."""
+        visible = []
+        for topic, entry in dialogue_db.items():
+            if topic in ['greeting', 'default']: continue
+            
+            # 1. Condition Check (Wissen, Item, etc.)
+            if not DialogueHandler._check_condition_wrapper(game, entry):
+                continue
+            
+            # 2. Hidden Check (Explizit versteckte Themen)
+            is_hidden = False
+            if isinstance(entry, dict) and entry.get('hidden', False):
+                is_hidden = True
+            
+            if not is_hidden:
+                visible.append((topic, entry))
+        return visible
+
+    @staticmethod
+    def _show_topics(game, npc, dialogue_db):
+        """Zeigt die nummerierte Liste an."""
+        visible = DialogueHandler._get_visible_topics(game, dialogue_db)
+        
+        if not visible:
+            game.log('info', "(Keine offensichtlichen Gesprächsthemen)")
+            return
+
+        options = []
+        for i, (topic, entry) in enumerate(visible):
+            label = topic.capitalize()
+            # Wenn Label definiert ist, nutze das
+            if isinstance(entry, dict) and 'label' in entry:
+                label = entry['label']
+            options.append(f"[{i+1}] {label}")
+        
+        game.log('info', "Optionen: " + ", ".join(options))
 
     @staticmethod
     def _check_condition_wrapper(game, entry):
@@ -105,32 +199,24 @@ class DialogueHandler:
             c_type = condition.get('type')
             if c_type == 'knowledge': return condition.get('value') in game.knowledge
             elif c_type == 'location': return game.location == condition.get('value')
+            elif c_type == 'item_location':
+                item_id = condition.get('item')
+                loc = condition.get('location')
+                obj = game.objects.get(item_id)
+                return obj and obj['location'] == loc
             elif c_type == 'npc_state':
-                target_name = condition.get('npc'); required_state = condition.get('state')
+                target_name = condition.get('npc')
+                required_state = condition.get('state')
                 target = next((n for n in game.npcs if n[ATTR_NAME] == target_name or target_name in n.get(ATTR_ALIASES, [])), None)
                 if target: return target.get('state', 'default') == required_state
                 return False
-            elif c_type == 'not_npc_state':
-                target_name = condition.get('npc'); forbidden_state = condition.get('state')
-                target = next((n for n in game.npcs if n[ATTR_NAME] == target_name or target_name in n.get(ATTR_ALIASES, [])), None)
-                if target: return target.get('state', 'default') != forbidden_state
-                return True 
         return True
 
-    # --- NEU: Multi-Effekt Handler ---
     @staticmethod
     def process_effects(game, entry, npc):
-        """Verarbeitet einen oder mehrere Effekte aus einem Dialog-Eintrag."""
         if 'effect' not in entry: return
-        
         effects_data = entry['effect']
-        
-        # Normalisiere zu Liste
-        effect_list = []
-        if isinstance(effects_data, list):
-            effect_list = effects_data
-        elif isinstance(effects_data, dict):
-            effect_list = [effects_data]
+        effect_list = effects_data if isinstance(effects_data, list) else [effects_data]
             
         for eff in effect_list:
             DialogueHandler._execute_effect(game, eff, npc)
@@ -145,6 +231,7 @@ class DialogueHandler:
                 game.log('event', f"[{npc[ATTR_NAME]} macht sich auf den Weg.]")
                 npc[ATTR_AFFINITY] = [target_room]
                 npc['location'] = target_room
+                npc['destination'] = target_room # AI Update
                 if target_room != game.location:
                     game.dialogue_active = False; game.dialogue_partner = None
                     game.log('event', "--- GESPRÄCH BEENDET (Partner gegangen) ---")
@@ -157,11 +244,10 @@ class DialogueHandler:
             reason = effect.get('reason', "Game Over"); game.log('alarm', reason); game.game_over = True
             
         elif e_type == 'set_state':
-            new_state = effect.get('value'); npc['state'] = new_state
-            dialogue_root = npc.get('dialogue', {}); state_config = dialogue_root.get(new_state, {})
-            if 'desc' in state_config: npc[ATTR_DESC] = state_config['desc']; game.log('info', f"(Die Ausstrahlung von {npc[ATTR_NAME]} hat sich verändert.)")
-            if 'img' in state_config: npc['img'] = state_config['img']
-            if 'personality' in state_config: npc['personality'] = state_config['personality']
+            new_state = effect.get('value')
+            npc['state'] = new_state
+            # Hier müsste man eigentlich Hydration auslösen, aber GameState macht das automatisch beim nächsten Snapshot
+            game.log('info', f"({npc[ATTR_NAME]} wirkt verändert.)")
 
         elif e_type == 'receive_item':
             item_id = effect.get('item_id')
@@ -172,27 +258,19 @@ class DialogueHandler:
             else:
                 game.log('error', f"Effect Error: Item {item_id} existiert nicht.")
 
-        # NEU: Status eines ANDEREN NPCs ändern
         elif e_type == 'set_npc_state':
             target_name = effect.get('npc')
             new_state = effect.get('value')
             target = next((n for n in game.npcs if n[ATTR_NAME] == target_name or target_name in n.get(ATTR_ALIASES, [])), None)
-            
             if target:
                 target['state'] = new_state
-                # Optional: Config Update für den anderen NPC (Bild etc)
-                dialogue_root = target.get('dialogue', {})
-                state_config = dialogue_root.get(new_state, {})
-                if 'desc' in state_config: target[ATTR_DESC] = state_config['desc']
-                if 'img' in state_config: target['img'] = state_config['img']
                 game.log('success', f"(Status von {target[ATTR_NAME]} aktualisiert)")
-            else:
-                game.log('error', f"Effect Error: NPC '{target_name}' nicht gefunden.")
 
     @staticmethod
     def _print_dialogue(game, npc, response_entry, prompt_context=None):
         core_text = response_entry
         if isinstance(response_entry, dict): core_text = response_entry.get('text', "")
+        
         final_text = core_text
         use_llm = game.config.get('use_llm_dialogue', False)
         if use_llm:
@@ -205,4 +283,5 @@ class DialogueHandler:
                 user_msg = f"Kern-Aussage: {core_text}"
             game.log('info', f"({npc[ATTR_NAME]} denkt nach...)"); enhanced = LLMBridge.call(sys_prompt, user_msg)
             if enhanced: final_text = enhanced
+            
         game.log('character', f"{npc[ATTR_NAME]}: \"{final_text}\"")
