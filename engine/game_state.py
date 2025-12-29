@@ -21,6 +21,9 @@ class GameState:
         self.persistent_flags = set() 
         self.pending_chapter_load = None 
         
+        # NEU: Versteck Status
+        self.hidden_in = None # ID des Containers, in dem der Spieler steckt
+        
         # Startraum ermitteln
         start_room = config.get('meta', {}).get('start_room')
         if not start_room and 'start' in config['rooms']: start_room = 'start'
@@ -38,7 +41,7 @@ class GameState:
         self.dialogue_partner = None
         self.knowledge = set()
 
-        # Tiefe Kopien der Daten, um den Config-State nicht zu verändern
+        # Tiefe Kopien der Daten
         self.rooms = copy.deepcopy(config['rooms'])
         self.npcs = copy.deepcopy(config['npcs'])
         self.matrix = copy.deepcopy(config['narrative_matrix'])
@@ -48,7 +51,6 @@ class GameState:
         for npc in self.npcs:
             if 'states' in npc:
                 if 'state' not in npc:
-                    # Setze initialen State aus Config oder nehme den ersten
                     npc['state'] = npc.get('initial_state', list(npc['states'].keys())[0])
                 self._hydrate_npc(npc)
                 npc['_last_hydrated_state'] = npc['state']
@@ -68,31 +70,18 @@ class GameState:
         self.object_behavior = ObjectBehaviorSystem(self)
 
     def _hydrate_npc(self, npc):
-        """
-        Kopiert Daten aus der hierarchischen 'states'-Struktur in die flache NPC-Struktur.
-        """
         current_state = npc.get('state')
         state_data = npc.get('states', {}).get(current_state)
-        
         if not state_data: return
-
-        # 1. Behavior (AI)
         if 'behavior' in state_data:
-            for k, v in state_data['behavior'].items():
-                npc[k] = v 
-        
-        # 2. Visuals (Anzeige)
+            for k, v in state_data['behavior'].items(): npc[k] = v 
         if 'visuals' in state_data:
-            for k, v in state_data['visuals'].items():
-                npc[k] = v 
-        
-        # 3. Dialogue (Interaktion)
+            for k, v in state_data['visuals'].items(): npc[k] = v 
         if 'dialogue' in state_data:
             if 'dialogue' not in npc: npc['dialogue'] = {}
             npc['dialogue'][current_state] = state_data['dialogue']
 
     def _synchronize_npcs(self):
-        """Prüft auf Zustandsänderungen und aktualisiert die Daten."""
         for npc in self.npcs:
             if 'states' in npc:
                 current = npc.get('state')
@@ -110,6 +99,7 @@ class GameState:
             new_state.game_over = self.game_over
             new_state.knowledge = copy.deepcopy(self.knowledge)
             new_state.persistent_flags = copy.deepcopy(self.persistent_flags)
+            new_state.hidden_in = self.hidden_in # Copy hidden state
             new_state.rooms = copy.deepcopy(self.rooms)
             new_state.npcs = copy.deepcopy(self.npcs)
             new_state.matrix = copy.deepcopy(self.matrix)
@@ -118,6 +108,12 @@ class GameState:
         return new_state
 
     def render_room_desc(self, room_id):
+        # Wenn versteckt, geben wir Feedback über den Versteck-Status
+        if self.hidden_in:
+            container = self.objects.get(self.hidden_in)
+            c_name = container[ATTR_NAME] if container else "einem Versteck"
+            return f"Du bist versteckt in {c_name}. Durch einen Spalt siehst du den Raum."
+
         room = self.rooms.get(room_id)
         if not room: return f"ERROR: Raum '{room_id}' nicht gefunden."
         text = room[ATTR_DESC]
@@ -170,8 +166,6 @@ class GameState:
     def add_knowledge(self, fact_id): 
         if fact_id not in self.knowledge: self.knowledge.add(fact_id)
 
-    # --- DELEGATION ZU SYSTEMEN ---
-    
     def perform_combine(self, item1_name, item2_name):
         return self.crafting.perform_combine(item1_name, item2_name)
 
@@ -181,8 +175,6 @@ class GameState:
     def get_direction_to(self, target_room_id):
         return self.pathfinder.get_direction_to(self.location, target_room_id)
 
-    # --- SIMULATION LOOP ---
-    
     def _check_trigger_condition(self, node):
         if node.get('triggered', False): return False
         trigger_type = node.get('trigger', 'time')
@@ -212,55 +204,51 @@ class GameState:
     def tick(self, minutes):
         self.time += minutes
         
-        # Physik (Temperatur-Angleichung)
+        # Physik
         for obj in self.objects.values():
             if ATTR_TEMP in obj:
-                current = obj[ATTR_TEMP]
-                target = 20 # Raumtemperatur
+                current = obj[ATTR_TEMP]; target = 20
                 if current != target:
                     diff = target - current
-                    change = diff * 0.1
-                    if abs(change) < 0.5: obj[ATTR_TEMP] = target
-                    else: obj[ATTR_TEMP] += change
+                    if abs(diff) < 0.5: obj[ATTR_TEMP] = target
+                    else: obj[ATTR_TEMP] += diff * 0.1
         
-        # Events verarbeiten
+        # Events
         for node in self.matrix:
             if self._check_trigger_condition(node):
                 node['triggered'] = True
                 node['triggered_at'] = self.time
                 
-                # --- EVENT EFFECTS ENGINE ---
-                # Führt Effekte aus (z.B. NPC-Status setzen)
                 if 'effects' in node:
                     effects = node['effects']
                     if not isinstance(effects, list): effects = [effects]
                     for eff in effects:
                         e_type = eff.get('type')
-                        
                         if e_type == 'set_npc_state':
                             target_name = eff.get('npc')
                             new_state = eff.get('value')
                             target = next((n for n in self.npcs if n[ATTR_NAME] == target_name or target_name in n.get(ATTR_ALIASES, [])), None)
                             if target: target['state'] = new_state
-                        
                         elif e_type == 'learn':
                             fact = eff.get('fact')
                             if fact: self.add_knowledge(fact)
                 
-                # Spezialfall: Kapitelwechsel
                 if node.get('type') == 'chapter_switch':
                     target_chapter = node.get('target_chapter')
                     self.log('story', node.get('description', 'Kapitelwechsel...'))
                     self.pending_chapter_load = target_chapter
-                    return # Stop Tick Processing, GUI übernimmt
+                    return 
 
-                # Standard Event-Ausgabe
+                # NEU: NPC CHAT Event
+                if node.get('type') == 'conversation':
+                    self._process_conversation_event(node)
+                    continue
+
                 origin = node.get('origin_id')
                 if origin == self.location:
                     self.log('event', f"EVENT: {node['title']}")
                     self.log('story', node['description'])
                 else:
-                    # Geräusch aus der Ferne
                     sound_dir = self.get_direction_to(origin)
                     sound_txt = node.get('sound_msg', "Geräusch.")
                     if sound_dir: 
@@ -268,7 +256,6 @@ class GameState:
                     else: 
                         self.log('event', f"Irgendwo in der Ferne: {sound_txt}")
                 
-                # Ziel-Objekt Prüfung (Schaden an der Station)
                 target_id = node.get('target_obj_id')
                 if target_id:
                     target = self.objects.get(target_id)
@@ -278,10 +265,44 @@ class GameState:
                     else:
                         if 'success_text' in node: self.log('success', f"STATUS: {node['success_text']}")
 
-        # System Updates
         self.ai.process_all_npcs()
         self.object_behavior.process_all_objects()
 
         if self.stability <= 0: 
             self.log('alarm', "GAME OVER: STATION KRITISCH.")
             self.game_over = True
+
+    def _process_conversation_event(self, node):
+        """Verarbeitet ein NPC-Gespräch mit Akustik-Logik."""
+        origin = node.get('origin_id')
+        actors = node.get('actors', [])
+        content = node.get('content', [])
+        
+        # Fall 1: Spieler im selben Raum
+        if self.location == origin:
+            if self.hidden_in:
+                # Versteckt -> Hört alles, wird nicht gesehen
+                self.log('story', f"(Du lauschst aus deinem Versteck...)")
+                for line in content:
+                    speaker = line.get('speaker', '???')
+                    text = line.get('text', '...')
+                    self.log('character', f"{speaker}: \"{text}\"")
+            else:
+                # Offen -> Hört alles
+                self.log('event', f"GESPRÄCH: {', '.join(actors)}")
+                for line in content:
+                    speaker = line.get('speaker', '???')
+                    text = line.get('text', '...')
+                    self.log('character', f"{speaker}: \"{text}\"")
+                    
+        # Fall 2: Spieler im Nachbarraum
+        else:
+            sound_dir = self.get_direction_to(origin)
+            if sound_dir:
+                self.log('event', f"Du hörst gedämpfte Stimmen aus {sound_dir}...")
+                # Snippets zeigen
+                snippet = content[0].get('text', '...')[0:20] + "..."
+                self.log('story', f"\"{snippet}\"")
+            else:
+                # Zu weit weg -> Nichts hören oder nur Murmeln
+                pass

@@ -5,12 +5,6 @@ from engine.handlers.system import SystemHandler
 from engine.resolver import Resolver
 
 class ActionDispatcher:
-    """
-    DER ROUTER.
-    Nutzt jetzt ein Mapping-Dict statt riesiger If-Ketten.
-    """
-
-    # Mapping: Verb -> (Handler-Klasse, Methoden-Name)
     COMMAND_MAP = {
         # Interaction
         'look': InteractionHandler.look, 'l': InteractionHandler.look, 'x': InteractionHandler.look,
@@ -24,6 +18,7 @@ class ActionDispatcher:
         'fix': InteractionHandler.fix,
         'give': InteractionHandler.give, 'gib': InteractionHandler.give,
         'wait': InteractionHandler.wait, 'warte': InteractionHandler.wait,
+        'hide': InteractionHandler.hide, 'verstecke': InteractionHandler.hide, # NEU
 
         # Movement
         'move': MovementHandler.handle, 'gehe': MovementHandler.handle, 'lauf': MovementHandler.handle,
@@ -36,12 +31,11 @@ class ActionDispatcher:
         'load': SystemHandler.load,
         'oracle': SystemHandler.oracle, 'orakel': SystemHandler.oracle, 'hack': SystemHandler.oracle,
         'map': SystemHandler.map, 'karte': SystemHandler.map,
-        'help': SystemHandler.help # NEU
+        'help': SystemHandler.help
     }
 
     @staticmethod
     def dispatch(game, verb, args):
-        # 1. PENDING & DISAMBIGUIERUNG
         if game.pending_interaction:
             ActionDispatcher._handle_pending(game, verb, args)
             return
@@ -49,13 +43,11 @@ class ActionDispatcher:
             ActionDispatcher._handle_disambiguation(game, verb, args)
             return
 
-        # 2. ROUTING (Via Map)
         handler_func = ActionDispatcher.COMMAND_MAP.get(verb)
         if handler_func:
             handler_func(game, args)
             return
 
-        # 3. FALLBACK: RICHTUNGEN
         vocab_dirs = game.config.get('vocabulary', {}).get('directions', {})
         for canonical, synonyms in vocab_dirs.items():
             if verb == canonical or verb in synonyms:
@@ -100,7 +92,6 @@ class ActionDispatcher:
 
         matches = []
         for cand in candidates:
-            # Suche im Namen oder Alias
             if filter_text in cand['name'].lower() or any(filter_text in a for a in cand.get('aliases', [])):
                 matches.append(cand)
         
@@ -108,7 +99,6 @@ class ActionDispatcher:
             target = matches[0]
             game.disambiguation = None 
             game.log('user', f"(Ausgewählt: {target['name']})")
-            # Rekursiver Aufruf mit dem eindeutigen Namen als Argument
             ActionDispatcher.dispatch(game, original_verb, [target['name']])
         elif len(matches) > 1:
             names = [m['name'] for m in matches]

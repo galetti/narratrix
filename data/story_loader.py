@@ -2,7 +2,6 @@ import importlib
 import copy
 import sys
 
-# FIX: Importiere aus 'common', nicht 'global'
 try:
     from data.common.config import COMMON_CONFIG
 except ImportError as e:
@@ -10,26 +9,12 @@ except ImportError as e:
     COMMON_CONFIG = {"rooms": {}, "objects": {}, "npcs": [], "matrix": [], "combinations": []}
 
 class StoryLoader:
-    """
-    Verwaltet das Laden und Zusammenführen von Common Daten (Layer 1)
-    und Kapitel-Daten (Layer 2).
-    """
     
     @staticmethod
     def load_chapter(chapter_module_path):
         try:
-            # 1. Dynamischer Import des Kapitel-Configs (Layer 2)
             module = importlib.import_module(chapter_module_path)
-            # WICHTIG: Reload erzwingen, damit Änderungen im laufenden Prozess übernommen werden!
             importlib.reload(module)
-            
-            # Auch die Sub-Module (rooms, items, etc.) müssen evtl. neu geladen werden,
-            # wenn sie im Config-Modul importiert wurden.
-            # Da Config meistens 'from .rooms import ROOMS' macht, reicht reload(module) oft nicht,
-            # wenn module.ROOMS eine direkte Referenz ist.
-            # Wir müssen rekursiv reloaden oder die Struktur der Configs ändern.
-            # Einfacher Hack: Wir verlassen uns darauf, dass Config bei Reload die Imports neu ausführt.
-            # Besser: Wir reloaden explizit die bekannten Submodule des Kapitels.
             
             base_package = module.__package__
             if base_package:
@@ -38,37 +23,27 @@ class StoryLoader:
                         sub_mod = importlib.import_module(f"{base_package}.{sub}")
                         importlib.reload(sub_mod)
                     except ImportError:
-                        pass # Nicht jedes Kapitel hat alle Submodule
+                        pass
             
-            # Config Modul selbst nochmal reloaden, um die aktualisierten Dicts zu holen
             importlib.reload(module)
-            
             chapter_data = module.CHAPTER_CONFIG
             
             print(f"[SYSTEM] Lade Kapitel: {chapter_data['meta']['title']}")
             
-            # 2. Daten Mergen (Layer 1 + Layer 2)
-            
-            # Räume zusammenführen (Dictionary Update)
             final_rooms = copy.deepcopy(COMMON_CONFIG.get('rooms', {}))
             final_rooms.update(copy.deepcopy(chapter_data.get('rooms', {})))
             
-            # Objekte/Items zusammenführen (Dictionary Update)
             final_objects = copy.deepcopy(COMMON_CONFIG.get('objects', {}))
             final_objects.update(copy.deepcopy(chapter_data.get('objects', {})))
             
-            # Kombinationen zusammenführen (Listen addieren)
             final_combinations = copy.deepcopy(COMMON_CONFIG.get('combinations', []))
             final_combinations.extend(copy.deepcopy(chapter_data.get('combinations', [])))
             
-            # Matrix/Events zusammenführen (Listen addieren)
             final_matrix = copy.deepcopy(COMMON_CONFIG.get('matrix', []))
             final_matrix.extend(copy.deepcopy(chapter_data.get('matrix', [])))
 
-            # NPCs zusammenführen (Listen addieren)
             final_npcs = copy.deepcopy(COMMON_CONFIG.get('npcs', [])) + copy.deepcopy(chapter_data.get('npcs', []))
             
-            # 3. Dynamische Verknüpfung (Link System)
             links = chapter_data.get('links', [])
             
             if links:
@@ -116,7 +91,6 @@ class StoryLoader:
                     if "dock" not in desc.lower() and "schleuse" not in desc.lower():
                         final_rooms[docking_room_id]['desc'] = desc + " Die Luftschleuse zum Dock (out/dock) ist aktiv."
 
-            # 4. Finales Config bauen
             full_config = {
                 "meta": chapter_data['meta'],
                 "vocabulary": StoryLoader._get_default_vocabulary(),
@@ -140,7 +114,6 @@ class StoryLoader:
 
     @staticmethod
     def _get_default_vocabulary():
-        # Zentrales Vokabular für alle Kapitel
         return {
             "verbs": {
                 "look": ["schau", "l", "x", "untersuche", "betrachte", "lies", "scan", "status"],
@@ -161,7 +134,8 @@ class StoryLoader:
                 "oracle": ["orakel", "vorhersage", "vision", "prognose", "sehe", "log"],
                 "map": ["map", "karte", "plan", "radar"],
                 "hack": ["hack", "hacken", "zugriff", "system", "override"],
-                "help": ["hilfe", "help", "h", "?", "commands", "befehle"]
+                "help": ["hilfe", "help", "h", "?", "commands", "befehle"],
+                "hide": ["verstecke", "hide", "krieche"] # NEU
             },
             "directions": {
                 "north": ["n", "nord", "norden", "brücke"],
