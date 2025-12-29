@@ -20,8 +20,7 @@ LOC_VOID = "void" # Aus dem Spiel entfernt
 
 # Attribute
 ATTR_AFFINITY = "affinity"
-# ATTR_MOVABLE ist obsolet -> Logik prüft nun auf weight < inf
-ATTR_WEIGHT = "weight" # NEU
+ATTR_WEIGHT = "weight"
 ATTR_ALIASES = "aliases"
 ATTR_DESC = "desc"
 ATTR_ID = "id"
@@ -37,3 +36,11 @@ AI_CHANCE_STAY = 80
 FILTER_ROOM = "room"
 FILTER_INVENTORY = "inventory"
 FILTER_RECURSIVE = "recursive_room"
+
+# Akustik (Durchlässigkeit 0.0 bis 1.0)
+ACOUSTIC_OPEN_AIR = 0.9      # Durchlässigkeit offener Durchgang (Luft dämpft etwas)
+ACOUSTIC_OPEN_DOOR = 0.9     # Offene Tür
+ACOUSTIC_CLOSED_DOOR = 0.2   # Geschlossene Standard-Tür
+ACOUSTIC_THIN_WALL = 0.1     # Dünne Wand
+ACOUSTIC_SOLID_WALL = 0.0    # Massive Wand
+ACOUSTIC_SOUNDPROOF = 0.0    # Schallschutz

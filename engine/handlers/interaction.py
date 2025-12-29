@@ -359,14 +359,16 @@ class InteractionHandler:
                 if key_obj and key_obj['location'] == LOC_INVENTORY:
                      game.log('success', f"Du brichst das Schloss mit dem {key_obj[ATTR_NAME]} auf."); target['is_locked'] = False; target['is_open'] = True; game.tick(5); InteractionHandler.look(game, clean_args)
                 else: 
-                    # Brecheisen Check
-                    crowbar = next((o for o in game.objects.values() if o['location'] == LOC_INVENTORY and 'crowbar' in o['id']), None)
-                    if crowbar:
-                        game.log('success', f"Du brichst das Schloss mit dem {crowbar[ATTR_NAME]} auf."); 
+                    # Generischer Check auf Werkzeug
+                    prying_tools = [o for o in game.objects.values() if o['location'] == LOC_INVENTORY and o.get('tool_type') == 'prying']
+                    
+                    if prying_tools:
+                        tool = prying_tools[0]
+                        game.log('success', f"Du brichst das Schloss mit dem {tool[ATTR_NAME]} auf."); 
                         target['is_locked'] = False; target['is_open'] = True; 
                         game.tick(5); InteractionHandler.look(game, clean_args)
                     else:
-                        game.log('error', "Du brauchst ein Werkzeug (Brecheisen) oder den Schlüssel.")
+                        game.log('error', "Du brauchst ein passendes Werkzeug (z.B. Brecheisen) oder den Schlüssel.")
         except ResolutionError as e: game.log('error', str(e))
 
     @staticmethod

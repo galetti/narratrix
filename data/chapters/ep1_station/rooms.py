@@ -37,9 +37,12 @@ ROOMS = {
     },
     "medbay": {
         "id": "medbay", "name": "Krankenstation", "map_x": -1, "map_y": 0,
-        # KORREKTUR: Waage raus, Tisch rein. Der Tisch ist statisch, die Waage dynamisch.
         "desc": "Verwüstet. Glasscherben bedecken den Boden. Ein leerer {med_cabinet} steht offen. Ein {med_table} steht an der Wand. Es riecht steril und nach Eisen.",
         "exits": {"east": "hub"},
+        # NEU: Man kann durch die dünne Wand in den Hub hören
+        "acoustics": {
+            "hub": 0.2 # Dünne Wand (ohne Tür) -> Mit Stethoskop gut hörbar!
+        },
         "img": "scifi_medbay"
     }
 }

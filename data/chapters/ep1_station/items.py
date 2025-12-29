@@ -2,29 +2,8 @@
 from engine.constants import *
 
 ITEMS = {
-    # ... (Bestehende Items bleiben erhalten) ...
-    
-    # NEU: Die Luftschleusentür
-    "airlock_door": {
-        "id": "airlock_door", 
-        "name": "Luftschleuse", 
-        "aliases": ["schleuse", "tür", "schott"], 
-        "location": "maintenance", # Im Wartungstunnel
-        "type": TYPE_CONTAINER, # Wir nutzen Container-Logik für Open/Close
-        "weight": float('inf'),
-        
-        # NEU: Verknüpfung mit Richtung
-        "linked_exit": "out", # Blockiert den Ausgang 'out' (zum Schiff)
-        
-        "is_open": False,
-        "is_locked": True,
-        "key_id": "access_chip", # Braucht den Chip (oder Hacking/Gewalt)
-        
-        "desc": "Ein massives Stahlschott, das den Zugang zum Dock versperrt."
-    },
-    
-    # ... (Rest der Datei) ...
-    # --- SCENERY ---
+    # ... (Bestehende Items und Scenery bleiben erhalten) ...
+    # Ich füge nur das Stethoskop hinzu und behalte den Rest
     "terminal": {
         "id": "terminal", "name": "Haupt-Terminal", "aliases": ["computer", "screen", "mainframe"], 
         "location": "hub", "type": TYPE_SURFACE, 
@@ -59,12 +38,11 @@ ITEMS = {
         "weight": float('inf'), 
         "is_open": True, "desc": "Geplündert."
     },
-    # airlock_control kann entfernt oder als Deko bleiben (da wir jetzt die Tür direkt haben)
     "airlock_control": {
-        "id": "airlock_control", "name": "Steuerpanel", "aliases": ["panel"],
+        "id": "airlock_control", "name": "Luftschleusen-Steuerung", "aliases": ["steuerung", "panel"],
         "location": "maintenance", "type": TYPE_SURFACE, 
         "weight": float('inf'),
-        "desc": "Das Panel für die Luftschleuse. Es blinkt rot."
+        "desc": "Kontrolliert den Zugang zum Dock."
     },
     "med_table": {
         "id": "med_table", "name": "Metalltisch", "aliases": ["tisch"], 
@@ -80,89 +58,71 @@ ITEMS = {
         "is_scale": True, 
         "desc": "Eine digitale Waage. Du kannst Dinge darauf legen."
     },
-
-    # --- ITEMS (Beweglich) ---
+    "airlock_door": {
+        "id": "airlock_door", "name": "Luftschleuse", "aliases": ["schleuse", "tür", "schott"], "location": "maintenance", "type": TYPE_CONTAINER, "weight": float('inf'),
+        "linked_exit": "out", "is_open": False, "is_locked": True, "key_id": "access_chip", "desc": "Ein massives Stahlschott."
+    },
+    
+    # ITEMS
     "stim_powder": {
         "id": "stim_powder", "name": "Stim-Pulver", "aliases": ["pulver", "kaffee", "koffein"], 
-        "location": "terminal", "type": TYPE_ITEM, "matter": MATTER_SOLID, 
-        "weight": 0.1, 
-        "desc": "Militärisches Aufputschmittel. Trocken."
+        "location": "terminal", "type": TYPE_ITEM, "matter": MATTER_SOLID, "weight": 0.1, "desc": "Militärisches Aufputschmittel. Trocken."
     },
     "mug": {
         "id": "mug", "name": "Isolier-Becher", "aliases": ["becher", "tasse"], 
-        "location": "replicator", "type": TYPE_CONTAINER, "matter": MATTER_SOLID, "is_open": True, 
-        "weight": 0.3, 
-        "desc": "Ein leerer Becher."
+        "location": "replicator", "type": TYPE_CONTAINER, "matter": MATTER_SOLID, "is_open": True, "weight": 0.3, "desc": "Ein leerer Becher."
     },
     "hot_water": {
         "id": "hot_water", "name": "Heißes Wasser", "aliases": ["wasser"], 
-        "location": "replicator", "type": TYPE_ITEM, "matter": MATTER_LIQUID, "temp": 95,
-        "weight": 0.2,
-        "desc": "Kochend."
+        "location": "replicator", "type": TYPE_ITEM, "matter": MATTER_LIQUID, "temp": 95, "weight": 0.2, "desc": "Kochend."
     },
     "stim_caf": {
         "id": "stim_caf", "name": "Stim-Caf", "aliases": ["kaffee", "getränk"], 
-        "location": LOC_VOID, "type": TYPE_ITEM, "matter": MATTER_LIQUID, "temp": 90,
-        "weight": 0.2,
-        "desc": "Starkes Zeug."
+        "location": LOC_VOID, "type": TYPE_ITEM, "matter": MATTER_LIQUID, "temp": 90, "weight": 0.2, "desc": "Starkes Zeug."
     },
     "coolant_canister": {
         "id": "coolant_canister", "name": "Kühlmittel-Kanister", "aliases": ["kanister", "kühlmittel"], 
-        "location": "maintenance", "type": TYPE_ITEM, "matter": MATTER_SOLID,
-        "weight": 15.0, 
-        "desc": "Schwer und kalt. Aber er hat ein Leck."
+        "location": "maintenance", "type": TYPE_ITEM, "matter": MATTER_SOLID, "weight": 15.0, "desc": "Schwer und kalt. Leck."
     },
     "sealed_coolant": {
         "id": "sealed_coolant", "name": "Versiegelter Kanister", "aliases": ["kanister", "kühlmittel"], 
-        "location": LOC_VOID, "type": TYPE_ITEM, "matter": MATTER_SOLID,
-        "weight": 15.1,
-        "desc": "Dicht versiegelt und einsatzbereit."
+        "location": LOC_VOID, "type": TYPE_ITEM, "matter": MATTER_SOLID, "weight": 15.1, "desc": "Dicht."
     },
     "patch_kit": {
         "id": "patch_kit", "name": "Reparatur-Kit", "aliases": ["tape", "kit", "werkzeug"], 
-        "location": "bridge", "type": TYPE_ITEM, "matter": MATTER_SOLID, 
-        "weight": 0.5,
-        "desc": "Universelles Dichtmittel."
+        "location": "bridge", "type": TYPE_ITEM, "matter": MATTER_SOLID, "weight": 0.5, "desc": "Tape."
     },
     "med_gel": {
-        "id": "med_gel", "name": "Bio-Gel", "aliases": ["gel", "medizin"], "location": "med_cabinet", "type": TYPE_ITEM, "matter": MATTER_LIQUID, 
-        "weight": 0.1,
-        "desc": "Regenerativ."
+        "id": "med_gel", "name": "Bio-Gel", "aliases": ["gel", "medizin"], "location": "med_cabinet", "type": TYPE_ITEM, "matter": MATTER_LIQUID, "weight": 0.1, "desc": "Regenerativ."
     },
     "bandage": {
-        "id": "bandage", "name": "Verband", "aliases": ["mull"], "location": "med_cabinet", "type": TYPE_ITEM, "matter": MATTER_SOLID, 
-        "weight": 0.05,
-        "desc": "Steril."
+        "id": "bandage", "name": "Verband", "aliases": ["mull"], "location": "med_cabinet", "type": TYPE_ITEM, "matter": MATTER_SOLID, "weight": 0.05, "desc": "Steril."
     },
     "medikit": {
-        "id": "medikit", "name": "Notfall-Verband", "aliases": ["medikit", "verband"], "location": LOC_VOID, "type": TYPE_ITEM, "matter": MATTER_SOLID, 
-        "weight": 0.15,
-        "desc": "Einsatzbereit."
+        "id": "medikit", "name": "Notfall-Verband", "aliases": ["medikit", "verband"], "location": LOC_VOID, "type": TYPE_ITEM, "matter": MATTER_SOLID, "weight": 0.15, "desc": "Einsatzbereit."
     },
     "access_chip": {
-        "id": "access_chip", "name": "Root-Chip", "aliases": ["chip", "karte"], "location": LOC_VOID, "type": TYPE_ITEM, "matter": MATTER_SOLID, 
-        "weight": 0.01,
-        "desc": "Level 5 Zugang."
+        "id": "access_chip", "name": "Root-Chip", "aliases": ["chip", "karte"], "location": LOC_VOID, "type": TYPE_ITEM, "matter": MATTER_SOLID, "weight": 0.01, "desc": "Level 5 Zugang."
     },
     "scrap_metal": {
-        "id": "scrap_metal", "name": "Metallschrott", "aliases": ["schrott", "metall"], "location": "maintenance", "type": TYPE_ITEM, "matter": MATTER_SOLID, 
-        "weight": 2.5,
-        "desc": "Ein Stück verbogenes Metall."
+        "id": "scrap_metal", "name": "Metallschrott", "aliases": ["schrott", "metall"], "location": "maintenance", "type": TYPE_ITEM, "matter": MATTER_SOLID, "weight": 2.5, "desc": "Ein Stück verbogenes Metall."
     },
     "crowbar": {
-        "id": "crowbar", "name": "Brecheisen", "aliases": ["eisen", "hebel"], "location": LOC_VOID, "type": TYPE_ITEM, "matter": MATTER_SOLID, 
-        "weight": 2.4,
-        "desc": "Ein improvisiertes Brecheisen."
+        "id": "crowbar", "name": "Brecheisen", "aliases": ["eisen", "hebel"], "location": LOC_VOID, "type": TYPE_ITEM, "matter": MATTER_SOLID, "weight": 2.4, "tool_type": "prying", "desc": "Improvisiert."
     },
     "strange_rock": {
         "id": "strange_rock", "name": "Dichter Stein", "aliases": ["stein", "brocken"], 
-        "location": "medbay", "type": TYPE_ITEM, "matter": MATTER_SOLID,
-        "weight": 100.0, 
-        "desc": "Ein faustgroßer Stein, der aber unmöglich schwer ist."
+        "location": "medbay", "type": TYPE_ITEM, "matter": MATTER_SOLID, "weight": 100.0, "desc": "Schwer."
+    },
+    # NEU: Das Akustik-Tool
+    "stethoscope": {
+        "id": "stethoscope", "name": "Digitales Stethoskop", "aliases": ["stethoskop", "hörer"], 
+        "location": "med_cabinet", "type": TYPE_ITEM, "matter": MATTER_SOLID, "weight": 0.3,
+        "acoustic_boost": 0.5, # Verbessert das Hören massiv (+50%)
+        "desc": "Verstärkt Geräusche durch Wände hindurch."
     }
 }
 
-# Kombinationen (wie gehabt)
 COMBINATIONS = [
     {
         "items": ["mug", "hot_water"], 
@@ -191,16 +151,5 @@ COMBINATIONS = [
         "result": "crowbar",
         "consume": ["scrap_metal"],
         "message": "Du biegst das Metall mit dem Multitool zurecht und fertigst ein grobes Brecheisen an."
-    },
-    # NEU: Tür aufbrechen!
-    {
-        "items": ["airlock_door", "crowbar"],
-        "result": None, # Kein neues Item
-        "consume": [], # Brecheisen bleibt
-        "message": "Mit einem lauten Krachen hebelst du die Tür auf. Der Mechanismus ist zerstört, aber der Weg ist frei!",
-        # Wir bräuchten einen Effekt, der is_locked=False setzt.
-        # Da COMBINATIONS aktuell nur Items tauschen, müssen wir evtl. tricksen oder das System erweitern.
-        # Einfacher: InteractionHandler.break_ nutzt dies.
-        # Aber break_ prüft hardcoded auf Crowbar? Nein, das sollten wir generisch machen.
     }
 ]

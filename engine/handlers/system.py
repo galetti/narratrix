@@ -60,8 +60,16 @@ class SystemHandler:
 
         # Speichern Logik
         state = {
-            "time": game.time, "location": game.location, "stability": game.stability, "game_over": game.game_over,
-            "knowledge": list(game.knowledge), "objects": game.objects, "npcs": game.npcs, "matrix": game.matrix, "logs": game.logs[-50:]
+            "time": game.time, 
+            "location": game.location, 
+            "stability": game.stability, 
+            "game_over": game.game_over,
+            "hidden_in": game.hidden_in, # NEU: Versteck speichern
+            "knowledge": list(game.knowledge), 
+            "objects": game.objects, 
+            "npcs": game.npcs, 
+            "matrix": game.matrix, 
+            "logs": game.logs[-50:]
         }
         try:
             with open(filepath, 'w', encoding='utf-8') as f: 
@@ -109,10 +117,19 @@ class SystemHandler:
             with open(filepath, 'r', encoding='utf-8') as f: state = json.load(f)
             
             # State wiederherstellen
-            game.time = state.get("time"); game.location = state.get("location"); game.stability = state.get("stability")
-            game.game_over = state.get("game_over"); game.knowledge = set(state.get("knowledge"))
-            game.objects = state.get("objects"); game.npcs = state.get("npcs"); game.matrix = state.get("matrix"); game.logs = state.get("logs")
-            game.disambiguation = None; game.dialogue_active = False 
+            game.time = state.get("time")
+            game.location = state.get("location")
+            game.stability = state.get("stability")
+            game.game_over = state.get("game_over")
+            game.hidden_in = state.get("hidden_in") # NEU: Versteck laden
+            game.knowledge = set(state.get("knowledge"))
+            game.objects = state.get("objects")
+            game.npcs = state.get("npcs")
+            game.matrix = state.get("matrix")
+            game.logs = state.get("logs")
+            
+            game.disambiguation = None 
+            game.dialogue_active = False 
             
             game.log('success', f"Geladen: {os.path.basename(filepath)}")
             InteractionHandler.look(game, [])

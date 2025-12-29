@@ -8,6 +8,7 @@ from engine.systems.crafting import CraftingSystem
 from engine.systems.pathfinder import Pathfinder
 from engine.systems.ai import AISystem
 from engine.systems.object_behavior import ObjectBehaviorSystem
+from engine.systems.acoustics import AcousticsSystem # NEU
 
 class GameState:
     def __init__(self, config, silent=False):
@@ -17,14 +18,11 @@ class GameState:
         self.logs = []
         self.lock = threading.RLock()
         
-        # Layer 3: Persistente Daten & System Flags
         self.persistent_flags = set() 
         self.pending_chapter_load = None 
         
-        # NEU: Versteck Status
-        self.hidden_in = None # ID des Containers, in dem der Spieler steckt
+        self.hidden_in = None 
         
-        # Startraum ermitteln
         start_room = config.get('meta', {}).get('start_room')
         if not start_room and 'start' in config['rooms']: start_room = 'start'
         if not start_room or start_room not in config['rooms']:
@@ -41,13 +39,11 @@ class GameState:
         self.dialogue_partner = None
         self.knowledge = set()
 
-        # Tiefe Kopien der Daten
         self.rooms = copy.deepcopy(config['rooms'])
         self.npcs = copy.deepcopy(config['npcs'])
         self.matrix = copy.deepcopy(config['narrative_matrix'])
         self.objects = copy.deepcopy(config['objects'])
         
-        # Initialisiere NPCs (Strict Hydration)
         for npc in self.npcs:
             if 'states' in npc:
                 if 'state' not in npc:
@@ -56,9 +52,8 @@ class GameState:
                 npc['_last_hydrated_state'] = npc['state']
             else:
                 if not silent: 
-                    print(f"[WARN] NPC '{npc.get('name')}' hat keine 'states' Definition. Ignoriere AI/Visuals.")
+                    print(f"[WARN] NPC '{npc.get('name')}' hat keine 'states' Definition.")
 
-        # Physik-Initialisierung
         for obj in self.objects.values():
             if ATTR_TEMP not in obj: obj[ATTR_TEMP] = 20
             if ATTR_MATTER not in obj: obj[ATTR_MATTER] = MATTER_SOLID
@@ -68,11 +63,14 @@ class GameState:
         self.pathfinder = Pathfinder(self)
         self.ai = AISystem(self)
         self.object_behavior = ObjectBehaviorSystem(self)
+        self.acoustics = AcousticsSystem(self) # NEU
 
     def _hydrate_npc(self, npc):
         current_state = npc.get('state')
         state_data = npc.get('states', {}).get(current_state)
+        
         if not state_data: return
+
         if 'behavior' in state_data:
             for k, v in state_data['behavior'].items(): npc[k] = v 
         if 'visuals' in state_data:
@@ -99,7 +97,7 @@ class GameState:
             new_state.game_over = self.game_over
             new_state.knowledge = copy.deepcopy(self.knowledge)
             new_state.persistent_flags = copy.deepcopy(self.persistent_flags)
-            new_state.hidden_in = self.hidden_in # Copy hidden state
+            new_state.hidden_in = self.hidden_in 
             new_state.rooms = copy.deepcopy(self.rooms)
             new_state.npcs = copy.deepcopy(self.npcs)
             new_state.matrix = copy.deepcopy(self.matrix)
@@ -108,7 +106,6 @@ class GameState:
         return new_state
 
     def render_room_desc(self, room_id):
-        # Wenn versteckt, geben wir Feedback über den Versteck-Status
         if self.hidden_in:
             container = self.objects.get(self.hidden_in)
             c_name = container[ATTR_NAME] if container else "einem Versteck"
@@ -198,7 +195,6 @@ class GameState:
                 loc = cond.get('location')
                 obj = self.objects.get(item_id)
                 return obj and obj['location'] == loc
-                
         return False
 
     def tick(self, minutes):
@@ -210,8 +206,8 @@ class GameState:
                 current = obj[ATTR_TEMP]; target = 20
                 if current != target:
                     diff = target - current
-                    if abs(diff) < 0.5: obj[ATTR_TEMP] = target
-                    else: obj[ATTR_TEMP] += diff * 0.1
+                    if abs(change := diff * 0.1) < 0.5: obj[ATTR_TEMP] = target
+                    else: obj[ATTR_TEMP] += change
         
         # Events
         for node in self.matrix:
@@ -239,7 +235,7 @@ class GameState:
                     self.pending_chapter_load = target_chapter
                     return 
 
-                # NEU: NPC CHAT Event
+                # NPC Conversation Event (Akustik)
                 if node.get('type') == 'conversation':
                     self._process_conversation_event(node)
                     continue
@@ -249,12 +245,12 @@ class GameState:
                     self.log('event', f"EVENT: {node['title']}")
                     self.log('story', node['description'])
                 else:
-                    sound_dir = self.get_direction_to(origin)
-                    sound_txt = node.get('sound_msg', "Geräusch.")
-                    if sound_dir: 
-                        self.log('event', f"Du hörst aus {sound_dir}: {sound_txt}")
-                    else: 
-                        self.log('event', f"Irgendwo in der Ferne: {sound_txt}")
+                    # Akustik-Check auch für normale Events
+                    vol, direction = self.acoustics.get_audibility_info(origin, self.location)
+                    if vol > 0.1:
+                        sound_txt = node.get('sound_msg', "Geräusch.")
+                        msg_prefix = f"Du hörst aus {direction}:" if direction != "hier" else "Hier ertönt:"
+                        self.log('event', f"{msg_prefix} {sound_txt}")
                 
                 target_id = node.get('target_obj_id')
                 if target_id:
@@ -278,31 +274,33 @@ class GameState:
         actors = node.get('actors', [])
         content = node.get('content', [])
         
-        # Fall 1: Spieler im selben Raum
+        # Akustik-Berechnung
+        volume, direction = self.acoustics.get_audibility_info(origin, self.location)
+        
+        # Fall 1: Im selben Raum (Vol ~ 1.0) oder versteckt
         if self.location == origin:
             if self.hidden_in:
-                # Versteckt -> Hört alles, wird nicht gesehen
                 self.log('story', f"(Du lauschst aus deinem Versteck...)")
-                for line in content:
+            self.log('event', f"GESPRÄCH: {', '.join(actors)}")
+            for line in content:
+                speaker = line.get('speaker', '???')
+                text = line.get('text', '...')
+                self.log('character', f"{speaker}: \"{text}\"")
+                
+        # Fall 2: Hörbar aus Distanz
+        elif volume > 0.1:
+            quality = "gedämpfte" if volume < 0.6 else "klare"
+            self.log('event', f"Du hörst {quality} Stimmen aus {direction}...")
+            
+            # Text filtern basierend auf Lautstärke
+            for line in content:
+                text = line.get('text', '')
+                if volume < 0.4:
+                    # Sehr leise: Nur Wortfetzen
+                    words = text.split()
+                    fragment = "...".join([w for i, w in enumerate(words) if i % 3 == 0])
+                    self.log('story', f"Unbekannt: \"...{fragment}...\"")
+                else:
+                    # Gut hörbar
                     speaker = line.get('speaker', '???')
-                    text = line.get('text', '...')
-                    self.log('character', f"{speaker}: \"{text}\"")
-            else:
-                # Offen -> Hört alles
-                self.log('event', f"GESPRÄCH: {', '.join(actors)}")
-                for line in content:
-                    speaker = line.get('speaker', '???')
-                    text = line.get('text', '...')
-                    self.log('character', f"{speaker}: \"{text}\"")
-                    
-        # Fall 2: Spieler im Nachbarraum
-        else:
-            sound_dir = self.get_direction_to(origin)
-            if sound_dir:
-                self.log('event', f"Du hörst gedämpfte Stimmen aus {sound_dir}...")
-                # Snippets zeigen
-                snippet = content[0].get('text', '...')[0:20] + "..."
-                self.log('story', f"\"{snippet}\"")
-            else:
-                # Zu weit weg -> Nichts hören oder nur Murmeln
-                pass
+                    self.log('story', f"{speaker}: \"{text}\"")
