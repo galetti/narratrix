@@ -2,7 +2,29 @@
 from engine.constants import *
 
 ITEMS = {
-    # --- SCENERY (Unbeweglich = Unendlich schwer) ---
+    # ... (Bestehende Items bleiben erhalten) ...
+    
+    # NEU: Die Luftschleusentür
+    "airlock_door": {
+        "id": "airlock_door", 
+        "name": "Luftschleuse", 
+        "aliases": ["schleuse", "tür", "schott"], 
+        "location": "maintenance", # Im Wartungstunnel
+        "type": TYPE_CONTAINER, # Wir nutzen Container-Logik für Open/Close
+        "weight": float('inf'),
+        
+        # NEU: Verknüpfung mit Richtung
+        "linked_exit": "out", # Blockiert den Ausgang 'out' (zum Schiff)
+        
+        "is_open": False,
+        "is_locked": True,
+        "key_id": "access_chip", # Braucht den Chip (oder Hacking/Gewalt)
+        
+        "desc": "Ein massives Stahlschott, das den Zugang zum Dock versperrt."
+    },
+    
+    # ... (Rest der Datei) ...
+    # --- SCENERY ---
     "terminal": {
         "id": "terminal", "name": "Haupt-Terminal", "aliases": ["computer", "screen", "mainframe"], 
         "location": "hub", "type": TYPE_SURFACE, 
@@ -37,13 +59,13 @@ ITEMS = {
         "weight": float('inf'), 
         "is_open": True, "desc": "Geplündert."
     },
+    # airlock_control kann entfernt oder als Deko bleiben (da wir jetzt die Tür direkt haben)
     "airlock_control": {
-        "id": "airlock_control", "name": "Luftschleusen-Steuerung", "aliases": ["steuerung", "panel"],
+        "id": "airlock_control", "name": "Steuerpanel", "aliases": ["panel"],
         "location": "maintenance", "type": TYPE_SURFACE, 
         "weight": float('inf'),
-        "desc": "Kontrolliert den Zugang zum Dock."
+        "desc": "Das Panel für die Luftschleuse. Es blinkt rot."
     },
-    # NEU: Tisch als feste Ablage
     "med_table": {
         "id": "med_table", "name": "Metalltisch", "aliases": ["tisch"], 
         "location": "medbay", "type": TYPE_SURFACE, 
@@ -52,9 +74,10 @@ ITEMS = {
     },
     "scale": {
         "id": "scale", "name": "Präzisionswaage", "aliases": ["waage"], 
-        "location": "med_table", # Liegt jetzt auf dem Tisch
+        "location": "med_table", 
         "type": TYPE_SURFACE, 
-        "weight": 2.0, 
+        "weight": 2.0,
+        "is_scale": True, 
         "desc": "Eine digitale Waage. Du kannst Dinge darauf legen."
     },
 
@@ -139,6 +162,7 @@ ITEMS = {
     }
 }
 
+# Kombinationen (wie gehabt)
 COMBINATIONS = [
     {
         "items": ["mug", "hot_water"], 
@@ -167,5 +191,16 @@ COMBINATIONS = [
         "result": "crowbar",
         "consume": ["scrap_metal"],
         "message": "Du biegst das Metall mit dem Multitool zurecht und fertigst ein grobes Brecheisen an."
+    },
+    # NEU: Tür aufbrechen!
+    {
+        "items": ["airlock_door", "crowbar"],
+        "result": None, # Kein neues Item
+        "consume": [], # Brecheisen bleibt
+        "message": "Mit einem lauten Krachen hebelst du die Tür auf. Der Mechanismus ist zerstört, aber der Weg ist frei!",
+        # Wir bräuchten einen Effekt, der is_locked=False setzt.
+        # Da COMBINATIONS aktuell nur Items tauschen, müssen wir evtl. tricksen oder das System erweitern.
+        # Einfacher: InteractionHandler.break_ nutzt dies.
+        # Aber break_ prüft hardcoded auf Crowbar? Nein, das sollten wir generisch machen.
     }
 ]

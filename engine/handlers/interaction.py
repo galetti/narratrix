@@ -3,15 +3,19 @@ from engine.constants import *
 
 class InteractionHandler:
     
-    # ... Helper (is_open_container, is_held_by_player, format_contents) bleiben gleich ...
     @staticmethod
     def _is_open_container(obj):
+        """Helper: Prüft ob ein Objekt ein zugänglicher Container ist."""
+        # Türen (linked_exit) werden nicht als Container zum "Reinschauen" behandelt
+        if obj.get('linked_exit'): return False
+        
         if obj.get('type') == TYPE_SURFACE: return True
         if obj.get('type') == TYPE_CONTAINER and obj.get('is_open', True): return True
         return False
 
     @staticmethod
     def _is_held_by_player(game, obj):
+        """Prüft rekursiv, ob sich ein Objekt im Inventar des Spielers befindet."""
         current = obj
         while True:
             loc = current['location']
@@ -23,9 +27,12 @@ class InteractionHandler:
 
     @staticmethod
     def _format_contents_recursive(game, obj_id, depth=0):
+        """Erzeugt einen String für den Inhalt, inklusive Unter-Containern."""
         if depth > 2: return "" 
+        
         contents = [sub for sub in game.objects.values() if sub['location'] == obj_id]
         if not contents: return ""
+        
         names = []
         for item in contents:
             name = item[ATTR_NAME]
@@ -35,24 +42,53 @@ class InteractionHandler:
             names.append(name)
         return ", ".join(names)
 
+    # --- ACTIONS ---
+
+    @staticmethod
+    def hide(game, args):
+        if game.hidden_in:
+            return game.log('info', "Du bist bereits versteckt. Benutze 'raus' (oder 'gehe raus') um das Versteck zu verlassen.")
+            
+        clean_args = Resolver.clean_args(args)
+        try:
+            # Wir suchen nur Container im aktuellen Raum
+            target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_ROOM, verb='hide')
+            
+            if target:
+                if target.get('type') != TYPE_CONTAINER:
+                    return game.log('error', "Darin kannst du dich nicht verstecken.")
+                
+                # Check Size via Weight heuristic (nur schwere/große Dinge)
+                if target.get(ATTR_WEIGHT, 0) < 100 and target.get(ATTR_WEIGHT, 0) != float('inf'):
+                     return game.log('error', "Das ist zu klein für dich.")
+                
+                if not target.get('is_open', True):
+                    return game.log('error', "Es ist geschlossen.")
+
+                game.hidden_in = target[ATTR_ID]
+                game.log('success', f"Du kriechst in {target[ATTR_NAME]} und ziehst die Tür leise zu.")
+                
+        except ResolutionError as e: game.log('error', str(e))
+
     @staticmethod
     def look(game, args):
         # Wenn versteckt, sieht man nur eingeschränkt
         if game.hidden_in:
             container = game.objects.get(game.hidden_in)
             game.log('info', f"Du versteckst dich in {container[ATTR_NAME]}.")
-            game.log('info', "Befehle: 'raus' (move out), 'warte'.")
             
-            # Optional: Eingeschränkter Blick in den Raum
+            # Eingeschränkter Blick in den Raum
             room = game.get_room(game.location)
             visible_npcs = [n[ATTR_NAME] for n in game.npcs if n['location'] == game.location]
-            if visible_npcs: game.log('character', f"Durch den Spalt siehst du: {', '.join(visible_npcs)}")
+            if visible_npcs: game.log('character', f"Durch den Spalt siehst du Personen: {', '.join(visible_npcs)}")
+            else: game.log('info', "Der Raum scheint leer zu sein.")
             return
 
         room = game.get_room(game.location)
         if not args:
             game.log('location', room[ATTR_NAME])
             game.log('story', game.render_room_desc(game.location))
+            
             exits = room.get('exits', {})
             if exits:
                 trans = {"north": "Norden", "south": "Süden", "east": "Osten", "west": "Westen", "up": "Oben", "down": "Unten", "out": "Ausgang"}
@@ -62,14 +98,24 @@ class InteractionHandler:
 
             visible_objs = []
             local_objects = [o for o in game.objects.values() if o['location'] == game.location]
+            
             for obj in local_objects:
                 if InteractionHandler._is_open_container(obj):
                     content_str = InteractionHandler._format_contents_recursive(game, obj[ATTR_ID])
                     prep = "Auf dem" if obj.get('type') == TYPE_SURFACE else "Im offenen"
-                    if content_str: game.log('info', f"{prep} {obj[ATTR_NAME]}: {content_str}")
+                    if content_str: 
+                        game.log('info', f"{prep} {obj[ATTR_NAME]}: {content_str}")
+                
+                # Türen extra anzeigen
+                elif obj.get('linked_exit'):
+                    state = "offen" if obj.get('is_open') else "geschlossen"
+                    game.log('info', f"{obj[ATTR_NAME]} ({state})")
+                    
                 elif obj.get('type') == TYPE_ITEM or (not obj.get('type') and obj.get(ATTR_WEIGHT, float('inf')) < float('inf')):
                      visible_objs.append(obj[ATTR_NAME])
+            
             if visible_objs: game.log('info', f"Am Boden: {', '.join(visible_objs)}")
+            
             visible_npcs = [n[ATTR_NAME] for n in game.npcs if n['location'] == game.location]
             if visible_npcs: game.log('character', f"Personen: {', '.join(visible_npcs)}")
             return
@@ -85,6 +131,7 @@ class InteractionHandler:
                 if temp > 50: status.append("Es ist HEISS.")
                 elif temp > 30: status.append("Es ist warm.")
                 elif temp < 5: status.append("Es ist eiskalt.")
+                
                 if target.get(ATTR_MATTER) == MATTER_LIQUID: status.append("Es ist flüssig.")
 
                 if target.get('is_scale'):
@@ -100,48 +147,24 @@ class InteractionHandler:
                         if content_str: status.append(f"Inhalt: {content_str}")
                         else: status.append("Leer.")
                     elif target.get('type') == TYPE_CONTAINER:
-                        status.append("Geschlossen.")
+                        # Türen zeigen keinen Inhalt
+                        if target.get('linked_exit'):
+                            status.append("Offen." if target.get('is_open') else "Geschlossen.")
+                        else:
+                            status.append("Geschlossen.")
                 
                 if target.get('state') == STATE_SABOTAGED: status.append("[WARNUNG: SABOTIERT]")
                 if target.get('state') == STATE_BROKEN: status.append("[DEFEKT]")
                 
                 if status: desc += " " + " ".join(status)
                 game.log('story', desc)
-        except ResolutionError as e: game.log('error', str(e))
-
-    # NEU: HIDE MECHANIK
-    @staticmethod
-    def hide(game, args):
-        if game.hidden_in:
-            return game.log('info', "Du bist bereits versteckt. Benutze 'raus' um das Versteck zu verlassen.")
-            
-        clean_args = Resolver.clean_args(args)
-        try:
-            # Wir suchen nur Container im aktuellen Raum (nicht im Inventar!)
-            target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_ROOM, verb='hide')
-            
-            if target:
-                if target.get('type') != TYPE_CONTAINER:
-                    return game.log('error', "Darin kannst du dich nicht verstecken.")
-                
-                # Check Size/Capacity? Vorerst nehmen wir an, alle Container sind groß genug (Schränke etc.)
-                # Außer Items wie "Becher". Wir bräuchten ein Property 'can_hide_player'.
-                # Fallback: Alles was nicht movable ist und Container ist.
-                if target.get(ATTR_WEIGHT, 0) < 100: # Willkürliche Grenze: Nur große Dinge
-                     return game.log('error', "Das ist zu klein für dich.")
-                
-                if not target.get('is_open', True):
-                    return game.log('error', "Es ist geschlossen.")
-
-                game.hidden_in = target[ATTR_ID]
-                game.log('success', f"Du kriechst in {target[ATTR_NAME]} und ziehst die Tür leise zu.")
-                
-        except ResolutionError as e: game.log('error', str(e))
+        except ResolutionError as e:
+            game.log('error', str(e))
 
     @staticmethod
     def take(game, args):
-        if game.hidden_in: return game.log('error', "Du bist versteckt. Komm erst raus.")
-        # ... Rest von take (identisch) ...
+        if game.hidden_in: return game.log('error', "Nicht während du versteckt bist.")
+        
         if any(w in args for w in ["all", "alles", "alle"]):
             candidates = Resolver._collect_candidates(game, FILTER_RECURSIVE)
             candidates = [o for o in candidates if o['location'] != LOC_INVENTORY and o.get(ATTR_WEIGHT, float('inf')) < float('inf')]
@@ -168,6 +191,7 @@ class InteractionHandler:
                 target['location'] = LOC_INVENTORY
                 game.log('success', f"{target[ATTR_NAME]} genommen.")
                 
+                # Surface Flattening (Inhalte von Tablett/Waage mitnehmen)
                 if target.get('type') == TYPE_SURFACE:
                     contents = [o for o in game.objects.values() if o['location'] == target[ATTR_ID]]
                     if contents:
@@ -182,7 +206,7 @@ class InteractionHandler:
     @staticmethod
     def give(game, args):
         if game.hidden_in: return game.log('error', "Nicht während du versteckt bist.")
-        # ... Rest von give ...
+        
         if not args: return game.log('error', "Was an wen?")
         separators = ["an", "to", "dem", "der"]
         sep_indices = [i for i, w in enumerate(args) if w.lower() in separators]
@@ -222,11 +246,13 @@ class InteractionHandler:
     @staticmethod
     def open(game, args):
         if game.hidden_in: return game.log('error', "Nicht während du versteckt bist.")
+        
         clean_args = Resolver.clean_args(args)
         try:
             target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_RECURSIVE, verb='open')
             if target: 
                 if target.get('type') == TYPE_SURFACE: return game.log('info', "Das ist offen sichtbar.")
+                # Türen erlauben
                 if target.get('type') != TYPE_CONTAINER: return game.log('error', "Das lässt sich nicht öffnen.")
                 
                 mechanism = target.get('mechanism')
@@ -254,7 +280,7 @@ class InteractionHandler:
     @staticmethod
     def put(game, args):
         if game.hidden_in: return game.log('error', "Nicht während du versteckt bist.")
-        # ... Rest von put ...
+        
         if not args: return game.log('error', "Was wohin legen?")
         separators = ["in", "auf", "on", "into", "an"]
         sep_indices = [i for i, w in enumerate(args) if w.lower() in separators]
@@ -300,6 +326,7 @@ class InteractionHandler:
     @staticmethod
     def use(game, args):
         if game.hidden_in: return game.log('error', "Nicht während du versteckt bist.")
+        
         if not args: return game.log('error', "Was benutzen?")
         separator_indices = [i for i, word in enumerate(args) if word.lower() in ["mit", "with", "und", "an"]]
         item1_name = ""
@@ -322,6 +349,7 @@ class InteractionHandler:
     @staticmethod
     def break_(game, args): 
         if game.hidden_in: return game.log('error', "Nicht während du versteckt bist.")
+        
         clean_args = Resolver.clean_args(args)
         try:
             target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_RECURSIVE, verb='break')
@@ -330,12 +358,21 @@ class InteractionHandler:
                 key_id = target.get('key_id'); key_obj = game.objects.get(key_id) if key_id else None
                 if key_obj and key_obj['location'] == LOC_INVENTORY:
                      game.log('success', f"Du brichst das Schloss mit dem {key_obj[ATTR_NAME]} auf."); target['is_locked'] = False; target['is_open'] = True; game.tick(5); InteractionHandler.look(game, clean_args)
-                else: game.log('error', "Du brauchst Werkzeug.")
+                else: 
+                    # Brecheisen Check
+                    crowbar = next((o for o in game.objects.values() if o['location'] == LOC_INVENTORY and 'crowbar' in o['id']), None)
+                    if crowbar:
+                        game.log('success', f"Du brichst das Schloss mit dem {crowbar[ATTR_NAME]} auf."); 
+                        target['is_locked'] = False; target['is_open'] = True; 
+                        game.tick(5); InteractionHandler.look(game, clean_args)
+                    else:
+                        game.log('error', "Du brauchst ein Werkzeug (Brecheisen) oder den Schlüssel.")
         except ResolutionError as e: game.log('error', str(e))
 
     @staticmethod
     def fix(game, args):
         if game.hidden_in: return game.log('error', "Nicht während du versteckt bist.")
+        
         clean_args = Resolver.clean_args(args)
         try:
             target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_RECURSIVE, verb='fix')
@@ -347,6 +384,7 @@ class InteractionHandler:
     @staticmethod
     def drop_item(game, args):
         if game.hidden_in: return game.log('error', "Nicht im Versteck.")
+        
         clean_args = Resolver.clean_args(args)
         try:
             target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_INVENTORY, verb='drop')
