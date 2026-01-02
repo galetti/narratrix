@@ -34,20 +34,38 @@ COMMON_NPCS = [
                     }
                 }
             },
-            # NEU: Schlafenszeit
-            "sleeping": {
+            # NEU: Dinner State (für Ep0 Event)
+            "dinner": {
                 "behavior": {
-                    "movement_chance": 100, # Er geht sofort ins Bett
-                    "affinity": ["crew_quarters"],
+                    "movement_chance": 0, 
+                    "affinity": ["cantina"], # Zwang zur Kantine
                     "route": []
                 },
                 "visuals": {
-                    "img": "face_aris_alert", # Wir haben kein 'sleeping' face, also neutral
-                    "desc": "Aris ist auf dem Weg in seine Koje.",
+                    "img": "face_aris_alert", 
+                    "desc": "Aris sitzt am Tisch und schaufelt Curry in sich hinein.",
+                    "personality": "Hungrig"
+                },
+                "dialogue": {
+                    "greeting": "Mmmh... (schluckt) Mit vollem Mund spricht man nicht, aber das Zeug ist gar nicht übel!",
+                    "default": "Erst das Fressen, dann die Moral."
+                }
+            },
+            # NEU: Sleeping State (für Ep0 Event)
+            "sleeping": {
+                "behavior": {
+                    "movement_chance": 100, 
+                    "affinity": ["crew_quarters"], # Geht in die Quartiere
+                    "route": []
+                },
+                "visuals": {
+                    "img": "face_aris_alert", 
+                    "desc": "Aris ist auf dem Weg in seine Koje. Er gähnt herzhaft.",
                     "personality": "Müde"
                 },
                 "dialogue": {
-                    "greeting": "Gute Nacht. Morgen ist auch noch ein Tag."
+                    "greeting": "Gute Nacht, Kumpel. Morgen ist auch noch ein Tag.",
+                    "default": "Zzz..."
                 }
             },
             "panic": {
@@ -70,7 +88,7 @@ COMMON_NPCS = [
             "focused": {
                 "behavior": {
                     "movement_chance": 80, 
-                    "affinity": ["cantina", "reactor"],
+                    "affinity": ["cantina", "reactor"], 
                     "route": ["cantina", "hub", "reactor", "maintenance", "reactor", "hub"], 
                     "route_behavior": "loop"
                 },
@@ -103,12 +121,20 @@ COMMON_NPCS = [
         }
     },
     {
-        "id": "npc_val", "name": "Val", "aliases": ["commander", "frau"], "is_global": True, 
-        "start_loc": "bridge", "location": "bridge",
+        "id": "npc_val", 
+        "name": "Val", 
+        "aliases": ["commander", "frau"], 
+        "is_global": True, 
+        "start_loc": "bridge", 
+        "location": "bridge",
+        
         "initial_state": "injured",
         "states": {
             "relaxed": {
-                "behavior": {"movement_chance": 10, "affinity": ["bridge", "hub"]},
+                "behavior": {
+                    "movement_chance": 10, 
+                    "affinity": ["bridge", "hub"]
+                },
                 "visuals": {
                     "img": "face_val_stern", 
                     "desc": "Commander Val strahlt natürliche Autorität aus. Sie wirkt entspannt, aber wachsam.",
@@ -120,25 +146,45 @@ COMMON_NPCS = [
                     "fiona": "Dr. Hellman leistet gute Arbeit, auch wenn ihre Methoden etwas... unkonventionell sind."
                 }
             },
-            # NEU: Schlafenszeit
+            # NEU: Dinner State
+            "dinner": {
+                "behavior": {
+                    "movement_chance": 0, 
+                    "affinity": ["cantina"]
+                },
+                "visuals": {
+                    "img": "face_val_stern", 
+                    "desc": "Sie sitzt aufrecht am Tisch und nippt an einem Glas Wasser.",
+                    "personality": "Förmlich"
+                },
+                "dialogue": {
+                    "greeting": "Setzen Sie sich, Spezialist. Keine Förmlichkeiten beim Essen.",
+                    "default": "Eine gute Mahlzeit stärkt die Moral der Truppe."
+                }
+            },
+            # NEU: Sleep State
             "sleeping": {
                 "behavior": {
-                    "movement_chance": 100,
+                    "movement_chance": 100, 
                     "affinity": ["crew_quarters"],
                     "route": []
                 },
                 "visuals": {
-                    "img": "face_val_stern",
+                    "img": "face_val_stern", 
                     "desc": "Sie ist auf dem Weg in die Quartiere.",
                     "personality": "Müde"
                 },
                 "dialogue": {
-                    "greeting": "Der Dienst ist beendet. Ruhen Sie sich aus."
+                    "greeting": "Der Dienst ist beendet. Ruhen Sie sich aus.",
+                    "default": "Wir sehen uns um 0600."
                 }
             },
             "injured": {
                 "behavior": {"movement_chance": 0},
-                "visuals": {"img": "face_val_pain", "desc": "Sie blutet stark."},
+                "visuals": {
+                    "img": "face_val_pain", 
+                    "desc": "Sie blutet stark."
+                },
                 "dialogue": {"greeting": "Bericht..."}
             }
         }
@@ -147,7 +193,7 @@ COMMON_NPCS = [
         "id": "npc_karl", 
         "name": "K.A.R.L.", 
         "aliases": ["ki"], 
-        "is_global": True,
+        "is_global": True, 
         "start_loc": "hub", 
         "location": "hub", 
         

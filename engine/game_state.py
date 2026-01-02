@@ -3,12 +3,11 @@ import re
 import threading
 from engine.constants import *
 
-# Sub-Systeme
 from engine.systems.crafting import CraftingSystem
 from engine.systems.pathfinder import Pathfinder
 from engine.systems.ai import AISystem
 from engine.systems.object_behavior import ObjectBehaviorSystem
-from engine.systems.acoustics import AcousticsSystem # NEU
+from engine.systems.acoustics import AcousticsSystem 
 
 class GameState:
     def __init__(self, config, silent=False):
@@ -58,12 +57,11 @@ class GameState:
             if ATTR_TEMP not in obj: obj[ATTR_TEMP] = 20
             if ATTR_MATTER not in obj: obj[ATTR_MATTER] = MATTER_SOLID
 
-        # --- INITIALISIERUNG DER SYSTEME ---
         self.crafting = CraftingSystem(self)
         self.pathfinder = Pathfinder(self)
         self.ai = AISystem(self)
         self.object_behavior = ObjectBehaviorSystem(self)
-        self.acoustics = AcousticsSystem(self) # NEU
+        self.acoustics = AcousticsSystem(self)
 
     def _hydrate_npc(self, npc):
         current_state = npc.get('state')
@@ -195,6 +193,11 @@ class GameState:
                 loc = cond.get('location')
                 obj = self.objects.get(item_id)
                 return obj and obj['location'] == loc
+            # NEU: Check auf Spieler-Position
+            elif c_type == 'location':
+                target_loc = cond.get('value')
+                return self.location == target_loc
+                
         return False
 
     def tick(self, minutes):
@@ -235,7 +238,6 @@ class GameState:
                     self.pending_chapter_load = target_chapter
                     return 
 
-                # NPC Conversation Event (Akustik)
                 if node.get('type') == 'conversation':
                     self._process_conversation_event(node)
                     continue
@@ -245,7 +247,6 @@ class GameState:
                     self.log('event', f"EVENT: {node['title']}")
                     self.log('story', node['description'])
                 else:
-                    # Akustik-Check auch für normale Events
                     vol, direction = self.acoustics.get_audibility_info(origin, self.location)
                     if vol > 0.1:
                         sound_txt = node.get('sound_msg', "Geräusch.")
@@ -269,15 +270,12 @@ class GameState:
             self.game_over = True
 
     def _process_conversation_event(self, node):
-        """Verarbeitet ein NPC-Gespräch mit Akustik-Logik."""
         origin = node.get('origin_id')
         actors = node.get('actors', [])
         content = node.get('content', [])
         
-        # Akustik-Berechnung
         volume, direction = self.acoustics.get_audibility_info(origin, self.location)
         
-        # Fall 1: Im selben Raum (Vol ~ 1.0) oder versteckt
         if self.location == origin:
             if self.hidden_in:
                 self.log('story', f"(Du lauschst aus deinem Versteck...)")
@@ -287,20 +285,16 @@ class GameState:
                 text = line.get('text', '...')
                 self.log('character', f"{speaker}: \"{text}\"")
                 
-        # Fall 2: Hörbar aus Distanz
         elif volume > 0.1:
             quality = "gedämpfte" if volume < 0.6 else "klare"
             self.log('event', f"Du hörst {quality} Stimmen aus {direction}...")
             
-            # Text filtern basierend auf Lautstärke
             for line in content:
                 text = line.get('text', '')
                 if volume < 0.4:
-                    # Sehr leise: Nur Wortfetzen
                     words = text.split()
                     fragment = "...".join([w for i, w in enumerate(words) if i % 3 == 0])
                     self.log('story', f"Unbekannt: \"...{fragment}...\"")
                 else:
-                    # Gut hörbar
                     speaker = line.get('speaker', '???')
                     self.log('story', f"{speaker}: \"{text}\"")
