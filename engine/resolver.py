@@ -1,4 +1,5 @@
 from engine.constants import *
+import difflib
 
 class ResolutionError(Exception):
     """Custom Exception für fehlgeschlagene Auflösung, mit Grund."""
@@ -73,33 +74,57 @@ class Resolver:
         # Normalisierter Suchstring (z.B. "stim pulver")
         search_query = Resolver.normalize_term(" ".join(search_words))
         
-        # 1. Existenz-Check (Gibt es das Wort überhaupt im Spiel?)
-        anywhere_match = False
+        # 1. Existenz-Check (Global - Gibt es das Wort überhaupt im Spiel?)
+        # Dies dient dazu, irrelevante Wörter früh abzufangen ("nimm blablabla")
+        known_terms = set()
         for obj in game.objects.values():
-             # Auch Namen und Aliases normalisieren
-             obj_name = Resolver.normalize_term(obj[ATTR_NAME])
-             aliases = [Resolver.normalize_term(a) for a in obj.get(ATTR_ALIASES, [])]
+             known_terms.add(Resolver.normalize_term(obj[ATTR_NAME]))
+             for a in obj.get(ATTR_ALIASES, []): known_terms.add(Resolver.normalize_term(a))
              
-             if search_query in obj_name or any(search_query in a for a in aliases):
-                 anywhere_match = True
-                 break
+        # Exakter Substring-Check im globalen Kontext
+        is_known = False
+        if any(search_query in term for term in known_terms):
+            is_known = True
         
-        if not anywhere_match:
-            raise ResolutionError(f"Ich weiß nicht, was ein '{search_query}' ist.", "unknown_word")
+        # Falls nicht bekannt, Fuzzy Check
+        if not is_known:
+            matches = difflib.get_close_matches(search_query, list(known_terms), n=1, cutoff=0.7)
+            if not matches:
+                # Wirklich unbekannt
+                raise ResolutionError(f"Ich weiß nicht, was ein '{search_query}' ist.", "unknown_word")
+            else:
+                # Es war ein Tippfehler, wir korrigieren intern für die weitere Suche
+                search_query = matches[0]
+                # Debug Info (könnte man bei Bedarf aktivieren)
+                # print(f"[DEBUG] Autocorrect: {search_words} -> {search_query}")
 
         # 2. Kandidaten am aktuellen Ort sammeln
         candidates = Resolver._collect_candidates(game, location_filter)
 
-        # 3. Filtern nach Name/Alias
+        # 3. Filtern nach Name/Alias (Exakt oder Substring)
         matches = []
         for cand in candidates:
             cand_name = Resolver.normalize_term(cand[ATTR_NAME])
             cand_aliases = [Resolver.normalize_term(a) for a in cand.get(ATTR_ALIASES, [])]
             
+            # Check: Query ist Teil des Namens oder eines Alias
             if search_query in cand_name or any(search_query in a for a in cand_aliases):
                 if cand not in matches:
                     matches.append(cand)
         
+        # Falls keine Matches vor Ort, aber Wort global bekannt war:
+        # Prüfen wir, ob Fuzzy Matching vor Ort hilft (falls search_query oben nicht schon fuzzy angepasst wurde)
+        if not matches:
+             local_terms = {}
+             for cand in candidates:
+                 name = Resolver.normalize_term(cand[ATTR_NAME])
+                 local_terms[name] = cand
+                 for a in cand.get(ATTR_ALIASES, []): local_terms[Resolver.normalize_term(a)] = cand
+             
+             fuzzy_local = difflib.get_close_matches(search_query, list(local_terms.keys()), n=1, cutoff=0.7)
+             if fuzzy_local:
+                 matches.append(local_terms[fuzzy_local[0]])
+
         # 4. Ergebnis & Fehlerbehandlung
         if len(matches) == 0:
             if location_filter == FILTER_INVENTORY:
@@ -125,9 +150,21 @@ class Resolver:
     def find_mentioned_npc(game, words):
         query = Resolver.normalize_term(" ".join(words))
         local_npcs = [n for n in game.npcs if n['location'] == game.location]
+        
+        # Exakter/Substring Check
         for npc in local_npcs:
             n_name = Resolver.normalize_term(npc[ATTR_NAME])
             n_aliases = [Resolver.normalize_term(a) for a in npc.get(ATTR_ALIASES, [])]
+            if query in n_name or any(query in alias for alias in n_aliases): return npc
             
-            if n_name in query or any(alias in query for alias in n_aliases): return npc
+        # Fuzzy Check
+        npc_map = {}
+        for npc in local_npcs:
+            npc_map[Resolver.normalize_term(npc[ATTR_NAME])] = npc
+            for a in npc.get(ATTR_ALIASES, []): npc_map[Resolver.normalize_term(a)] = npc
+            
+        matches = difflib.get_close_matches(query, list(npc_map.keys()), n=1, cutoff=0.7)
+        if matches:
+            return npc_map[matches[0]]
+            
         return None

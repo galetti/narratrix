@@ -1,6 +1,9 @@
 from engine.resolver import Resolver
 from engine.constants import *
 
+# WICHTIG: Wir nutzen nun den neuen ExplorationHandler statt interaction.py
+from engine.handlers.exploration import ExplorationHandler
+
 class MovementHandler:
     @staticmethod
     def handle(game, args):
@@ -33,8 +36,6 @@ class MovementHandler:
                 linked = obj.get('linked_exit')
                 if linked == direction:
                     # Tür gefunden! Ist sie offen?
-                    # Wir prüfen "is_open" (Container Logik)
-                    # Wenn sie zu ist -> Blockiert.
                     if not obj.get('is_open', False):
                         game.log('error', f"Der Weg ist versperrt durch: {obj[ATTR_NAME]}.")
                         return
@@ -42,7 +43,7 @@ class MovementHandler:
             game.tick(5)
             game.location = dest
             
-            from engine.handlers.interaction import InteractionHandler
-            InteractionHandler.look(game, [])
+            # KORREKTUR: Aufruf des neuen Handlers
+            ExplorationHandler.look(game, [])
         else:
             game.log('error', f"Nach '{raw_direction}' führt kein Weg.")

@@ -3,14 +3,14 @@ import sys
 import threading
 import math
 import os
+import re 
 import pygame.scrap
 import warnings
 
-# Unterdrücke die pkg_resources Warnung von Pygame
 warnings.filterwarnings("ignore", category=UserWarning, module='pygame')
 
 # --- LOAD SYSTEM ---
-from data.story_loader import StoryLoader
+from engine.story_loader import StoryLoader
 import engine.theme as theme
 
 from engine.game_state import GameState
@@ -23,9 +23,110 @@ try:
     SPACY_AVAILABLE = True
 except ImportError:
     SPACY_AVAILABLE = False
+    print("[SYSTEM] Spacy nicht gefunden, nutze RuleBasedParser.")
 
 INIT_WIDTH, INIT_HEIGHT = 1024, 768
 PARSER_MODE = "SPACY" 
+
+# --- RICH TEXT ENGINE ---
+
+class RichTextRenderer:
+    def __init__(self, font, default_color):
+        self.font = font
+        self.default_color = default_color
+        self.color_map = {
+            "alert": theme.COLOR_ALERT,   
+            "alarm": theme.COLOR_ALERT,
+            "success": theme.COLOR_ACCENT, 
+            "accent": theme.COLOR_ACCENT,
+            "info": theme.COLOR_INFO,      
+            "cmd": (255, 255, 255),        
+            "user": theme.COLOR_USER_ECHO, 
+            "char": (100, 200, 255),       
+            "story": (220, 220, 220),      
+            "yellow": (255, 200, 50),
+            "red": (255, 80, 80),
+            "blue": (100, 200, 255)
+        }
+        self.tag_pattern = re.compile(r'(<[/a-zA-Z0-9]+>)')
+
+    def parse_and_wrap(self, text, max_width, base_color=None):
+        """
+        Parst den Text, zerlegt ihn in Segmente und bricht ihn um.
+        Gibt eine Liste von Zeilen zurück. Jede Zeile ist eine Liste von (text, color)-Tupeln.
+        """
+        if base_color is None: base_color = self.default_color
+        
+        # 1. Tokenizing
+        parts = self.tag_pattern.split(text)
+        
+        segments = [] 
+        color_stack = [base_color]
+        
+        for part in parts:
+            if not part: continue
+            
+            if part.startswith("<") and part.endswith(">"):
+                tag_content = part[1:-1]
+                if tag_content.startswith("/"): 
+                    if len(color_stack) > 1: color_stack.pop()
+                else: 
+                    if tag_content in self.color_map:
+                        color_stack.append(self.color_map[tag_content])
+                continue
+            
+            words = part.split(' ')
+            current_col = color_stack[-1]
+            
+            for i, w in enumerate(words):
+                # Wir entfernen hier das manuelle Hinzufügen von Leerzeichen im Text,
+                # da der Wrapper das nun sauberer übernimmt.
+                if w:
+                    w_width = self.font.size(w)[0]
+                    segments.append({'text': w, 'color': current_col, 'width': w_width, 'raw': w})
+                elif i < len(words)-1:
+                     # Explizites Leerzeichen (z.B. mehrere Spaces hintereinander)
+                     # Manchmal split erzeugt leere Strings bei doppelten Leerzeichen
+                     sp_w = self.font.size(" ")[0]
+                     segments.append({'text': " ", 'color': current_col, 'width': sp_w, 'raw': ""})
+
+        # 2. Wrapping
+        lines = []
+        current_line = []
+        current_width = 0
+        space_width = self.font.size(" ")[0]
+        
+        for seg in segments:
+            seg_w = seg['width']
+            # Prüfen ob wir ein Leerzeichen vor dem Wort brauchen (wenn nicht am Zeilenanfang)
+            needs_space = False
+            add_width = seg_w
+            
+            if current_line and seg['text'] != " " and current_line[-1][0]['text'] != " ":
+                 needs_space = True
+                 add_width += space_width
+
+            if current_width + add_width <= max_width:
+                if needs_space:
+                     # FIX: Dictionary muss 'width' enthalten!
+                     space_dict = {'text': " ", 'color': seg['color'], 'width': space_width, 'raw': " "}
+                     current_line.append((space_dict, space_width)) 
+                     current_width += space_width
+                
+                current_line.append((seg, seg_w))
+                current_width += seg_w
+            else:
+                # Zeilenumbruch
+                lines.append([s[0] for s in current_line])
+                current_line = [(seg, seg_w)]
+                current_width = seg_w
+                
+        if current_line:
+            lines.append([s[0] for s in current_line])
+            
+        return lines
+
+# --- GUI CLASS ---
 
 class AssetLoader:
     def __init__(self):
@@ -38,16 +139,19 @@ class AssetLoader:
     def get_image(self, img_id):
         if not img_id: return None
         if img_id in self.cache: return self.cache[img_id]
+        
         found_path = None
         for ext in [".png", ".jpg", ".jpeg"]:
             p = os.path.join(self.base_path, img_id + ext)
             if os.path.exists(p): found_path = p; break
+            
         if found_path:
             try:
                 img = pygame.image.load(found_path).convert_alpha()
                 self.cache[img_id] = img
                 return img
-            except Exception as e: print(f"[ERROR] {e}")
+            except Exception as e: print(f"[ERROR] Fehler beim Laden von {img_id}: {e}")
+        
         self.cache[img_id] = None
         return None
 
@@ -55,28 +159,30 @@ class GameGUI:
     def __init__(self):
         pygame.init()
         self.screen = pygame.display.set_mode((INIT_WIDTH, INIT_HEIGHT), pygame.RESIZABLE)
-        pygame.display.set_caption("NARRATRIX v5.5 - Chapter 0") 
+        pygame.display.set_caption("NARRATRIX v5.7 - Rich Text Edition") 
         
         try: pygame.scrap.init()
         except pygame.error: print("[WARN] Clipboard konnte nicht initialisiert werden.")
 
         self.clock = pygame.time.Clock()
+        
         try: 
             self.font_log = pygame.font.SysFont("Consolas", theme.FONT_SIZE_LOG)
             self.font_header = pygame.font.SysFont("Verdana", theme.FONT_SIZE_HEADER, bold=True)
             self.font_big = pygame.font.SysFont("Verdana", theme.FONT_SIZE_GAME_OVER, bold=True)
         except: 
+            print("[WARN] Systemfonts nicht gefunden, nutze Fallback.")
             self.font_log = pygame.font.SysFont("Arial", theme.FONT_SIZE_LOG)
             self.font_header = pygame.font.SysFont("Arial", theme.FONT_SIZE_HEADER)
             self.font_big = pygame.font.SysFont("Arial", theme.FONT_SIZE_GAME_OVER)
 
+        self.renderer = RichTextRenderer(self.font_log, theme.COLOR_TEXT)
         self.assets = AssetLoader() 
-        # Start mit Episode 0 (Ankunft)
+        
         self.current_chapter = "data.chapters.ep0_arrival.config"
         self.load_game_chapter(self.current_chapter)
 
     def load_game_chapter(self, chapter_path, transfer_state=None):
-        """Lädt ein Kapitel. Optional mit State-Transfer (Inventar/Wissen)."""
         new_config = StoryLoader.load_chapter(chapter_path)
         
         if not new_config:
@@ -85,20 +191,13 @@ class GameGUI:
 
         self.game = GameState(new_config)
         
-        # State Transfer Logic
         if transfer_state:
-            # 1. Wissen übernehmen
             self.game.knowledge = transfer_state.get('knowledge', set())
-            
-            # 2. Inventar übernehmen
-            # Wir suchen Items im neuen GameState, die die gleiche ID haben wie im alten Inventar
             old_inventory_ids = transfer_state.get('inventory_ids', [])
             for item_id in old_inventory_ids:
                 if item_id in self.game.objects:
                     self.game.objects[item_id]['location'] = LOC_INVENTORY
-                    print(f"[SYSTEM] Transferiere Item: {item_id}")
         
-        # Input Reset
         self.user_text = ""
         self.cursor_pos = 0
         self.cursor_blink = 0
@@ -113,12 +212,12 @@ class GameGUI:
             print("Initialisiere Spacy Parser...")
             self.parser = SpacyParser(self.game)
             if not self.parser.available: self.parser = RuleBasedParser(self.game)
-        else: self.parser = RuleBasedParser(self.game)
+        else: 
+            self.parser = RuleBasedParser(self.game)
 
         self.submit_command("look", echo=False)
 
     def restart_game(self):
-        # Restart lädt Kapitel 0 neu (ohne Transfer)
         self.current_chapter = "data.chapters.ep0_arrival.config"
         self.load_game_chapter(self.current_chapter)
 
@@ -166,7 +265,9 @@ class GameGUI:
                 elif event.key == pygame.K_c and (pygame.key.get_mods() & pygame.KMOD_CTRL):
                     snapshot = self.game.get_logs()
                     text_dump = "\n".join([f"{l['type']}: {l['text']}" for l in snapshot])
-                    try: pygame.scrap.put(pygame.SCRAP_TEXT, text_dump.encode('utf-8')); print("Clipboard copy success.")
+                    try: 
+                        pygame.scrap.put(pygame.SCRAP_TEXT, text_dump.encode('utf-8'))
+                        print("Clipboard copy success.")
                     except Exception as e: print(f"Clipboard Error: {e}")
                     continue
 
@@ -214,22 +315,15 @@ class GameGUI:
     def update(self): 
         self.cursor_blink += 1
         
-        # NEU: Check auf Kapitelwechsel
         if self.game.pending_chapter_load:
             target_chapter = self.game.pending_chapter_load
             print(f"[SYSTEM] Wechsle zu Kapitel: {target_chapter}")
             
-            # State retten
             transfer_state = {
                 "knowledge": self.game.knowledge,
                 "inventory_ids": [o['id'] for o in self.game.objects.values() if o['location'] == LOC_INVENTORY]
             }
             
-            # Pfad bauen (Annahme: Kapitel-ID = Ordnername)
-            # Ziel: data.chapters.ep1_station.config
-            # Wir müssen mappen oder Konvention nutzen
-            
-            # Mapping für Sicherheit
             chapter_map = {
                 "ep1_station": "data.chapters.ep1_station.config",
                 "ep0_arrival": "data.chapters.ep0_arrival.config"
@@ -240,17 +334,7 @@ class GameGUI:
                 self.load_game_chapter(path, transfer_state)
             else:
                 self.game.log('error', f"[SYSTEM] Fehler: Kapitel '{target_chapter}' nicht gefunden.")
-                self.game.pending_chapter_load = None # Reset um Loop zu verhindern
-
-    def wrap_text(self, text, font, max_width):
-        words = text.split(' '); lines = []; current_line = []
-        for word in words:
-            test_line = ' '.join(current_line + [word])
-            w, h = font.size(test_line)
-            if w < max_width: current_line.append(word)
-            else: lines.append(' '.join(current_line)); current_line = [word]
-        if current_line: lines.append(' '.join(current_line))
-        return lines
+                self.game.pending_chapter_load = None
 
     def draw(self):
         snapshot = self.game.get_snapshot()
@@ -263,10 +347,15 @@ class GameGUI:
 
         scene_height = int(h * theme.SCENE_HEIGHT_RATIO); input_height = theme.INPUT_HEIGHT; log_height = h - scene_height - input_height
         rect_scene = pygame.Rect(0, 0, w, scene_height); rect_log = pygame.Rect(0, scene_height, w, log_height); rect_input = pygame.Rect(0, h - input_height, w, input_height)
-        self.draw_scene_area(rect_scene, snapshot); self.draw_log_area(rect_log, snapshot); self.draw_input_area(rect_input, snapshot)
+        
+        self.draw_scene_area(rect_scene, snapshot)
+        self.draw_log_area(rect_log, snapshot)
+        self.draw_input_area(rect_input, snapshot)
+        
         border_col = theme.COLOR_DIALOGUE_BORDER if snapshot['dialogue_active'] else theme.COLOR_UI_BORDER
         pygame.draw.line(self.screen, border_col, (0, scene_height), (w, scene_height), 2)
         pygame.draw.line(self.screen, border_col, (0, h - input_height), (w, h - input_height), 2)
+        
         if self.is_processing: self.draw_loading_spinner(w, h, snapshot)
         pygame.display.flip()
 
@@ -359,35 +448,40 @@ class GameGUI:
 
         if snap['dialogue_active']: header_text = snap['dialogue_header']; header_col = theme.COLOR_DIALOGUE_BORDER
         else: header_text = snap['room_name'].upper(); header_col = theme.COLOR_ACCENT
-        text_room = self.font_header.render(header_text, True, header_col); self.screen.blit(text_room, (20, 20))
-        surf_time = self.font_log.render(f"ZEIT: T+{snap['time']}m", True, theme.COLOR_TEXT); surf_stab = self.font_log.render(f"INTEGRITÄT: {snap['stability']}%", True, theme.COLOR_ACCENT if snap['stability'] > 50 else theme.COLOR_ALERT)
+        
+        text_room = self.font_header.render(header_text, True, header_col)
+        self.screen.blit(text_room, (20, 20))
+        
+        surf_time = self.font_log.render(f"ZEIT: T+{snap['time']}m", True, theme.COLOR_TEXT)
+        surf_stab = self.font_log.render(f"INTEGRITÄT: {snap['stability']}%", True, theme.COLOR_ACCENT if snap['stability'] > 50 else theme.COLOR_ALERT)
         self.screen.blit(surf_time, (20, 70)); self.screen.blit(surf_stab, (20, 95))
 
     def draw_log_area(self, rect, snap):
         padding_x = theme.PADDING; padding_y = theme.PADDING
         max_text_width = rect.width - (padding_x * 2)
         
-        render_lines = []
+        render_rows = []
         
         for log in snap['logs']: 
-            color = theme.COLOR_TEXT; prefix = ""
-            if log['type'] == 'user': color = theme.COLOR_USER_ECHO; prefix = ""
-            elif log['type'] == 'error': color = (255, 80, 80)
-            elif log['type'] == 'success': color = theme.COLOR_ACCENT
-            elif log['type'] == 'event': color = (255, 200, 50)
-            elif log['type'] == 'alarm': color = theme.COLOR_ALERT
-            elif log['type'] == 'location': color = theme.COLOR_ACCENT
-            elif log['type'] == 'character': color = (100, 200, 255)
-            elif log['type'] == 'story': color = (220, 220, 220)
-            elif log['type'] == 'info': color = theme.COLOR_INFO
+            base_color = theme.COLOR_TEXT
+            prefix = ""
             
-            raw_lines = (prefix + log['text']).split('\n')
-            for raw_line in raw_lines:
-                wrapped = self.wrap_text(raw_line, self.font_log, max_text_width)
-                for line in wrapped:
-                    render_lines.append((line, color))
+            if log['type'] == 'user': base_color = theme.COLOR_USER_ECHO; prefix = ""
+            elif log['type'] == 'error': base_color = (255, 80, 80)
+            elif log['type'] == 'success': base_color = theme.COLOR_ACCENT
+            elif log['type'] == 'event': base_color = (255, 200, 50)
+            elif log['type'] == 'alarm': base_color = theme.COLOR_ALERT
+            elif log['type'] == 'location': base_color = theme.COLOR_ACCENT
+            elif log['type'] == 'character': base_color = (100, 200, 255)
+            elif log['type'] == 'story': base_color = (220, 220, 220)
+            elif log['type'] == 'info': base_color = theme.COLOR_INFO
+            
+            raw_text = prefix + log['text']
+            
+            wrapped_lines = self.renderer.parse_and_wrap(raw_text, max_text_width, base_color)
+            render_rows.extend(wrapped_lines)
         
-        total_content_height = len(render_lines) * self.line_height
+        total_content_height = len(render_rows) * self.line_height
         visible_height = rect.height - (2 * padding_y)
         
         max_scroll = max(0, total_content_height - visible_height)
@@ -398,10 +492,13 @@ class GameGUI:
         bottom_draw_y = rect.bottom - padding_y - self.line_height + self.scroll_offset
         current_y = bottom_draw_y
         
-        for text, color in reversed(render_lines):
+        for row in reversed(render_rows):
             if current_y + self.line_height > rect.top and current_y < rect.bottom:
-                text_surf = self.font_log.render(text, True, color)
-                self.screen.blit(text_surf, (padding_x, current_y))
+                current_x = rect.x + padding_x
+                for segment in row:
+                    text_surf = self.font_log.render(segment['text'], True, segment['color'])
+                    self.screen.blit(text_surf, (current_x, current_y))
+                    current_x += segment['width']
             
             current_y -= self.line_height
             if current_y < rect.top - 50:
@@ -438,10 +535,14 @@ class GameGUI:
             pygame.draw.line(self.screen, theme.COLOR_INPUT, (cursor_x, cursor_y), (cursor_x, cursor_y + cursor_h), 2)
 
     def draw_loading_spinner(self, w, h, snap):
-        center_x, center_y = w - 30, h - 25; angle = (self.cursor_blink * theme.CURSOR_BLINK_SPEED) % 360; radius = 10
-        end_x = center_x + radius * math.cos(math.radians(angle)); end_y = center_y + radius * math.sin(math.radians(angle))
+        center_x, center_y = w - 30, h - 25
+        angle = (self.cursor_blink * theme.CURSOR_BLINK_SPEED) % 360
+        radius = 10
+        end_x = center_x + radius * math.cos(math.radians(angle))
+        end_y = center_y + radius * math.sin(math.radians(angle))
         col = theme.COLOR_DIALOGUE_BORDER if snap['dialogue_active'] else theme.COLOR_LOADING
-        pygame.draw.circle(self.screen, col, (center_x, center_y), radius, 1); pygame.draw.line(self.screen, col, (center_x, center_y), (end_x, end_y), 2)
+        pygame.draw.circle(self.screen, col, (center_x, center_y), radius, 1)
+        pygame.draw.line(self.screen, col, (center_x, center_y), (end_x, end_y), 2)
 
 if __name__ == "__main__":
     gui = GameGUI()

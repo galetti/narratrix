@@ -1,6 +1,7 @@
 from engine.resolver import Resolver
 from engine.llm_bridge import LLMBridge
 from engine.constants import *
+# Import von InventoryHandler entfernt, um Zirkelschluss zu vermeiden
 
 class DialogueHandler:
     @staticmethod
@@ -57,13 +58,16 @@ class DialogueHandler:
         # Check auf 'give' Befehle im Dialog
         args = text.split()
         if args and args[0] in ["gib", "give", "geb", "geben", "reich"]:
-            from engine.handlers.interaction import InteractionHandler
+            # LOCAL IMPORT FIX: Import hier, um Zirkelschluss mit inventory.py zu verhindern
+            from engine.handlers.inventory import InventoryHandler
+            
             if "an" not in args and "to" not in args:
                 new_args = args[1:] + ["an", npc[ATTR_NAME]]
-                InteractionHandler.give(game, new_args)
+                InventoryHandler.give(game, new_args)
             else:
-                InteractionHandler.give(game, args[1:])
-            # Nach dem Geben Themen neu anzeigen
+                InventoryHandler.give(game, args[1:])
+                
+            # Nach dem Geben Themen neu anzeigen (falls State sich änderte)
             current_state = npc.get('state', 'default')
             dialogue_db = DialogueHandler._get_dialogue_db(npc, current_state)
             DialogueHandler._show_topics(game, npc, dialogue_db)
@@ -73,7 +77,6 @@ class DialogueHandler:
         current_state = npc.get('state', 'default')
         dialogue_db = DialogueHandler._get_dialogue_db(npc, current_state)
         
-        # 1. Verfügbare Themen ermitteln (für Nummern-Mapping)
         visible_topics = DialogueHandler._get_visible_topics(game, dialogue_db)
         
         chosen_entry = None
@@ -85,28 +88,21 @@ class DialogueHandler:
             if 0 <= idx < len(visible_topics):
                 chosen_topic_key, chosen_entry = visible_topics[idx]
         
-        # Fall B: Texteingabe (Keyword Search - sucht auch in VERSTECKTEN Themen)
+        # Fall B: Texteingabe (Keyword Search)
         else:
             for topic, entry in dialogue_db.items():
                 if topic in ['greeting', 'default']: continue
                 
-                # Check Condition (auch bei direkter Eingabe muss Condition erfüllt sein)
                 if not DialogueHandler._check_condition_wrapper(game, entry):
                     continue
 
-                # Matching: Key oder explizite Keywords?
-                # Einfaches Matching auf Key
                 if topic in text:
                     chosen_entry = entry
                     chosen_topic_key = topic
                     break
-                
-                # Wenn entry ein Dict ist, könnten wir Alias-Keywords prüfen (optionales Feature)
-                # if isinstance(entry, dict) and 'keywords' in entry ...
 
         # Verarbeitung
         if chosen_entry:
-            # Player Echo für Auswahl
             if text.isdigit():
                 label = chosen_topic_key
                 if isinstance(chosen_entry, dict) and 'label' in chosen_entry:
@@ -116,8 +112,6 @@ class DialogueHandler:
             DialogueHandler._print_dialogue(game, npc, chosen_entry)
             DialogueHandler.process_effects(game, chosen_entry, npc)
             
-            # Themen neu anzeigen (falls sich was geändert hat)
-            # Wir holen DB neu, da State sich geändert haben könnte
             new_state = npc.get('state', 'default')
             new_db = DialogueHandler._get_dialogue_db(npc, new_state)
             DialogueHandler._show_topics(game, npc, new_db)
@@ -128,37 +122,31 @@ class DialogueHandler:
             if use_llm: 
                 DialogueHandler._print_dialogue(game, npc, "LLM_AUTO_REPLY", prompt_context=text)
             else: 
-                # Prüfen ob es eine 'default' Antwort für Unbekanntes gibt
                 default_reply = dialogue_db.get('default')
                 if default_reply:
                     DialogueHandler._print_dialogue(game, npc, default_reply)
                 else:
                     game.log('character', f"{npc[ATTR_NAME]} schaut dich fragend an.")
             
-            # Themen nochmal anzeigen zur Hilfe
             DialogueHandler._show_topics(game, npc, dialogue_db)
 
     # --- HELPER ---
 
     @staticmethod
     def _get_dialogue_db(npc, state):
-        """Holt das Dialog-Dict, egal ob alte oder neue Struktur."""
         if 'states' in npc:
             return npc['states'].get(state, {}).get('dialogue', {})
         return npc.get('dialogue', {}).get(state, {})
 
     @staticmethod
     def _get_visible_topics(game, dialogue_db):
-        """Liefert Liste von (Key, Entry) Tupeln, die im Menü angezeigt werden sollen."""
         visible = []
         for topic, entry in dialogue_db.items():
             if topic in ['greeting', 'default']: continue
             
-            # 1. Condition Check (Wissen, Item, etc.)
             if not DialogueHandler._check_condition_wrapper(game, entry):
                 continue
             
-            # 2. Hidden Check (Explizit versteckte Themen)
             is_hidden = False
             if isinstance(entry, dict) and entry.get('hidden', False):
                 is_hidden = True
@@ -169,7 +157,6 @@ class DialogueHandler:
 
     @staticmethod
     def _show_topics(game, npc, dialogue_db):
-        """Zeigt die nummerierte Liste an."""
         visible = DialogueHandler._get_visible_topics(game, dialogue_db)
         
         if not visible:
@@ -179,7 +166,6 @@ class DialogueHandler:
         options = []
         for i, (topic, entry) in enumerate(visible):
             label = topic.capitalize()
-            # Wenn Label definiert ist, nutze das
             if isinstance(entry, dict) and 'label' in entry:
                 label = entry['label']
             options.append(f"[{i+1}] {label}")
@@ -231,7 +217,7 @@ class DialogueHandler:
                 game.log('event', f"[{npc[ATTR_NAME]} macht sich auf den Weg.]")
                 npc[ATTR_AFFINITY] = [target_room]
                 npc['location'] = target_room
-                npc['destination'] = target_room # AI Update
+                npc['destination'] = target_room
                 if target_room != game.location:
                     game.dialogue_active = False; game.dialogue_partner = None
                     game.log('event', "--- GESPRÄCH BEENDET (Partner gegangen) ---")
@@ -246,7 +232,6 @@ class DialogueHandler:
         elif e_type == 'set_state':
             new_state = effect.get('value')
             npc['state'] = new_state
-            # Hier müsste man eigentlich Hydration auslösen, aber GameState macht das automatisch beim nächsten Snapshot
             game.log('info', f"({npc[ATTR_NAME]} wirkt verändert.)")
 
         elif e_type == 'receive_item':

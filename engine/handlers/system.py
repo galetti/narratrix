@@ -1,189 +1,172 @@
 import os
 import json
-import threading
-from engine.handlers.interaction import InteractionHandler
-from engine.analysis import generate_future_matrix
+import time
 from engine.constants import *
+# Wir brauchen hier keinen InteractionHandler mehr.
+# Für Save/Load nutzen wir die GameState Methoden direkt oder json.
 
 class SystemHandler:
     
     @staticmethod
-    def help(game, args):
-        game.log('info', "--- HILFE & BEFEHLE ---")
-        game.log('info', "Bewegung:     gehe [nord/süd/ost/west/oben/unten/raus] (n, s, o, w, u, d)")
-        game.log('info', "Exploration:  schau [objekt] (l, x), nimm [objekt]")
-        game.log('info', "Interaktion:  benutze [objekt] mit [objekt]")
-        game.log('info', "Inventar:     i, inv, inventar")
-        game.log('info', "Gespräch:     rede mit [person], gib [item] an [person]")
-        game.log('info', "System:       save, load, map, quit, help (h)")
-        game.log('info', "Tipp:         Pfeiltasten für Korrekturen & History.")
-
-    @staticmethod
     def save(game, args):
-        save_dir = "saves"
-        if not os.path.exists(save_dir): os.makedirs(save_dir)
+        """Speichert den aktuellen Spielstand."""
+        filename = "savegame.json"
+        if args: filename = f"{args[0]}.json"
         
-        filename = None
+        # Sicherstellen, dass der Ordner existiert
+        save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "saves")
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+            
+        filepath = os.path.join(save_dir, filename)
         
-        # Fall 1: Argument angegeben (Quick Save)
-        if args:
-            filename = f"{''.join(x for x in args[0] if x.isalnum())}.json"
-            filepath = os.path.join(save_dir, filename)
-        else:
-            # Fall 2: Datei-Dialog
-            try:
-                import tkinter as tk
-                from tkinter import filedialog
-                root = tk.Tk()
-                root.withdraw() # Hauptfenster verstecken
-                root.attributes('-topmost', True) # Über Pygame legen
-                
-                # Absoluter Pfad für den Dialog-Start
-                start_dir = os.path.abspath(save_dir)
-                
-                selected_path = filedialog.asksaveasfilename(
-                    initialdir=start_dir,
-                    title="Spielstand speichern",
-                    defaultextension=".json",
-                    filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")]
-                )
-                root.destroy()
-                
-                if not selected_path: return # Abgebrochen
-                filepath = selected_path
-                filename = os.path.basename(filepath)
-            except Exception as e:
-                # Fallback für Headless oder Fehler
-                print(f"[WARN] GUI Dialog fehlgeschlagen: {e}")
-                filename = "savegame.json"
-                filepath = os.path.join(save_dir, filename)
-
-        # Speichern Logik
-        state = {
-            "time": game.time, 
-            "location": game.location, 
-            "stability": game.stability, 
-            "game_over": game.game_over,
-            "hidden_in": game.hidden_in, # NEU: Versteck speichern
-            "knowledge": list(game.knowledge), 
-            "objects": game.objects, 
-            "npcs": game.npcs, 
-            "matrix": game.matrix, 
-            "logs": game.logs[-50:]
-        }
         try:
-            with open(filepath, 'w', encoding='utf-8') as f: 
-                json.dump(state, f, indent=2, ensure_ascii=False)
-            game.log('success', f"Gespeichert: {filename}")
+            # Wir holen uns den Snapshot vom GameState
+            data = game.serialize_state()
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4)
+            game.log('success', f"Spiel gespeichert unter: {filename}")
         except Exception as e:
             game.log('error', f"Fehler beim Speichern: {e}")
 
     @staticmethod
     def load(game, args):
-        save_dir = "saves"
-        filepath = None
+        """Lädt einen Spielstand."""
+        filename = "savegame.json"
+        if args: filename = f"{args[0]}.json"
         
-        if args:
-            filename = f"{''.join(x for x in args[0] if x.isalnum())}.json"
-            filepath = os.path.join(save_dir, filename)
-        else:
-            # Datei-Dialog
-            try:
-                import tkinter as tk
-                from tkinter import filedialog
-                root = tk.Tk()
-                root.withdraw()
-                root.attributes('-topmost', True)
-                
-                start_dir = os.path.abspath(save_dir)
-                
-                selected_path = filedialog.askopenfilename(
-                    initialdir=start_dir,
-                    title="Spielstand laden",
-                    filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")]
-                )
-                root.destroy()
-                
-                if not selected_path: return
-                filepath = selected_path
-            except Exception as e:
-                game.log('error', f"GUI Dialog Fehler: {e}")
-                return
-
-        if not os.path.exists(filepath): 
-            return game.log('error', "Spielstand nicht gefunden.")
+        save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "saves")
+        filepath = os.path.join(save_dir, filename)
+        
+        if not os.path.exists(filepath):
+            return game.log('error', f"Spielstand '{filename}' nicht gefunden.")
             
         try:
-            with open(filepath, 'r', encoding='utf-8') as f: state = json.load(f)
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
             
-            # State wiederherstellen
-            game.time = state.get("time")
-            game.location = state.get("location")
-            game.stability = state.get("stability")
-            game.game_over = state.get("game_over")
-            game.hidden_in = state.get("hidden_in") # NEU: Versteck laden
-            game.knowledge = set(state.get("knowledge"))
-            game.objects = state.get("objects")
-            game.npcs = state.get("npcs")
-            game.matrix = state.get("matrix")
-            game.logs = state.get("logs")
-            
-            game.disambiguation = None 
-            game.dialogue_active = False 
-            
-            game.log('success', f"Geladen: {os.path.basename(filepath)}")
-            InteractionHandler.look(game, [])
+            # Wir setzen ein Flag, damit die GUI den State beim nächsten Tick neu lädt/überschreibt
+            # oder wir laden es direkt in den game state.
+            # Da GameState serialization komplex sein kann, nutzen wir hier eine einfache Methode:
+            success = game.deserialize_state(data)
+            if success:
+                game.log('success', "Spielstand geladen.")
+                # Force Look nach dem Laden
+                from engine.handlers.exploration import ExplorationHandler
+                ExplorationHandler.look(game, [])
+            else:
+                game.log('error', "Fehler beim Verarbeiten des Spielstands.")
+                
         except Exception as e:
-            game.log('error', f"Ladefehler: {e}")
+            game.log('error', f"Kritischer Fehler beim Laden: {e}")
+
+    @staticmethod
+    def help(game, args):
+        """Zeigt verfügbare Befehle."""
+        # Da wir nun modulare Handler haben, geben wir eine statische Übersicht
+        help_text = """
+<header>VERFÜGBARE BEFEHLE</header>
+
+<accent>BEWEGUNG:</accent>
+  gehe <richtung> (n, s, e, w, u, d, out)
+  verstecke <objekt> (hide in)
+
+<accent>INTERAKTION:</accent>
+  schaue / l [objekt]
+  nimm <objekt>
+  benutze <objekt> [mit <objekt>]
+  öffne <objekt>
+  lege <objekt> in/auf <objekt>
+
+<accent>SYSTEM:</accent>
+  inv / i       - Inventar zeigen
+  save [name]   - Speichern
+  load [name]   - Laden
+  map           - Karte anzeigen
+  oracle        - Log-Analyse
+"""
+        game.log('info', help_text.strip())
 
     @staticmethod
     def oracle(game, args):
-        game.log('event', "Zugriff auf interne Sensoren... Berechne Prognosen...")
-        timeline = generate_future_matrix(game, minutes_to_simulate=60, step_size=5)
-        found_vision = False
-        for snap in timeline:
-            time_offset = snap['time'] - game.time
-            if time_offset <= 0: continue
-            for r_id, r_data in snap['rooms'].items():
-                room_name = game.rooms[r_id][ATTR_NAME]
-                if r_data['events']:
-                    events = ", ".join(r_data['events'])
-                    game.log('story', f"[ALERT T+{time_offset}m] Sektor '{room_name}': {events}")
-                    found_vision = True
-                if r_data['events'] and r_data['npcs']:
-                    names = ", ".join(r_data['npcs'])
-                    game.log('alarm', f"WARNUNG: Lebenszeichen ({names}) im Gefahrenbereich!")
-                    found_vision = True
-        if not found_vision: game.log('info', "Sensoren: Keine Anomalien in den nächsten 60 Minuten.")
+        """Debug / Story Helper Tool: Zeigt interne Zustände an."""
+        game.log('system', "--- ORACLE SYSTEM STATUS ---")
+        
+        # 1. Globale Variablen
+        game.log('info', f"Zeit: T+{game.time}m | Stabilität: {game.stability}%")
+        
+        # 2. Event-Queue Status
+        pending_events = len([e for e in game.event_queue if e['time'] > game.time])
+        game.log('info', f"Ausstehende Events: {pending_events}")
+        
+        # 3. NPC Status
+        npc_info = []
+        for npc in game.npcs:
+            state = npc.get('state', 'default')
+            loc = npc.get('location', 'unknown')
+            # Hole den Namen des Raums für bessere Lesbarkeit
+            room_name = loc
+            if loc in game.rooms:
+                room_name = game.rooms[loc].get('name', loc)
+            npc_info.append(f"{npc[ATTR_NAME]} ({state}) @ {room_name}")
+        
+        if npc_info:
+            game.log('info', "NPCs:\n  " + "\n  ".join(npc_info))
+        else:
+            game.log('info', "NPCs: Keine aktiv.")
+
+        # 4. Aktive Gefahren/Probleme
+        warnings = []
+        if game.stability < 50: warnings.append("KRITISCH: Stations-Integrität gefährdet!")
+        
+        # Suche nach sabotierten Räumen
+        sabotaged_rooms = [r.get('name', r_id) for r_id, r in game.rooms.items() if r.get('state') == STATE_SABOTAGED]
+        if sabotaged_rooms:
+            warnings.append(f"Sabotage entdeckt in: {', '.join(sabotaged_rooms)}")
+            
+        if warnings:
+            game.log('alarm', "\n".join(warnings))
+        else:
+            game.log('success', "Systemdiagnose: Nominal.")
 
     @staticmethod
     def map(game, args):
-        game.log('info', "--- SYSTEM ÜBERSICHT ---")
-        min_x, max_x = 0, 0; min_y, max_y = 0, 0
-        grid = {} 
-        for r_id, room in game.rooms.items():
-            x = room.get('map_x', 0); y = room.get('map_y', 0)
-            grid[(x,y)] = r_id
-            min_x = min(min_x, x); max_x = max(max_x, x); min_y = min(min_y, y); max_y = max(max_y, y)
+        """Zeigt eine dynamisch generierte Karte der besuchten Räume."""
+        game.log('info', "--- TAKTISCHE KARTE (Bekannte Sektoren) ---")
+        
+        # Wir sammeln alle besuchten Räume
+        visited_ids = [r_id for r_id, r in game.rooms.items() if r.get('visited')]
+        
+        if not visited_ids:
+            game.log('info', "Keine Kartendaten verfügbar.")
+            return
 
-        for y in range(min_y, max_y + 1):
-            line1 = ""; line2 = "" 
-            for x in range(min_x, max_x + 1):
-                r_id = grid.get((x, y))
-                if r_id:
-                    symbol = "[ ]" 
-                    if r_id == game.location: symbol = "[@]" 
-                    npcs_here = [n for n in game.npcs if n['location'] == r_id]
-                    if npcs_here: symbol = "[N]" if r_id != game.location else "[@N]"
-                    cell = f"{symbol}".center(12)
-                    exits = game.rooms[r_id]['exits']
-                    has_east = 'east' in exits or (grid.get((x+1, y)) and 'west' in game.rooms[grid.get((x+1, y))]['exits'])
-                    conn = "--" if has_east else "  "
-                    line1 += cell + conn
-                    has_south = 'south' in exits or (grid.get((x, y+1)) and 'north' in game.rooms[grid.get((x, y+1))]['exits'])
-                    v_conn = "  |  " if has_south else "     "
-                    line2 += v_conn.center(12) + "  "
-                else: line1 += " " * 14; line2 += " " * 14
-            game.log('info', line1)
-            if y < max_y: game.log('info', line2)
-        game.log('info', "Legende: [@] Pos, [N] Bio-Signatur")
+        # Einfache Visualisierung (Liste mit Verbindungen)
+        # Eine echte 2D-Grid Map wäre im Text-Log schwer, daher eine strukturierte Liste.
+        
+        for r_id in visited_ids:
+            room = game.rooms[r_id]
+            name = room.get(ATTR_NAME, "Unbekannt")
+            
+            # Marker für aktuelle Position
+            marker = " [HIER]" if r_id == game.location else ""
+            
+            # Ausgänge formatieren
+            exits = room.get('exits', {})
+            exit_strs = []
+            for direction, target_id in exits.items():
+                target_name = "???"
+                # Zeige Zielname nur, wenn Ziel auch besucht wurde
+                if target_id in visited_ids:
+                    target_room = game.rooms[target_id]
+                    target_name = target_room.get(ATTR_NAME, "Unbekannt")
+                
+                # Kurze Richtungsnamen
+                short_dir = direction[0].upper() if len(direction) > 2 else direction.upper()
+                exit_strs.append(f"{short_dir} -> {target_name}")
+            
+            exits_display = ", ".join(exit_strs) if exit_strs else "Sackgasse"
+            
+            # Farbige Ausgabe je nach Status
+            log_type = 'location' if r_id == game.location else 'info'
+            game.log(log_type, f"> {name}{marker}\n  Verbindungen: {exits_display}")
