@@ -36,17 +36,18 @@ class ActionDispatcher:
         'load': SystemHandler.load,
         'oracle': SystemHandler.oracle, 'orakel': SystemHandler.oracle, 'hack': SystemHandler.oracle,
         'map': SystemHandler.map, 'karte': SystemHandler.map,
-        'help': SystemHandler.help
+        'help': SystemHandler.help,
+        'journal': SystemHandler.journal, 'logbuch': SystemHandler.journal, 'aufgaben': SystemHandler.journal # NEU
     }
 
     @staticmethod
     def dispatch(game, verb, args):
-        # 1. Check auf ausstehende Interaktionen (z.B. "Benutze X" -> wartet auf "mit Y")
+        # 1. Check auf ausstehende Interaktionen
         if game.pending_interaction:
             ActionDispatcher._handle_pending(game, verb, args)
             return
 
-        # 2. Check auf Disambiguierung (User muss wählen zwischen "Rote Taste" und "Blaue Taste")
+        # 2. Check auf Disambiguierung
         if game.disambiguation:
             ActionDispatcher._handle_disambiguation(game, verb, args)
             return
@@ -57,7 +58,7 @@ class ActionDispatcher:
             handler_func(game, args)
             return
 
-        # 4. Fallback: Ist das Verb vielleicht eine Richtung? ("norden" statt "gehe norden")
+        # 4. Fallback: Richtung?
         vocab_dirs = game.config.get('vocabulary', {}).get('directions', {})
         for canonical, synonyms in vocab_dirs.items():
             if verb == canonical or verb in synonyms:
@@ -76,20 +77,16 @@ class ActionDispatcher:
         original_verb = state['verb']
         item1_args = state['args']
         
-        # Wir bauen den Namen des zweiten Items aus dem neuen Input
         item2_name = f"{verb} {' '.join(args)}".strip()
         item1_name = " ".join(item1_args)
         
         if original_verb == 'use':
-            # Kombinations-Logik aufrufen
             result_msg = game.perform_combine(item1_name, item2_name)
             if "Fehler" in result_msg or "nicht" in result_msg.lower(): 
                 game.log('error', result_msg)
             else: 
                 game.log('success', result_msg)
                 game.tick(2)
-        
-        # Reset
         game.pending_interaction = None
 
     @staticmethod
@@ -105,14 +102,12 @@ class ActionDispatcher:
             game.disambiguation = None
             return
 
-        # Filtern der Kandidaten basierend auf User-Input
         matches = []
         for cand in candidates:
             if filter_text in cand['name'].lower() or any(filter_text in a for a in cand.get('aliases', [])):
                 matches.append(cand)
         
         if len(matches) == 1:
-            # Eindeutig identifiziert -> Befehl erneut ausführen
             target = matches[0]
             game.disambiguation = None 
             game.log('user', f"(Ausgewählt: {target['name']})")

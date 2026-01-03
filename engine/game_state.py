@@ -7,7 +7,9 @@ from engine.systems.crafting import CraftingSystem
 from engine.systems.pathfinder import Pathfinder
 from engine.systems.ai import AISystem
 from engine.systems.object_behavior import ObjectBehaviorSystem
-from engine.systems.acoustics import AcousticsSystem 
+from engine.systems.acoustics import AcousticsSystem
+# NEU: QuestManager importieren
+from engine.systems.quest_manager import QuestManager
 
 class GameState:
     def __init__(self, config, silent=False):
@@ -62,6 +64,10 @@ class GameState:
         self.ai = AISystem(self)
         self.object_behavior = ObjectBehaviorSystem(self)
         self.acoustics = AcousticsSystem(self)
+        
+        # NEU: Quest Manager initialisieren
+        self.quests = QuestManager(self)
+        self.quests.load_definitions(config.get('quests', {}))
 
     def _hydrate_npc(self, npc):
         current_state = npc.get('state')
@@ -101,6 +107,8 @@ class GameState:
             new_state.matrix = copy.deepcopy(self.matrix)
             new_state.objects = copy.deepcopy(self.objects)
             new_state.inventory = copy.deepcopy(self.inventory)
+            # Quests müssen im Clone nicht unbedingt tief kopiert werden, wenn nur für Simulation genutzt,
+            # aber für echtes Speichern schon. Hier vereinfacht.
         return new_state
 
     def render_room_desc(self, room_id):
@@ -193,7 +201,6 @@ class GameState:
                 loc = cond.get('location')
                 obj = self.objects.get(item_id)
                 return obj and obj['location'] == loc
-            # NEU: Check auf Spieler-Position
             elif c_type == 'location':
                 target_loc = cond.get('value')
                 return self.location == target_loc
@@ -203,7 +210,7 @@ class GameState:
     def tick(self, minutes):
         self.time += minutes
         
-        # Physik
+        # Physik (Temperatur)
         for obj in self.objects.values():
             if ATTR_TEMP in obj:
                 current = obj[ATTR_TEMP]; target = 20
@@ -242,16 +249,23 @@ class GameState:
                     self._process_conversation_event(node)
                     continue
 
+                # Quest Trigger Check
+                if 'quest_update' in node:
+                    q_data = node['quest_update']
+                    if isinstance(q_data, dict) and 'id' in q_data and 'stage' in q_data:
+                        self.quests.update_quest(q_data['id'], q_data['stage'])
+
                 origin = node.get('origin_id')
                 if origin == self.location:
                     self.log('event', f"EVENT: {node['title']}")
                     self.log('story', node['description'])
                 else:
-                    vol, direction = self.acoustics.get_audibility_info(origin, self.location)
-                    if vol > 0.1:
-                        sound_txt = node.get('sound_msg', "Geräusch.")
-                        msg_prefix = f"Du hörst aus {direction}:" if direction != "hier" else "Hier ertönt:"
-                        self.log('event', f"{msg_prefix} {sound_txt}")
+                    if origin:
+                        vol, direction = self.acoustics.get_audibility_info(origin, self.location)
+                        if vol > 0.1:
+                            sound_txt = node.get('sound_msg', "Geräusch.")
+                            msg_prefix = f"Du hörst aus {direction}:" if direction != "hier" else "Hier ertönt:"
+                            self.log('event', f"{msg_prefix} {sound_txt}")
                 
                 target_id = node.get('target_obj_id')
                 if target_id:
@@ -262,8 +276,10 @@ class GameState:
                     else:
                         if 'success_text' in node: self.log('success', f"STATUS: {node['success_text']}")
 
-        self.ai.process_all_npcs()
-        self.object_behavior.process_all_objects()
+        # AI & Systems Update
+        self.ai.process_all_npcs() # Nutzt die korrigierte Methode aus ai.py
+        if hasattr(self.object_behavior, 'update'):
+            self.object_behavior.update()
 
         if self.stability <= 0: 
             self.log('alarm', "GAME OVER: STATION KRITISCH.")
@@ -298,3 +314,40 @@ class GameState:
                 else:
                     speaker = line.get('speaker', '???')
                     self.log('story', f"{speaker}: \"{text}\"")
+
+    # --- SAVE / LOAD (Wichtig für SystemHandler) ---
+    
+    def serialize_state(self):
+        """Erstellt ein speicherbares Dictionary."""
+        # Wir müssen sicherstellen, dass wir keine Lock-Objekte oder komplexe Instanzen serialisieren
+        return {
+            "location": self.location,
+            "time": self.time,
+            "stability": self.stability,
+            "knowledge": list(self.knowledge),
+            "rooms": self.rooms,   
+            "objects": self.objects, 
+            "npcs": self.npcs,     
+            "quests": self.quests.get_save_data(), 
+            "meta": {"version": "1.0"} 
+        }
+
+    def deserialize_state(self, data):
+        """Lädt den Zustand."""
+        try:
+            self.location = data.get("location", "start_room")
+            self.time = data.get("time", 0)
+            self.stability = data.get("stability", 100)
+            self.knowledge = set(data.get("knowledge", []))
+            
+            if "rooms" in data: self.rooms = data["rooms"]
+            if "objects" in data: self.objects = data["objects"]
+            if "npcs" in data: self.npcs = data["npcs"]
+            
+            if "quests" in data:
+                self.quests.load_save_data(data["quests"])
+                
+            return True
+        except Exception as e:
+            print(f"[ERROR] Load failed: {e}")
+            return False

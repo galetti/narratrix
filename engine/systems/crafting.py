@@ -1,122 +1,152 @@
-# engine/systems/crafting.py
 from engine.constants import *
+from engine.resolver import Resolver
 
 class CraftingSystem:
+    """
+    Verwaltet das Kombinieren von Gegenständen mit erweiterten Bedingungen
+    wie Werkzeugen, Arbeitsstationen und Bauplänen.
+    """
     def __init__(self, game):
         self.game = game
+        # Rezepte werden aus der Config geladen (game.combinations)
+        # Struktur eines Rezepts in der Config:
+        # {
+        #   "ingredients": ["item_a", "item_b"],
+        #   "result": "item_c",
+        #   "tools": ["tool_screwdriver"],       # Optional: Werkzeug im Inventar nötig (bleibt erhalten)
+        #   "station": "obj_workbench",          # Optional: Muss im Raum oder Inventar sein
+        #   "blueprint": "knows_circuitry",      # Optional: Knowledge-ID nötig
+        #   "message": "Du lötest den Chip..."   # Optional: Custom Success Message
+        # }
 
     def perform_combine(self, item1_name, item2_name):
-        # 1. Sammle alle Objekte für die Suche (Inventar + Raum + Offene Container rekursiv)
-        accessible_objs = self._get_accessible_objects()
+        """
+        Hauptmethode, die vom ActionDispatcher aufgerufen wird.
+        Versucht, zwei Objekte anhand ihrer Namen zu kombinieren.
+        """
+        # 1. Objekte auflösen
+        obj1 = self._resolve_crafting_item(item1_name)
+        obj2 = self._resolve_crafting_item(item2_name)
 
-        # Helper zum Finden von Objekten per Name
-        def find_in_list(name, lst):
-            search = name.lower()
-            return next((o for o in lst if search in o[ATTR_NAME].lower() or any(search in a for a in o.get(ATTR_ALIASES, []))), None)
+        if not obj1 or not obj2:
+            return "Ich konnte eines der Objekte nicht finden (muss im Inventar oder greifbar sein)."
 
-        obj1 = find_in_list(item1_name, accessible_objs)
-        obj2 = find_in_list(item2_name, accessible_objs)
+        # 2. Rezept finden
+        recipe = self._find_recipe(obj1['id'], obj2['id'])
+        if not recipe:
+            return "Das lässt sich nicht sinnvoll kombinieren."
 
-        if not obj1: return f"Ich finde '{item1_name}' hier nicht."
-        if not obj2: return f"Ich finde '{item2_name}' hier nicht."
-
-        # Rezepte durchsuchen (Common + Chapter merged)
-        combinations = self.game.config.get('combinations', [])
+        # 3. Bedingungen prüfen
         
-        for recipe in combinations:
-            needed_items = recipe['items']
+        # A. Bauplan / Wissen
+        if 'blueprint' in recipe:
+            knowledge_id = recipe['blueprint']
+            if knowledge_id not in self.game.knowledge:
+                return "Du hast keine Ahnung, wie man diese Teile verbindet. Dir fehlt ein Bauplan oder Wissen."
+
+        # B. Station (Werkbank, Herd, etc.)
+        if 'station' in recipe:
+            station_id = recipe['station']
+            if not self._is_station_available(station_id):
+                station_name = self._get_obj_name(station_id)
+                return f"Dafür brauchst du eine Arbeitsfläche: {station_name}."
+
+        # C. Werkzeuge
+        if 'tools' in recipe:
+            missing_tools = []
+            for tool_id in recipe['tools']:
+                if not self._has_item_in_inventory(tool_id):
+                    tool_name = self._get_obj_name(tool_id)
+                    missing_tools.append(tool_name)
             
-            # A. Zutaten prüfen (Sind obj1 und obj2 die richtigen?)
-            if (obj1[ATTR_ID] in needed_items and obj2[ATTR_ID] in needed_items) and (obj1[ATTR_ID] != obj2[ATTR_ID]):
-                
-                # B. Werkzeuge prüfen (Sind alle Tools da?)
-                needed_tools = recipe.get('tools', [])
-                missing_tools = []
-                for tool_id in needed_tools:
-                    # Tool muss im Inventar oder equipped sein (hier: accessible)
-                    if not any(o[ATTR_ID] == tool_id for o in accessible_objs):
-                        # Namen für Fehlermeldung suchen (falls möglich)
-                        tool_name = tool_id
-                        if tool_id in self.game.objects:
-                            tool_name = self.game.objects[tool_id][ATTR_NAME]
-                        missing_tools.append(tool_name)
-                
-                if missing_tools:
-                    return f"Das klappt so nicht. Du benötigst: {', '.join(missing_tools)}."
+            if missing_tools:
+                return f"Dir fehlt das nötige Werkzeug: {', '.join(missing_tools)}."
 
-                # C. Crafting Erfolg!
-                
-                # 1. Zielort bestimmen
-                target_location = LOC_INVENTORY
-                loc1 = obj1['location']; parent1 = self.game.objects.get(loc1)
-                loc2 = obj2['location']; parent2 = self.game.objects.get(loc2)
-                
-                # Konsum-Logik auswerten
-                consume_target = recipe.get('consume', True) # Default: Alles weg
-                
-                objs_to_remove = []
-                
-                if consume_target is True:
-                    objs_to_remove = [obj1, obj2]
-                elif isinstance(consume_target, list):
-                    if obj1[ATTR_ID] in consume_target: objs_to_remove.append(obj1)
-                    if obj2[ATTR_ID] in consume_target: objs_to_remove.append(obj2)
-                
-                # Wo entsteht das Ergebnis?
-                final_container = None
-                
-                # Check: Ist eine Zutat ein Container, der NICHT gelöscht wird?
-                if obj1 not in objs_to_remove and obj1.get('type') == TYPE_CONTAINER: final_container = obj1
-                elif obj2 not in objs_to_remove and obj2.get('type') == TYPE_CONTAINER: final_container = obj2
-                
-                if final_container:
-                    target_location = final_container[ATTR_ID]
-                else:
-                    # Fallback auf Ursprungsort (nur wenn der Container noch existiert/gültig ist)
-                    if parent1 and parent1['location'] != LOC_VOID: target_location = loc1
-                    elif parent2 and parent2['location'] != LOC_VOID: target_location = loc2
+        # 4. Crafting durchführen
+        return self._execute_crafting(obj1, obj2, recipe)
 
-                # 2. Zutaten entfernen
-                for o in objs_to_remove:
-                    o['location'] = LOC_VOID
-
-                # 3. Ergebnis erzeugen
-                res_id = recipe.get('result')
-                if res_id:
-                    if res_id in self.game.objects:
-                        res_obj = self.game.objects[res_id]
-                        res_obj['location'] = target_location
-                        
-                        # Temperatur Transfer
-                        t1 = obj1.get(ATTR_TEMP, 20); t2 = obj2.get(ATTR_TEMP, 20)
-                        res_obj[ATTR_TEMP] = max(t1, t2)
-                        
-                        return recipe['message']
-                    else:
-                        return f"Systemfehler: Ergebnis-Item '{res_id}' nicht gefunden."
-                else:
-                    return recipe['message']
+    def _resolve_crafting_item(self, name):
+        """Sucht das Item im Inventar oder im Raum (für Stationen/große Objekte)."""
+        # Wir nutzen den Resolver, aber schränken die Suche ein, damit man nicht mit Dingen im anderen Raum craftet
+        try:
+            # Prio 1: Inventar
+            return Resolver.resolve_target(self.game, name.split(), location_filter=FILTER_INVENTORY)
+        except:
+            pass
         
-        return "Das lässt sich nicht sinnvoll kombinieren."
+        try:
+            # Prio 2: Raum (z.B. wenn man etwas auf einen stationären Amboss legt)
+            return Resolver.resolve_target(self.game, name.split(), location_filter=FILTER_ROOM)
+        except:
+            return None
 
-    def _get_accessible_objects(self):
-        """Hilfsmethode: Alle greifbaren Objekte (Inv + Raum + Offene Container, rekursiv)."""
-        accessible = []
-        
-        # Rekursive Suchfunktion
-        def scan_recursive(parent_id):
-            # Finde alle Objekte, deren Ort 'parent_id' ist
-            contents = [o for o in self.game.objects.values() if o['location'] == parent_id]
-            for obj in contents:
-                accessible.append(obj)
-                # Wenn es ein offener Container oder eine Oberfläche ist -> Tiefer scannen
-                if obj.get('type') in [TYPE_CONTAINER, TYPE_SURFACE] and obj.get('is_open', True):
-                    scan_recursive(obj[ATTR_ID])
+    def _find_recipe(self, id1, id2):
+        """Sucht ein passendes Rezept für die beiden IDs (Reihenfolge egal)."""
+        for recipe in self.game.combinations:
+            ing = recipe.get('ingredients', [])
+            if len(ing) == 2:
+                if (ing[0] == id1 and ing[1] == id2) or (ing[0] == id2 and ing[1] == id1):
+                    return recipe
+        return None
 
-        # 1. Startpunkt: Inventar
-        scan_recursive(LOC_INVENTORY)
+    def _is_station_available(self, station_id):
+        """Prüft, ob die Station im Raum oder (selten) im Inventar ist."""
+        # Ist es der Raum selbst? (z.B. "room_lab")
+        if self.game.location == station_id:
+            return True
+            
+        # Ist es ein Objekt im Raum?
+        for obj in self.game.objects.values():
+            if obj['id'] == station_id:
+                if obj['location'] == self.game.location or obj['location'] == LOC_INVENTORY:
+                    return True
+        return False
+
+    def _has_item_in_inventory(self, item_id):
+        """Prüft auf Besitz eines Items (für Werkzeuge)."""
+        for obj in self.game.objects.values():
+            if obj['id'] == item_id and obj['location'] == LOC_INVENTORY:
+                return True
+        return False
+
+    def _get_obj_name(self, obj_id):
+        """Hilfsfunktion für Fehlernachrichten."""
+        obj = self.game.objects.get(obj_id)
+        if obj: return obj[ATTR_NAME]
+        # Fallback: Suche in Räumen
+        room = self.game.rooms.get(obj_id)
+        if room: return room[ATTR_NAME]
+        return "Unbekanntes Objekt"
+
+    def _execute_crafting(self, obj1, obj2, recipe):
+        """Führt den Crafting-Prozess aus (Verbrauchen, Erzeugen)."""
         
-        # 2. Startpunkt: Aktueller Raum
-        scan_recursive(self.game.location)
+        # 1. Zutaten verbrauchen (außer das Rezept sagt 'preserve': ['id'])
+        preserved = recipe.get('preserve', [])
         
-        return accessible
+        if obj1['id'] not in preserved:
+            obj1['location'] = LOC_VOID
+        
+        if obj2['id'] not in preserved:
+            obj2['location'] = LOC_VOID
+
+        # 2. Ergebnis erzeugen
+        result_id = recipe.get('result')
+        if result_id:
+            # Wir holen das Template-Objekt
+            result_obj = self.game.objects.get(result_id)
+            if result_obj:
+                result_obj['location'] = LOC_INVENTORY
+                
+                # Optional: Müll erzeugen (Nebenprodukte)
+                byproducts = recipe.get('byproducts', [])
+                for bid in byproducts:
+                    bp = self.game.objects.get(bid)
+                    if bp: bp['location'] = LOC_INVENTORY
+
+                success_msg = recipe.get('message', f"Du kombinierst {obj1[ATTR_NAME]} und {obj2[ATTR_NAME]} zu: {result_obj[ATTR_NAME]}.")
+                return success_msg
+            else:
+                return f"[ERROR] Ergebnis-Item '{result_id}' nicht in der Datenbank gefunden."
+        
+        return "Es ist etwas passiert, aber kein Ergebnis definiert."
