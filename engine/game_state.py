@@ -8,8 +8,9 @@ from engine.systems.pathfinder import Pathfinder
 from engine.systems.ai import AISystem
 from engine.systems.object_behavior import ObjectBehaviorSystem
 from engine.systems.acoustics import AcousticsSystem
-# NEU: QuestManager importieren
 from engine.systems.quest_manager import QuestManager
+# NEU: EventManager importieren
+from engine.systems.event_manager import EventManager
 
 class GameState:
     def __init__(self, config, silent=False):
@@ -42,9 +43,11 @@ class GameState:
 
         self.rooms = copy.deepcopy(config['rooms'])
         self.npcs = copy.deepcopy(config['npcs'])
-        self.matrix = copy.deepcopy(config['narrative_matrix'])
+        # self.matrix wird jetzt vom EventManager verwaltet, aber wir behalten es im State für Savegames
+        self.matrix = copy.deepcopy(config.get('narrative_matrix', []))
         self.objects = copy.deepcopy(config['objects'])
         
+        # NPC Hydration (Zustände laden)
         for npc in self.npcs:
             if 'states' in npc:
                 if 'state' not in npc:
@@ -55,19 +58,23 @@ class GameState:
                 if not silent: 
                     print(f"[WARN] NPC '{npc.get('name')}' hat keine 'states' Definition.")
 
+        # Physik Init
         for obj in self.objects.values():
             if ATTR_TEMP not in obj: obj[ATTR_TEMP] = 20
             if ATTR_MATTER not in obj: obj[ATTR_MATTER] = MATTER_SOLID
 
+        # Systeme initialisieren
         self.crafting = CraftingSystem(self)
         self.pathfinder = Pathfinder(self)
         self.ai = AISystem(self)
         self.object_behavior = ObjectBehaviorSystem(self)
         self.acoustics = AcousticsSystem(self)
-        
-        # NEU: Quest Manager initialisieren
         self.quests = QuestManager(self)
         self.quests.load_definitions(config.get('quests', {}))
+        
+        # NEU: EventManager
+        self.events = EventManager(self)
+        self.events.load_events(self.matrix)
 
     def _hydrate_npc(self, npc):
         current_state = npc.get('state')
@@ -104,11 +111,11 @@ class GameState:
             new_state.hidden_in = self.hidden_in 
             new_state.rooms = copy.deepcopy(self.rooms)
             new_state.npcs = copy.deepcopy(self.npcs)
-            new_state.matrix = copy.deepcopy(self.matrix)
+            new_state.matrix = copy.deepcopy(self.matrix) # Events Status muss auch kopiert werden
             new_state.objects = copy.deepcopy(self.objects)
             new_state.inventory = copy.deepcopy(self.inventory)
-            # Quests müssen im Clone nicht unbedingt tief kopiert werden, wenn nur für Simulation genutzt,
-            # aber für echtes Speichern schon. Hier vereinfacht.
+            # Für Simulationen reicht flache Kopie oft, aber hier wichtig:
+            new_state.events.events = copy.deepcopy(self.events.events) 
         return new_state
 
     def render_room_desc(self, room_id):
@@ -178,35 +185,6 @@ class GameState:
     def get_direction_to(self, target_room_id):
         return self.pathfinder.get_direction_to(self.location, target_room_id)
 
-    def _check_trigger_condition(self, node):
-        if node.get('triggered', False): return False
-        trigger_type = node.get('trigger', 'time')
-        
-        if trigger_type == 'time': 
-            return self.time >= node.get('trigger_time', 99999)
-        elif trigger_type == 'relative':
-            parent_id = node.get('parent_id')
-            delay = node.get('delay', 0)
-            parent = next((n for n in self.matrix if n['id'] == parent_id), None)
-            if parent and parent.get('triggered', False): 
-                return self.time >= (parent.get('triggered_at', 0) + delay)
-        elif trigger_type == 'condition':
-            cond = node.get('condition', {})
-            c_type = cond.get('type')
-            
-            if c_type == 'knowledge': 
-                return cond.get('value') in self.knowledge
-            elif c_type == 'item_location':
-                item_id = cond.get('item')
-                loc = cond.get('location')
-                obj = self.objects.get(item_id)
-                return obj and obj['location'] == loc
-            elif c_type == 'location':
-                target_loc = cond.get('value')
-                return self.location == target_loc
-                
-        return False
-
     def tick(self, minutes):
         self.time += minutes
         
@@ -219,65 +197,14 @@ class GameState:
                     if abs(change := diff * 0.1) < 0.5: obj[ATTR_TEMP] = target
                     else: obj[ATTR_TEMP] += change
         
-        # Events
-        for node in self.matrix:
-            if self._check_trigger_condition(node):
-                node['triggered'] = True
-                node['triggered_at'] = self.time
-                
-                if 'effects' in node:
-                    effects = node['effects']
-                    if not isinstance(effects, list): effects = [effects]
-                    for eff in effects:
-                        e_type = eff.get('type')
-                        if e_type == 'set_npc_state':
-                            target_name = eff.get('npc')
-                            new_state = eff.get('value')
-                            target = next((n for n in self.npcs if n[ATTR_NAME] == target_name or target_name in n.get(ATTR_ALIASES, [])), None)
-                            if target: target['state'] = new_state
-                        elif e_type == 'learn':
-                            fact = eff.get('fact')
-                            if fact: self.add_knowledge(fact)
-                
-                if node.get('type') == 'chapter_switch':
-                    target_chapter = node.get('target_chapter')
-                    self.log('story', node.get('description', 'Kapitelwechsel...'))
-                    self.pending_chapter_load = target_chapter
-                    return 
-
-                if node.get('type') == 'conversation':
-                    self._process_conversation_event(node)
-                    continue
-
-                # Quest Trigger Check
-                if 'quest_update' in node:
-                    q_data = node['quest_update']
-                    if isinstance(q_data, dict) and 'id' in q_data and 'stage' in q_data:
-                        self.quests.update_quest(q_data['id'], q_data['stage'])
-
-                origin = node.get('origin_id')
-                if origin == self.location:
-                    self.log('event', f"EVENT: {node['title']}")
-                    self.log('story', node['description'])
-                else:
-                    if origin:
-                        vol, direction = self.acoustics.get_audibility_info(origin, self.location)
-                        if vol > 0.1:
-                            sound_txt = node.get('sound_msg', "Geräusch.")
-                            msg_prefix = f"Du hörst aus {direction}:" if direction != "hier" else "Hier ertönt:"
-                            self.log('event', f"{msg_prefix} {sound_txt}")
-                
-                target_id = node.get('target_obj_id')
-                if target_id:
-                    target = self.objects.get(target_id)
-                    if target and target.get('state') == STATE_SABOTAGED:
-                        self.stability -= node.get('penalty', 0)
-                        if 'fail_text' in node: self.log('alarm', f"ALARM: {node['fail_text']}")
-                    else:
-                        if 'success_text' in node: self.log('success', f"STATUS: {node['success_text']}")
+        # NEU: EventManager übernimmt die Logik
+        self.events.update()
 
         # AI & Systems Update
-        self.ai.process_all_npcs() # Nutzt die korrigierte Methode aus ai.py
+        # Stelle sicher, dass AI und ObjectBehavior ausgeführt werden
+        if hasattr(self.ai, 'process_all_npcs'):
+             self.ai.process_all_npcs()
+        
         if hasattr(self.object_behavior, 'update'):
             self.object_behavior.update()
 
@@ -285,41 +212,9 @@ class GameState:
             self.log('alarm', "GAME OVER: STATION KRITISCH.")
             self.game_over = True
 
-    def _process_conversation_event(self, node):
-        origin = node.get('origin_id')
-        actors = node.get('actors', [])
-        content = node.get('content', [])
-        
-        volume, direction = self.acoustics.get_audibility_info(origin, self.location)
-        
-        if self.location == origin:
-            if self.hidden_in:
-                self.log('story', f"(Du lauschst aus deinem Versteck...)")
-            self.log('event', f"GESPRÄCH: {', '.join(actors)}")
-            for line in content:
-                speaker = line.get('speaker', '???')
-                text = line.get('text', '...')
-                self.log('character', f"{speaker}: \"{text}\"")
-                
-        elif volume > 0.1:
-            quality = "gedämpfte" if volume < 0.6 else "klare"
-            self.log('event', f"Du hörst {quality} Stimmen aus {direction}...")
-            
-            for line in content:
-                text = line.get('text', '')
-                if volume < 0.4:
-                    words = text.split()
-                    fragment = "...".join([w for i, w in enumerate(words) if i % 3 == 0])
-                    self.log('story', f"Unbekannt: \"...{fragment}...\"")
-                else:
-                    speaker = line.get('speaker', '???')
-                    self.log('story', f"{speaker}: \"{text}\"")
-
-    # --- SAVE / LOAD (Wichtig für SystemHandler) ---
+    # --- SAVE / LOAD ---
     
     def serialize_state(self):
-        """Erstellt ein speicherbares Dictionary."""
-        # Wir müssen sicherstellen, dass wir keine Lock-Objekte oder komplexe Instanzen serialisieren
         return {
             "location": self.location,
             "time": self.time,
@@ -329,11 +224,11 @@ class GameState:
             "objects": self.objects, 
             "npcs": self.npcs,     
             "quests": self.quests.get_save_data(), 
-            "meta": {"version": "1.0"} 
+            "events": self.events.events, # Speichere den Zustand der Events (triggered flags)
+            "meta": {"version": "1.1"} 
         }
 
     def deserialize_state(self, data):
-        """Lädt den Zustand."""
         try:
             self.location = data.get("location", "start_room")
             self.time = data.get("time", 0)
@@ -346,6 +241,17 @@ class GameState:
             
             if "quests" in data:
                 self.quests.load_save_data(data["quests"])
+                
+            if "events" in data:
+                # Wichtig: Wir wollen nicht die Event-Definitionen aus dem Savegame laden (falls Code sich geändert hat),
+                # sondern nur die Flags ('triggered', 'triggered_at').
+                # Strategie: Wir laden Events aus Config neu und mergen die Flags.
+                saved_events = {e['id']: e for e in data['events'] if 'id' in e}
+                for ev in self.events.events:
+                    if ev['id'] in saved_events:
+                        saved = saved_events[ev['id']]
+                        ev['triggered'] = saved.get('triggered', False)
+                        ev['triggered_at'] = saved.get('triggered_at')
                 
             return True
         except Exception as e:

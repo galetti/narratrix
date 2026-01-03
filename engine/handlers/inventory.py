@@ -2,7 +2,7 @@ from engine.resolver import Resolver, ResolutionError
 from engine.constants import *
 from engine.strings import Texts
 from engine.handlers.common import CommonHandler
-# Import von DialogueHandler entfernt
+# Import von DialogueHandler entfernt (wird lokal importiert)
 
 class InventoryHandler:
 
@@ -90,8 +90,16 @@ class InventoryHandler:
         # Parsing "gib X an Y"
         separators = ["an", "to", "dem", "der"]
         sep_indices = [i for i, w in enumerate(args) if w.lower() in separators]
-        item_words = args[:sep_indices[0]] if sep_indices else args[:-1]
-        npc_words = args[idx+1:] if sep_indices else [args[-1]]
+        
+        # FIX: Korrekte Zuweisung, wenn keine Trennwörter da sind (angenommen: letztes Wort ist NPC)
+        if sep_indices:
+            idx = sep_indices[0] # Das erste gefundene Trennwort
+            item_words = args[:idx]
+            npc_words = args[idx+1:]
+        else:
+            # Fallback: "gib schachtel aris" -> Letztes Wort ist Empfänger
+            item_words = args[:-1]
+            npc_words = [args[-1]]
         
         try:
             item = Resolver.resolve_target(game, item_words, location_filter=FILTER_INVENTORY, verb='give_item')
