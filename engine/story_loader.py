@@ -49,7 +49,6 @@ class StoryLoader:
 
             final_npcs = copy.deepcopy(common_data.get('npcs', [])) + copy.deepcopy(chapter_data.get('npcs', []))
             
-            # NEU: Quests zusammenführen
             final_quests = copy.deepcopy(common_data.get('quests', {}))
             final_quests.update(copy.deepcopy(chapter_data.get('quests', {})))
 
@@ -63,7 +62,7 @@ class StoryLoader:
                 "combinations": final_combinations,
                 "narrative_matrix": final_matrix,
                 "npcs": final_npcs,
-                "quests": final_quests # NEU
+                "quests": final_quests
             }
             
             return full_config
@@ -79,6 +78,7 @@ class StoryLoader:
 
     @staticmethod
     def _process_links(links, rooms, meta):
+        """Verarbeitet Verbindungen. Legacy Fallback entfernt, da fehleranfällig."""
         if links:
             for link in links:
                 from_id = link.get('from_common')
@@ -97,24 +97,9 @@ class StoryLoader:
                         rooms[from_id]['exits'][direction] = target_room_id
                         
                         if 'exits' not in rooms[target_room_id]: rooms[target_room_id]['exits'] = {}
-                        rooms[target_room_id]['exits'][direction] = from_id
-        else:
-            docking_id = None
-            for r_id, room_data in rooms.items():
-                if "common_dock" in room_data.get("tags", []):
-                    docking_id = r_id
-                    break
-            
-            if not docking_id:
-                docking_id = meta.get('start_room')
-
-            if docking_id and 'ship_cockpit' in rooms:
-                if 'exits' not in rooms['ship_cockpit']: rooms['ship_cockpit']['exits'] = {}
-                rooms['ship_cockpit']['exits']['out'] = docking_id
-                
-                if 'exits' not in rooms[docking_id]: rooms[docking_id]['exits'] = {}
-                rooms[docking_id]['exits']['out'] = 'ship_cockpit'
-
+                        # Umkehr-Richtung automatisch finden wäre gut, aber hier manuell oder implizit
+                        # Wir setzen hier nichts implizit zurück, um Konflikte zu vermeiden
+                        
     @staticmethod
     def _get_default_vocabulary():
         return {
@@ -139,7 +124,7 @@ class StoryLoader:
                 "hack": ["hack", "hacken", "zugriff", "system", "override"],
                 "help": ["hilfe", "help", "h", "?", "commands", "befehle"],
                 "hide": ["verstecke", "hide", "krieche", "duck"],
-                "journal": ["journal", "logbuch", "aufgaben", "quests", "ziele", "j"] # NEU
+                "journal": ["journal", "logbuch", "aufgaben", "quests", "ziele", "j"]
             },
             "directions": {
                 "north": ["n", "nord", "norden"],

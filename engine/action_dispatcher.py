@@ -95,23 +95,76 @@ class ActionDispatcher:
         original_verb = state['verb']
         candidates = state['candidates']
         
-        filter_text = f"{verb} {' '.join(args)}".strip().lower()
+        # WICHTIG: Wenn der Aufruf direkt vom GUI kommt (via "disambiguate" dummy verb),
+        # steht der gesamte Input im ersten Argument von args.
+        # Wenn er vom Parser kommt, ist 'verb' das erkannte Wort und 'args' leer.
+        
+        filter_text = ""
+        if verb == "disambiguate":
+            filter_text = args[0].strip().lower()
+        else:
+            # Fallback falls über Parser (sollte eigentlich durch GUI umgangen werden)
+            filter_text = f"{verb} {' '.join(args)}".strip().lower()
         
         if filter_text in ["stop", "abbrechen", "nein", "cancel", "zurück"]:
             game.log('info', "Abgebrochen.")
             game.disambiguation = None
             return
 
+        # Filtern der Kandidaten basierend auf User-Input
         matches = []
         for cand in candidates:
-            if filter_text in cand['name'].lower() or any(filter_text in a for a in cand.get('aliases', [])):
+            # Wir suchen ob der filter_text im Namen oder Alias vorkommt
+            # Bessere Logik: Prüfen ob filter_text "ähnlich" ist oder substring
+            c_name = cand['name'].lower()
+            if filter_text in c_name or any(filter_text in a.lower() for a in cand.get('aliases', [])):
                 matches.append(cand)
         
         if len(matches) == 1:
             target = matches[0]
             game.disambiguation = None 
             game.log('user', f"(Ausgewählt: {target['name']})")
+            
+            # Wir müssen den ursprünglichen Befehl mit dem EINDEUTIGEN Zielnamen neu starten.
+            # Dazu holen wir die originalen Argumente aus dem State.
+            # Das ist tricky, da der Original-Befehl z.B. "benutze tool mit sicherung" war.
+            # Wir wissen nicht, WELCHES Argument mehrdeutig war (tool oder sicherung).
+            # Workaround: Wir rufen dispatch auf und hoffen, dass der Name jetzt eindeutig ist.
+            # Aber wir ersetzen NICHTS im Original-String, da das Parsen schwer ist.
+            
+            # Bessere Strategie: Wir führen den Handler direkt aus, wenn möglich, 
+            # oder wir starten den Resolver neu mit dem präzisen Namen.
+            
+            # Da 'ActionDispatcher' stateless ist, ist Restart schwer.
+            # Einfachste Lösung: Wir loggen nur und der User muss den Befehl erneut eingeben? Nein, frustrierend.
+            
+            # Wir versuchen den Resolver zu 'primen' oder den Befehl neu zu bauen.
+            # Wenn original_args da sind:
+            # "benutze [tool] mit sicherung". Wir wissen nicht wo [tool] stand.
+            
+            # Pragmatisch: Wir rufen den Handler auf und übergeben den KLARTEXT Namen des gewählten Objekts
+            # zusammen mit dem Rest. Aber woher wissen wir den Rest?
+            # Im State 'original_args' steht z.B. ["tool", "mit", "sicherung"]
+            
+            # Da wir nicht wissen, welches Wort ersetzt werden muss, ist das hier eine Sackgasse der aktuellen Architektur.
+            # ABER: Die meisten Disambiguierungen passieren bei einfachen Befehlen wie "nimm tool".
+            # Bei "benutze X mit Y" ist es komplexer.
+            
+            # Lösung: Wir geben dem User Feedback und er muss es (leider) präziser eingeben,
+            # ODER wir hacken es: Wir bauen einen neuen String, in dem der 'filter_text' (der den Match ausgelöst hat)
+            # durch den vollen Namen ersetzt wird? Nein, der filter_text war ja die User-Eingabe JETZT.
+            
+            # Wir brechen hier ab und bitten den User, den Befehl mit dem eindeutigen Namen zu wiederholen.
+            # game.log('info', f"Okay, ich nehme an du meinst {target['name']}. Bitte wiederhole den Befehl damit.")
+            
+            # ALTERNATIVE: Wir führen den Befehl aus und übergeben target['name'] als Argument.
+            # Das klappt nur, wenn der Handler nur 1 Argument erwartet.
+            # Bei 'use' (2 Args) schwierig.
+            
+            # Wir versuchen es einfach mit dem Namen des Targets als einziges Argument.
+            # Das funktioniert für 'look', 'take', 'drop'. Für 'use' scheitert es ggf.
             ActionDispatcher.dispatch(game, original_verb, [target['name']])
+
         elif len(matches) > 1:
             names = [m['name'] for m in matches]
             game.log('info', f"Das grenzt es nicht genug ein. Meinst du: {', '.join(names)}?")

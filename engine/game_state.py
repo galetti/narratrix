@@ -9,7 +9,6 @@ from engine.systems.ai import AISystem
 from engine.systems.object_behavior import ObjectBehaviorSystem
 from engine.systems.acoustics import AcousticsSystem
 from engine.systems.quest_manager import QuestManager
-# NEU: EventManager importieren
 from engine.systems.event_manager import EventManager
 
 class GameState:
@@ -22,7 +21,6 @@ class GameState:
         
         self.persistent_flags = set() 
         self.pending_chapter_load = None 
-        
         self.hidden_in = None 
         
         start_room = config.get('meta', {}).get('start_room')
@@ -43,27 +41,21 @@ class GameState:
 
         self.rooms = copy.deepcopy(config['rooms'])
         self.npcs = copy.deepcopy(config['npcs'])
-        # self.matrix wird jetzt vom EventManager verwaltet, aber wir behalten es im State für Savegames
         self.matrix = copy.deepcopy(config.get('narrative_matrix', []))
         self.objects = copy.deepcopy(config['objects'])
+        self.combinations = copy.deepcopy(config.get('combinations', []))
         
-        # NPC Hydration (Zustände laden)
         for npc in self.npcs:
             if 'states' in npc:
                 if 'state' not in npc:
                     npc['state'] = npc.get('initial_state', list(npc['states'].keys())[0])
                 self._hydrate_npc(npc)
                 npc['_last_hydrated_state'] = npc['state']
-            else:
-                if not silent: 
-                    print(f"[WARN] NPC '{npc.get('name')}' hat keine 'states' Definition.")
 
-        # Physik Init
         for obj in self.objects.values():
             if ATTR_TEMP not in obj: obj[ATTR_TEMP] = 20
             if ATTR_MATTER not in obj: obj[ATTR_MATTER] = MATTER_SOLID
 
-        # Systeme initialisieren
         self.crafting = CraftingSystem(self)
         self.pathfinder = Pathfinder(self)
         self.ai = AISystem(self)
@@ -72,16 +64,16 @@ class GameState:
         self.quests = QuestManager(self)
         self.quests.load_definitions(config.get('quests', {}))
         
-        # NEU: EventManager
         self.events = EventManager(self)
         self.events.load_events(self.matrix)
+        
+        if not self.silent:
+            self.events.update()
 
     def _hydrate_npc(self, npc):
         current_state = npc.get('state')
         state_data = npc.get('states', {}).get(current_state)
-        
         if not state_data: return
-
         if 'behavior' in state_data:
             for k, v in state_data['behavior'].items(): npc[k] = v 
         if 'visuals' in state_data:
@@ -111,10 +103,10 @@ class GameState:
             new_state.hidden_in = self.hidden_in 
             new_state.rooms = copy.deepcopy(self.rooms)
             new_state.npcs = copy.deepcopy(self.npcs)
-            new_state.matrix = copy.deepcopy(self.matrix) # Events Status muss auch kopiert werden
+            new_state.matrix = copy.deepcopy(self.matrix)
             new_state.objects = copy.deepcopy(self.objects)
             new_state.inventory = copy.deepcopy(self.inventory)
-            # Für Simulationen reicht flache Kopie oft, aber hier wichtig:
+            new_state.combinations = copy.deepcopy(self.combinations)
             new_state.events.events = copy.deepcopy(self.events.events) 
         return new_state
 
@@ -127,20 +119,17 @@ class GameState:
         room = self.rooms.get(room_id)
         if not room: return f"ERROR: Raum '{room_id}' nicht gefunden."
         text = room[ATTR_DESC]
-        
         def replace_match(match):
             key = match.group(1)
             obj = self.objects.get(key)
             if not obj: return f"ERROR:{key}"
             display_text = obj[ATTR_NAME]
-            
             if obj.get('state') == STATE_SABOTAGED: display_text += " [SABOTIERT]"
             elif obj.get('state') == STATE_BROKEN: display_text += " [DEFEKT]"
             elif obj.get('is_container'):
                 if obj.get('is_open'): display_text += " [OFFEN]"
                 else: display_text += " [VERSCHLOSSEN]"
             return display_text
-            
         return re.sub(r"\{(\w+)\}", replace_match, text)
 
     def log(self, type_str, text):
@@ -154,7 +143,6 @@ class GameState:
     def get_snapshot(self):
         with self.lock:
             self._synchronize_npcs()
-            
             room = self.rooms.get(self.location)
             partner_name = None; partner_img = None
             if self.dialogue_active and self.dialogue_partner:
@@ -172,23 +160,19 @@ class GameState:
             }
 
     def get_room(self, room_id): return self.rooms.get(room_id)
-    
     def add_knowledge(self, fact_id): 
         if fact_id not in self.knowledge: self.knowledge.add(fact_id)
 
-    def perform_combine(self, item1_name, item2_name):
-        return self.crafting.perform_combine(item1_name, item2_name)
+    # FIX: Parameter verb=... erlauben
+    def perform_combine(self, item1_name, item2_name, verb="use"):
+        return self.crafting.perform_combine(item1_name, item2_name, verb)
 
-    def find_path(self, start, target):
-        return self.pathfinder.find_path(start, target)
-
-    def get_direction_to(self, target_room_id):
-        return self.pathfinder.get_direction_to(self.location, target_room_id)
+    def find_path(self, start, target): return self.pathfinder.find_path(start, target)
+    def get_direction_to(self, target_room_id): return self.pathfinder.get_direction_to(self.location, target_room_id)
 
     def tick(self, minutes):
         self.time += minutes
         
-        # Physik (Temperatur)
         for obj in self.objects.values():
             if ATTR_TEMP in obj:
                 current = obj[ATTR_TEMP]; target = 20
@@ -197,34 +181,33 @@ class GameState:
                     if abs(change := diff * 0.1) < 0.5: obj[ATTR_TEMP] = target
                     else: obj[ATTR_TEMP] += change
         
-        # NEU: EventManager übernimmt die Logik
         self.events.update()
 
-        # AI & Systems Update
-        # Stelle sicher, dass AI und ObjectBehavior ausgeführt werden
-        if hasattr(self.ai, 'process_all_npcs'):
-             self.ai.process_all_npcs()
-        
-        if hasattr(self.object_behavior, 'update'):
-            self.object_behavior.update()
+        if hasattr(self.ai, 'process_all_npcs'): self.ai.process_all_npcs()
+        if hasattr(self.object_behavior, 'update'): self.object_behavior.update()
 
         if self.stability <= 0: 
             self.log('alarm', "GAME OVER: STATION KRITISCH.")
             self.game_over = True
 
-    # --- SAVE / LOAD ---
-    
+    def _trigger_event(self, event):
+        event['triggered'] = True
+        if 'message' in event: self.log('event', event['message'])
+        if 'quest_update' in event:
+            q_data = event['quest_update']
+            if isinstance(q_data, dict) and 'id' in q_data and 'stage' in q_data:
+                self.quests.update_quest(q_data['id'], q_data['stage'])
+        if 'sound' in event:
+            self.log('info', f"[SOUND: {event['sound']}]") 
+
     def serialize_state(self):
         return {
-            "location": self.location,
-            "time": self.time,
-            "stability": self.stability,
-            "knowledge": list(self.knowledge),
-            "rooms": self.rooms,   
-            "objects": self.objects, 
-            "npcs": self.npcs,     
+            "location": self.location, "time": self.time, "stability": self.stability,
+            "knowledge": list(self.knowledge), "rooms": self.rooms,   
+            "objects": self.objects, "npcs": self.npcs,     
             "quests": self.quests.get_save_data(), 
-            "events": self.events.events, # Speichere den Zustand der Events (triggered flags)
+            "events": self.events.events, 
+            "combinations": self.combinations,
             "meta": {"version": "1.1"} 
         }
 
@@ -238,22 +221,16 @@ class GameState:
             if "rooms" in data: self.rooms = data["rooms"]
             if "objects" in data: self.objects = data["objects"]
             if "npcs" in data: self.npcs = data["npcs"]
-            
-            if "quests" in data:
-                self.quests.load_save_data(data["quests"])
+            if "combinations" in data: self.combinations = data["combinations"]
+            if "quests" in data: self.quests.load_save_data(data["quests"])
                 
             if "events" in data:
-                # Wichtig: Wir wollen nicht die Event-Definitionen aus dem Savegame laden (falls Code sich geändert hat),
-                # sondern nur die Flags ('triggered', 'triggered_at').
-                # Strategie: Wir laden Events aus Config neu und mergen die Flags.
                 saved_events = {e['id']: e for e in data['events'] if 'id' in e}
                 for ev in self.events.events:
                     if ev['id'] in saved_events:
                         saved = saved_events[ev['id']]
                         ev['triggered'] = saved.get('triggered', False)
                         ev['triggered_at'] = saved.get('triggered_at')
-                
             return True
         except Exception as e:
-            print(f"[ERROR] Load failed: {e}")
-            return False
+            print(f"[ERROR] Load failed: {e}"); return False

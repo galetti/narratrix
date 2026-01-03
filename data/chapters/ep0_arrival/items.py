@@ -1,52 +1,69 @@
 from engine.constants import *
 
 ITEMS = {
-    # --- SCENERY (Intakt) ---
-    "terminal": {
-        "id": "terminal", "name": "Info-Terminal", "aliases": ["computer"], 
-        "location": "hub", "type": TYPE_SURFACE, "weight": float('inf'), 
-        "desc": "Zeigt den Dienstplan: 19:00 Abendessen."
+    # --- COCKPIT ---
+    "obj_cockpit_door": {
+        "id": "obj_cockpit_door",
+        "name": "Schott",
+        "type": TYPE_CONTAINER,
+        "location": "ship_cockpit",
+        "linked_exit": "out", 
+        "is_locked": True,
+        "is_open": False,
+        "desc": "Das massive Stahlschott ist verriegelt. Die Status-LED leuchtet rot.",
+        "aliases": ["tür", "door", "ausgang"]
     },
-    "replicator": {
-        "id": "replicator", "name": "Nahrungs-Replikator", "aliases": ["automat"], 
-        "location": "cantina", "type": TYPE_SURFACE, "weight": float('inf'),
-        "desc": "Er summt leise. Das Display zeigt: 'Menü des Tages: Curry-Reis'."
+    "obj_console": {
+        "id": "obj_console",
+        "name": "Steuerkonsole",
+        "type": TYPE_SURFACE,
+        "location": "ship_cockpit",
+        "state": STATE_BROKEN, # WICHTIG: Damit 'repariere' Feedback gibt
+        "desc": "Die Wartungsklappe hängt schief. Ein Kabelsalat quillt hervor.",
+        "aliases": ["konsole", "terminal"]
     },
-    "core": {
-        "id": "core", "name": "Reaktorkern", "aliases": ["kern"], "location": "reactor", "type": TYPE_SCENERY, "weight": float('inf'),
-        "desc": "Er leuchtet in einem beruhigenden Blau. Die Temperaturanzeige ist im grünen Bereich.", "temp": 35
+    "item_screwdriver": {
+        "id": "item_screwdriver",
+        "name": "Schraubendreher",
+        "type": TYPE_ITEM,
+        "location": "ship_cockpit",
+        "weight": 0.2,
+        "desc": "Ein verlässliches Werkzeug.",
+        "aliases": ["werkzeug", "tool", "dreher", "schraubenzieher"]
     },
-    "med_table": {
-        "id": "med_table", "name": "Labortisch", "aliases": ["tisch"], "location": "medbay", "type": TYPE_SURFACE, "weight": float('inf'), 
-        "desc": "Ein sauberer Arbeitstisch voller Petrischalen und Notizen."
+    "item_manual": {
+        "id": "item_manual",
+        "name": "Wartungshandbuch",
+        "type": TYPE_ITEM,
+        "location": "ship_cockpit",
+        "desc": "Seite 1: 'Bei Stromausfall: Konsole überbrücken.'",
+        "aliases": ["buch", "manual"]
     },
     
-    # --- ITEMS (Rätsel & Fluff) ---
-    "scale": {
-        "id": "scale", "name": "Präzisionswaage", "aliases": ["waage"], "location": "med_table", "type": TYPE_SURFACE, "weight": 2.0, 
-        "is_scale": True, # NEU: Generic Property
-        "desc": "Eine digitale Waage. Fiona nutzt sie für ihre Proben."
+    # --- WEITERE RÄUME ---
+    "item_broken_fuse": {
+        "id": "item_broken_fuse",
+        "name": "Durchgebrannte Sicherung",
+        "type": TYPE_ITEM,
+        "location": "ship_corridor",
+        "weight": 0.1,
+        "desc": "Schrott.",
     },
-    "alien_fruit": {
-        "id": "alien_fruit", "name": "Xeno-Frucht", "aliases": ["frucht", "obst", "probe"], "location": "medbay", "type": TYPE_ITEM, "weight": 0.35, "matter": MATTER_SOLID,
-        "desc": "Eine seltsam leuchtende Frucht. Sie riecht nach Zimt und Ozon."
+    "obj_workbench": {
+        "id": "obj_workbench",
+        "name": "Werkbank",
+        "type": TYPE_SURFACE,
+        "location": "ship_workshop",
+        "desc": "Hier kannst du arbeiten.",
+        "aliases": ["bank"]
     },
-    "gift": {
-        "id": "gift", "name": "Schachtel Pralinen", "aliases": ["pralinen", "geschenk", "schokolade"], "location": "ship_quarters", "type": TYPE_ITEM, "weight": 0.5, "matter": MATTER_SOLID,
-        "desc": "Echte belgische Schokolade. Ein seltenes Luxusgut hier draußen. Perfekt als Gastgeschenk."
-    },
-    "curry": {
-        "id": "curry", "name": "Schüssel Curry", "aliases": ["essen", "curry", "reis"], "location": LOC_VOID, "type": TYPE_ITEM, "weight": 0.4, "matter": MATTER_SOLID,
-        "desc": "Es dampft und riecht überraschend gut."
+    "item_battery": {
+        "id": "item_battery",
+        "name": "Energiezelle",
+        "type": TYPE_ITEM,
+        "location": "ship_workshop",
+        "weight": 0.5,
+        "desc": "Voll geladen.",
+        "aliases": ["batterie"]
     }
 }
-
-COMBINATIONS = [
-    {
-        "items": ["replicator"],
-        "tools": ["id_card"], 
-        "result": "curry",
-        "consume": [], 
-        "message": "Der Replikator piept fröhlich und materialisiert eine dampfende Schüssel Curry."
-    }
-]

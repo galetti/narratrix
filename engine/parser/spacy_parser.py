@@ -1,69 +1,130 @@
 import spacy
+import difflib
 from engine.action_dispatcher import ActionDispatcher
 
 class SpacyParser:
+    """
+    Fortschrittlicher Parser, der natürliche Sprache (NLP) nutzt, um Befehle zu verstehen.
+    Benötigt das Spacy Modell 'de_core_news_sm'.
+    """
+    
+    # Mapping von deutschen Lemmata (Grundformen) auf Engine-Befehle
+    VERB_MAP = {
+        # Bewegung
+        "gehen": "move", "laufen": "move", "rennen": "move", "klettern": "move",
+        "steigen": "move", "kriechen": "move", "wandern": "move",
+        
+        # Exploration
+        "schauen": "look", "ansehen": "look", "betrachten": "look", "untersuchen": "look",
+        "lesen": "look", "prüfen": "look", "gucken": "look", "blicken": "look",
+        "verstecken": "hide", "ducken": "hide",
+        
+        # Inventory
+        "nehmen": "take", "aufheben": "take", "greifen": "take", "einstecken": "take", "schnappen": "take",
+        "tragen": "take", "behalten": "take",
+        "ablegen": "drop", "fallenlassen": "drop", "hinlegen": "drop", "wegwerfen": "drop", "lassen": "drop",
+        "geben": "give", "reichen": "give", "schenken": "give", "überreichen": "give", "händigen": "give",
+        
+        # Mechanics
+        "benutzen": "use", "verwenden": "use", "kombinieren": "use", "anwenden": "use", "nutzen": "use",
+        "öffnen": "open", "aufmachen": "open",
+        "schließen": "close", "zumachen": "close", 
+        "legen": "put", "stecken": "put", "tun": "put", "platzieren": "put", "stellen": "put", "packen": "put",
+        "brechen": "break", "zerstören": "break", "zerschlagen": "break", "einschlagen": "break", "aufbrechen": "break", "treten": "break",
+        "reparieren": "fix", "flicken": "fix", "heilen": "fix", "montieren": "fix",
+        "warten": "wait", "ruhen": "wait", "schlafen": "wait",
+        
+        # Talk
+        "reden": "talk", "sprechen": "talk", "sagen": "talk", "fragen": "talk", "antworten": "talk",
+        
+        # System
+        "speichern": "save", "sichern": "save",
+        "laden": "load",
+        "hilfe": "help", "helfen": "help",
+        "inventar": "inv", "tasche": "inv", "rucksack": "inv",
+        "journal": "journal", "logbuch": "journal", "aufgaben": "journal"
+    }
+
     def __init__(self, game):
         self.game = game
-        self.nlp = None
         self.available = False
+        self.nlp = None
         
         try:
-            self.nlp = spacy.load("de_core_news_md")
-            print("[SPACY] Modell 'de_core_news_md' erfolgreich geladen.")
-            self.available = True
-        except OSError:
-            try:
+            if not spacy.util.is_package("de_core_news_sm"):
+                print("[SYSTEM] Spacy Modell 'de_core_news_sm' nicht gefunden.")
+                print("[HINWEIS] Installiere es mit: python -m spacy download de_core_news_sm")
+            else:
                 self.nlp = spacy.load("de_core_news_sm")
-                print("[SPACY] Modell 'de_core_news_sm' geladen.")
                 self.available = True
-            except OSError:
-                print("\n[SPACY ERROR] Kein Sprachmodell gefunden!")
-                print("Bitte führe aus: python -m spacy download de_core_news_md\n")
-                self.available = False
+                print("[SYSTEM] Spacy NLP Engine geladen.")
+        except Exception as e:
+            print(f"[SYSTEM] Fehler beim Laden von Spacy: {e}")
+            self.available = False
 
     def parse(self, user_input):
-        if not self.available:
-            self.game.log('error', "Systemfehler: NLP-Modul offline.")
+        if not self.available or not user_input.strip():
+            from engine.parser.rule_based import RuleBasedParser
+            fallback = RuleBasedParser(self.game)
+            fallback.parse(user_input)
             return
 
-        # 1. KONTEXT-CHECK (WICHTIG!)
-        if self.game.disambiguation or self.game.pending_interaction:
-            # Wir leiten den rohen Input weiter, damit "Becher" als Argument ankommt
-            # und nicht als fehlgeschlagener Verb-Versuch endet.
-            # Splitte manuell für Dispatcher-Signatur
-            parts = user_input.split()
-            if parts:
-                ActionDispatcher.dispatch(self.game, parts[0], parts[1:])
-            return
-
-        # 2. Kurze Befehle direkt durchleiten (Richtungsschutz)
-        if len(user_input.strip()) <= 2:
-            ActionDispatcher.dispatch(self.game, user_input.strip(), [])
-            return
-
-        doc = self.nlp(user_input)
+        doc = self.nlp(user_input.strip())
         
-        verbs = [t for t in doc if t.pos_ in ["VERB", "AUX"]]
-        root = next((t for t in verbs if t.dep_ == "ROOT"), None)
-        
-        if not root and len(doc) > 0: root = doc[0]
-        if not root: return 
-
-        verb_lemma = root.lemma_.lower()
-        canonical = self._get_canonical(verb_lemma)
-        if not canonical: canonical = self._get_canonical(root.text.lower())
-        final_verb = canonical if canonical else verb_lemma
-
-        args = []
+        # 1. Hauptverb finden
+        main_verb_token = None
         for token in doc:
-            if token == root: continue 
-            if token.pos_ in ["PUNCT", "SPACE", "CCONJ", "DET"]: continue 
-            args.append(token.text)
+            if token.pos_ == "VERB" or token.dep_ == "ROOT":
+                main_verb_token = token
+                break
+        
+        engine_cmd = None
+        
+        # Verb Analyse
+        if main_verb_token:
+            lemma = main_verb_token.lemma_.lower()
+            engine_cmd = self.VERB_MAP.get(lemma)
+            
+            # Sonderfall: Directions als Nomen ("Norden")
+            if not engine_cmd and main_verb_token.pos_ in ["NOUN", "PROPN"]:
+                vocab_dirs = self.game.config.get('vocabulary', {}).get('directions', {})
+                raw_text = main_verb_token.text.lower()
+                for d, syns in vocab_dirs.items():
+                    if raw_text == d or raw_text in syns:
+                        ActionDispatcher.dispatch(self.game, d, [])
+                        return
 
-        ActionDispatcher.dispatch(self.game, final_verb, args)
+            # NEU: Fuzzy Matching für das Verb, falls Mapping fehlschlägt
+            if not engine_cmd:
+                # Wir suchen in den Keys unserer VERB_MAP
+                matches = difflib.get_close_matches(lemma, self.VERB_MAP.keys(), n=1, cutoff=0.8)
+                if matches:
+                    engine_cmd = self.VERB_MAP[matches[0]]
+                else:
+                    # Auch im Raw Text suchen (z.B. "jounral" -> lemma ist oft gleich)
+                    raw_text = main_verb_token.text.lower()
+                    matches_raw = difflib.get_close_matches(raw_text, self.VERB_MAP.keys(), n=1, cutoff=0.7)
+                    if matches_raw:
+                        engine_cmd = self.VERB_MAP[matches_raw[0]]
 
-    def _get_canonical(self, word):
-        verbs = self.game.config.get('vocabulary', {}).get('verbs', {})
-        for can, syns in verbs.items():
-            if word == can or word in syns: return can
-        return None
+        # Fallback auf erstes Wort, wenn kein Verb-Token gefunden wurde
+        if not engine_cmd and doc:
+            first_word = doc[0].text.lower()
+            matches = difflib.get_close_matches(first_word, self.VERB_MAP.keys(), n=1, cutoff=0.7)
+            if matches:
+                engine_cmd = self.VERB_MAP[matches[0]]
+
+        if not engine_cmd:
+            # Wenn alles fehlschlägt, nutzen wir das Lemma, vielleicht kann der Dispatcher (RuleBased fallback) noch was retten
+            engine_cmd = main_verb_token.lemma_.lower() if main_verb_token else user_input.split()[0]
+
+        # 2. Argumente extrahieren
+        args = []
+        if main_verb_token:
+            relevant_tokens = [t for t in doc if t != main_verb_token and not t.is_punct]
+            relevant_tokens.sort(key=lambda t: t.i)
+            args = [t.text for t in relevant_tokens]
+        else:
+            args = user_input.split()[1:]
+
+        ActionDispatcher.dispatch(self.game, engine_cmd, args)

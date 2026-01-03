@@ -28,8 +28,6 @@ except ImportError:
 INIT_WIDTH, INIT_HEIGHT = 1024, 768
 PARSER_MODE = "SPACY" 
 
-# --- RICH TEXT ENGINE ---
-
 class RichTextRenderer:
     def __init__(self, font, default_color):
         self.font = font
@@ -46,87 +44,83 @@ class RichTextRenderer:
             "story": (220, 220, 220),      
             "yellow": (255, 200, 50),
             "red": (255, 80, 80),
-            "blue": (100, 200, 255)
+            "blue": (100, 200, 255),
+            "header": (255, 255, 100)
         }
         self.tag_pattern = re.compile(r'(<[/a-zA-Z0-9]+>)')
 
     def parse_and_wrap(self, text, max_width, base_color=None):
-        """
-        Parst den Text, zerlegt ihn in Segmente und bricht ihn um.
-        Gibt eine Liste von Zeilen zurück. Jede Zeile ist eine Liste von (text, color)-Tupeln.
-        """
         if base_color is None: base_color = self.default_color
         
-        # 1. Tokenizing
-        parts = self.tag_pattern.split(text)
+        # Newlines
+        raw_lines = text.split('\n')
+        all_wrapped_lines = []
         
-        segments = [] 
-        color_stack = [base_color]
-        
-        for part in parts:
-            if not part: continue
-            
-            if part.startswith("<") and part.endswith(">"):
-                tag_content = part[1:-1]
-                if tag_content.startswith("/"): 
-                    if len(color_stack) > 1: color_stack.pop()
-                else: 
-                    if tag_content in self.color_map:
-                        color_stack.append(self.color_map[tag_content])
+        for raw_line in raw_lines:
+            if not raw_line:
+                all_wrapped_lines.append([{'text': " ", 'color': base_color, 'width': 0, 'raw': ""}])
                 continue
-            
-            words = part.split(' ')
-            current_col = color_stack[-1]
-            
-            for i, w in enumerate(words):
-                # Wir entfernen hier das manuelle Hinzufügen von Leerzeichen im Text,
-                # da der Wrapper das nun sauberer übernimmt.
-                if w:
-                    w_width = self.font.size(w)[0]
-                    segments.append({'text': w, 'color': current_col, 'width': w_width, 'raw': w})
-                elif i < len(words)-1:
-                     # Explizites Leerzeichen (z.B. mehrere Spaces hintereinander)
-                     # Manchmal split erzeugt leere Strings bei doppelten Leerzeichen
-                     sp_w = self.font.size(" ")[0]
-                     segments.append({'text': " ", 'color': current_col, 'width': sp_w, 'raw': ""})
 
-        # 2. Wrapping
-        lines = []
-        current_line = []
-        current_width = 0
-        space_width = self.font.size(" ")[0]
+            parts = self.tag_pattern.split(raw_line)
+            segments = [] 
+            color_stack = [base_color]
+            
+            for part in parts:
+                if not part: continue
+                
+                # Tag check
+                if part.startswith("<") and part.endswith(">"):
+                    tag_content = part[1:-1]
+                    if tag_content.startswith("/"): 
+                        if len(color_stack) > 1: color_stack.pop()
+                    else: 
+                        if tag_content in self.color_map:
+                            color_stack.append(self.color_map[tag_content])
+                    # WICHTIG: Tags selbst nie rendern!
+                    continue 
+                
+                words = part.split(' ')
+                current_col = color_stack[-1]
+                
+                for i, w in enumerate(words):
+                    if w:
+                        w_width = self.font.size(w)[0]
+                        segments.append({'text': w, 'color': current_col, 'width': w_width, 'raw': w})
+                    elif i < len(words)-1:
+                         sp_w = self.font.size(" ")[0]
+                         segments.append({'text': " ", 'color': current_col, 'width': sp_w, 'raw': ""})
+
+            # Wrapping
+            current_line = []
+            current_width = 0
+            space_width = self.font.size(" ")[0]
+            
+            for seg in segments:
+                seg_w = seg['width']
+                needs_space = False
+                add_width = seg_w
+                
+                if current_line and seg['text'] != " " and current_line[-1][0]['text'] != " ":
+                     needs_space = True
+                     add_width += space_width
+
+                if current_width + add_width <= max_width:
+                    if needs_space:
+                         space_dict = {'text': " ", 'color': seg['color'], 'width': space_width, 'raw': " "}
+                         current_line.append((space_dict, space_width)) 
+                         current_width += space_width
+                    
+                    current_line.append((seg, seg_w))
+                    current_width += seg_w
+                else:
+                    all_wrapped_lines.append([s[0] for s in current_line])
+                    current_line = [(seg, seg_w)]
+                    current_width = seg_w
+                    
+            if current_line:
+                all_wrapped_lines.append([s[0] for s in current_line])
         
-        for seg in segments:
-            seg_w = seg['width']
-            # Prüfen ob wir ein Leerzeichen vor dem Wort brauchen (wenn nicht am Zeilenanfang)
-            needs_space = False
-            add_width = seg_w
-            
-            if current_line and seg['text'] != " " and current_line[-1][0]['text'] != " ":
-                 needs_space = True
-                 add_width += space_width
-
-            if current_width + add_width <= max_width:
-                if needs_space:
-                     # FIX: Dictionary muss 'width' enthalten!
-                     space_dict = {'text': " ", 'color': seg['color'], 'width': space_width, 'raw': " "}
-                     current_line.append((space_dict, space_width)) 
-                     current_width += space_width
-                
-                current_line.append((seg, seg_w))
-                current_width += seg_w
-            else:
-                # Zeilenumbruch
-                lines.append([s[0] for s in current_line])
-                current_line = [(seg, seg_w)]
-                current_width = seg_w
-                
-        if current_line:
-            lines.append([s[0] for s in current_line])
-            
-        return lines
-
-# --- GUI CLASS ---
+        return all_wrapped_lines
 
 class AssetLoader:
     def __init__(self):
@@ -306,9 +300,14 @@ class GameGUI:
     def submit_command(self, text, echo=True):
         self.is_processing = True
         if echo: self.game.log('user', f"> {text}")
+        
         def worker():
-            if self.game.dialogue_active: ActionDispatcher.dialogue_step(self.game, text)
-            else: self.parser.parse(text)
+            if self.game.dialogue_active:
+                ActionDispatcher.dialogue_step(self.game, text)
+            elif self.game.disambiguation:
+                ActionDispatcher.dispatch(self.game, "disambiguate", [text])
+            else:
+                self.parser.parse(text)
             self.is_processing = False
         t = threading.Thread(target=worker); t.start()
 
@@ -478,7 +477,10 @@ class GameGUI:
             
             raw_text = prefix + log['text']
             
-            wrapped_lines = self.renderer.parse_and_wrap(raw_text, max_text_width, base_color)
+            # WICHTIG: Text bereinigen (Encoding Fix)
+            # Wir nehmen an, dass Text bereits Unicode ist, aber manchmal machen externe Libs Quatsch.
+            # Hier: Nur sicherstellen, dass es String ist.
+            wrapped_lines = self.renderer.parse_and_wrap(str(raw_text), max_text_width, base_color)
             render_rows.extend(wrapped_lines)
         
         total_content_height = len(render_rows) * self.line_height
