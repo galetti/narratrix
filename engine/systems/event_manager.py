@@ -36,6 +36,8 @@ class EventManager:
         elif trigger_type == 'location':
             # Einfacher Location Check
             target_loc = event.get('location')
+            # Fallback falls 'location' Key fehlt aber 'value' genutzt wird (siehe Diskussion vorher)
+            if not target_loc: target_loc = event.get('value')
             return self.game.location == target_loc
             
         elif trigger_type == 'condition':
@@ -55,6 +57,10 @@ class EventManager:
                 return all(results)
             elif operator == 'OR':
                 return any(results)
+        
+        # Manuelle Trigger (werden durch externe Aufrufe wie Crafting ausgelöst, hier False)
+        elif trigger_type == 'manual':
+            return False
                 
         return False
 
@@ -159,6 +165,8 @@ class EventManager:
             if target: 
                 target['state'] = new_state
                 self.game.log('info', f"({target['name']} wirkt verändert.)")
+            else:
+                print(f"[WARN] EventManager: NPC '{npc_id}' nicht gefunden für set_npc_state.")
                 
         elif e_type == 'learn':
             fact = eff.get('fact')
@@ -173,7 +181,12 @@ class EventManager:
         elif e_type == 'move_npc':
             npc_id = eff.get('npc')
             room_id = eff.get('room')
-            self.game.ai.move_npc(npc_id, room_id)
+            # Hier müssen wir aufpassen: game.ai.move_npc erwartet (npc_id, target_room_id)
+            # und sucht den NPC anhand der ID.
+            if hasattr(self.game.ai, 'move_npc'):
+                self.game.ai.move_npc(npc_id, room_id)
+            else:
+                print("[WARN] EventManager: AI System hat keine move_npc Methode.")
             
         elif e_type == 'spawn_item':
             item_id = eff.get('item')
@@ -185,3 +198,28 @@ class EventManager:
                     self.game.log('success', f"Erhalten: {obj['name']}")
                 else:
                     obj['location'] = location
+            else:
+                print(f"[WARN] EventManager: Item '{item_id}' nicht gefunden für spawn_item.")
+        
+        elif e_type == 'update_object':
+            target_id = eff.get('target')
+            updates = eff.get('updates', {})
+            target = self.game.objects.get(target_id)
+            if target:
+                target.update(updates)
+            else:
+                # Fallback: Vielleicht ist es ein NPC, der wie ein Objekt behandelt wird?
+                target_npc = next((n for n in self.game.npcs if n.get('id') == target_id), None)
+                if target_npc:
+                    target_npc.update(updates)
+                else:
+                    print(f"[WARN] EventManager: Objekt '{target_id}' nicht gefunden für update_object.")
+        
+        elif e_type == 'trigger_event':
+            # Event Chain: Ein Event löst ein anderes aus
+            next_event_id = eff.get('id')
+            next_event = next((e for e in self.events if e.get('id') == next_event_id), None)
+            if next_event:
+                self._execute_event(next_event)
+            else:
+                print(f"[WARN] EventManager: Folge-Event '{next_event_id}' nicht gefunden.")

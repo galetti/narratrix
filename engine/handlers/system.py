@@ -91,11 +91,17 @@ class SystemHandler:
         else:
             game.log('info', "Keine aktiven Quests.")
 
-        pending_events = len([e for e in game.event_queue if e['time'] > game.time])
-        game.log('info', f"Ausstehende Events: {pending_events}")
+        # FIX: Zugriff auf EventManager statt event_queue
+        # Wir zählen Events, die noch nicht getriggert wurden und einen Zeit-Trigger haben
+        pending_count = 0
+        if hasattr(game, 'events'):
+            for e in game.events.events:
+                if not e.get('triggered', False) and e.get('trigger') == 'time' and e.get('trigger_time', 0) > game.time:
+                    pending_count += 1
+        
+        game.log('info', f"Ausstehende Zeit-Events: {pending_count}")
         
         # ... Rest der Methode wie gehabt (NPCs, Warnings) ...
-        # (Um Platz zu sparen, kürze ich hier nicht ab, aber der Inhalt ist identisch zur vorherigen Version)
         npc_info = []
         for npc in game.npcs:
             state = npc.get('state', 'default')

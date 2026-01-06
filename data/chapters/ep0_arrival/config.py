@@ -17,7 +17,6 @@ CHAPTER_CONFIG = {
     "quests": QUESTS,
     
     "combinations": [
-        # REZEPT 1: Konsole reparieren / Tür öffnen
         {
             "ingredients": ["obj_console"],
             "tools": ["item_screwdriver"],
@@ -32,33 +31,23 @@ CHAPTER_CONFIG = {
                 {
                     "type": "update_object",
                     "target": "obj_console",
-                    "updates": {"state": "normal", "desc": "Die Konsole leuchtet grün. Tür-Override aktiv."}
+                    "updates": {"state": "normal"}
                 }
             ]
         },
-        
-        # HINT REZEPT: Schraubendreher + Tür (Damit der Spieler nicht verzweifelt)
-        {
-            "ingredients": ["obj_cockpit_door"],
-            "tools": ["item_screwdriver"],
-            "preserve": ["obj_cockpit_door"],
-            "result": None,
-            "message": "Das Schloss der Tür ist elektronisch. Du kommst hier nicht weiter. Vielleicht steuert die Konsole die Verriegelung?"
-        },
-
-        # REZEPT 2: ARIS reparieren
+        # FIX: Doppelte Absicherung für ARIS
         {
             "ingredients": ["item_battery", "npc_aris"],
-            "tools": [],
             "preserve": ["npc_aris"], 
-            "result": None, 
-            "message": "Du setzt die Batterie ein. Ein leises Surren ertönt, als Aris' Systeme hochfahren.",
+            "message": "Die Energiezelle passt perfekt. Systeme initialisieren...",
             "effects": [
+                # 1. Direktes Update (falls Crafting System NPCs findet)
                 {
                     "type": "update_object", 
                     "target": "npc_aris", 
                     "updates": {"state": "online"}
                 },
+                # 2. Event Trigger (sollte auch State setzen und Quest updaten)
                 {
                     "type": "trigger_event", 
                     "id": "aris_online"
