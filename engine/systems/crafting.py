@@ -1,186 +1,200 @@
+# narratrix_engine/engine/systems/crafting.py
 from engine.constants import *
-from engine.resolver import Resolver
 
 class CraftingSystem:
-    """
-    Verwaltet das Kombinieren von Gegenständen mit erweiterten Bedingungen
-    wie Werkzeugen, Arbeitsstationen und Bauplänen.
-    """
     def __init__(self, game):
         self.game = game
 
     def perform_combine(self, item1_name, item2_name, verb="use"):
         """
-        Hauptmethode, die vom ActionDispatcher aufgerufen wird.
+        Versucht, zwei Objekte zu kombinieren oder eine Aktion auszuführen.
+        Unterstützt jetzt auch Ressourcen und Stationen.
         """
-        # 1. Objekte auflösen
-        # Wir geben das Verb an den Resolver weiter, damit dieser bei Disambiguierung weiß, was wir tun
-        obj1 = self._resolve_crafting_item(item1_name, verb)
-        obj2 = self._resolve_crafting_item(item2_name, verb)
-
-        if not obj1 or not obj2:
-            # Falls eines None ist, hat der Resolver schon eine Error-Message oder Disambiguierung ausgelöst
-            return "Ich konnte eines der Objekte nicht finden (muss im Inventar oder greifbar sein)."
-
-        # 2. Rezept finden
-        recipe = self._find_recipe(obj1['id'], obj2['id'])
-        if not recipe:
-            return "Das lässt sich nicht sinnvoll kombinieren."
-
-        # 3. Bedingungen prüfen
+        # 1. Objekte finden (via Namen)
+        # Wir nutzen eine einfache Suche im Inventar und im Raum (für Stationen)
+        # Da wir Namen bekommen, müssen wir die IDs finden.
         
-        # A. Bauplan / Wissen
-        if 'blueprint' in recipe:
-            knowledge_id = recipe['blueprint']
-            if knowledge_id not in self.game.knowledge:
-                return "Du hast keine Ahnung, wie man diese Teile verbindet. Dir fehlt ein Bauplan oder Wissen."
+        item1 = self._find_obj_by_name(item1_name)
+        item2 = self._find_obj_by_name(item2_name)
+        
+        if not item1 or not item2:
+            return "Ich weiß nicht, was du kombinieren willst."
 
-        # B. Station (Werkbank, Herd, etc.)
-        if 'station' in recipe:
-            station_id = recipe['station']
-            if not self._is_station_available(station_id):
-                station_name = self._get_obj_name(station_id)
-                return f"Dafür brauchst du eine Arbeitsfläche: {station_name}."
-
-        # C. Werkzeuge
-        if 'tools' in recipe:
-            missing_tools = []
-            for tool_id in recipe['tools']:
-                # Tool ist da, wenn es eines der Input Items ist ODER im Inventar liegt
-                if tool_id == obj1['id'] or tool_id == obj2['id']:
+        # Identifiziere IDs
+        id1 = item1[ATTR_ID]
+        id2 = item2[ATTR_ID]
+        
+        # Suche nach passendem Rezept in den Kombinationen
+        # Wir suchen nach einem Rezept, das diese beiden Items als Zutaten hat ODER
+        # eins als Zutat und eins als Station.
+        
+        possible_recipes = []
+        for combo in self.game.combinations:
+            if combo.get('verb') != verb: continue
+            
+            recipe_items = combo.get('items', [])
+            ingredients = combo.get('ingredients', {}) # NEU: Dict {id: count}
+            station = combo.get('station')             # NEU: Station ID
+            
+            # Fall A: Klassische "Item + Item" Logik (Legacy Support)
+            if recipe_items:
+                if set(recipe_items) == {id1, id2}:
+                    possible_recipes.append(combo)
                     continue
-                    
-                if not self._has_item_in_inventory(tool_id):
-                    tool_name = self._get_obj_name(tool_id)
-                    missing_tools.append(tool_name)
+
+            # Fall B: Erweitertes Crafting (Zutaten + Station)
+            # Wir prüfen, ob id1 und id2 in den Zutaten ODER als Station vorkommen.
+            # Mindestens eine Interaktion muss passen.
             
-            if missing_tools:
-                return f"Dir fehlt das nötige Werkzeug: {', '.join(missing_tools)}."
-
-        # 4. Crafting durchführen
-        return self._execute_crafting(obj1, obj2, recipe)
-
-    def _resolve_crafting_item(self, name, verb):
-        """Sucht das Item im Inventar oder im Raum (für Stationen/große Objekte)."""
-        try:
-            # Prio 1: Inventar
-            return Resolver.resolve_target(self.game, name.split(), location_filter=FILTER_INVENTORY, verb=verb)
-        except:
-            pass
-        
-        try:
-            # Prio 2: Raum (z.B. wenn man etwas auf einen stationären Amboss legt)
-            return Resolver.resolve_target(self.game, name.split(), location_filter=FILTER_ROOM, verb=verb)
-        except:
-            return None
-
-    def _find_recipe(self, id1, id2):
-        """Sucht ein passendes Rezept für die beiden IDs (Reihenfolge egal)."""
-        # Wir laden die Kombinationen dynamisch aus dem GameState
-        combinations = getattr(self.game, 'combinations', [])
-        
-        for recipe in combinations:
-            ing = recipe.get('ingredients', [])
-            tools = recipe.get('tools', [])
+            # Szenario: "Benutze Metall mit Werkbank"
+            # Zutat: Metall, Station: Werkbank
+            is_station_match = (station == id1 or station == id2)
+            is_ingredient_match = (id1 in ingredients or id2 in ingredients)
             
-            # Alle IDs in einem Topf
-            all_parts = ing + tools
+            if is_station_match or is_ingredient_match:
+                # Wir merken uns das Rezept und prüfen später die VOLLSTÄNDIGEN Bedingungen
+                possible_recipes.append(combo)
+
+        if not possible_recipes:
+            return "Das scheint nicht zu funktionieren."
+
+        # Versuche Rezepte auszuführen
+        for recipe in possible_recipes:
+            success, msg = self._try_craft(recipe, [item1, item2])
+            if success:
+                return msg
+            elif msg: # Fehlermeldung (z.B. "Fehlt noch Draht")
+                return msg
+
+        return "Das funktioniert so nicht."
+
+    def _try_craft(self, recipe, interacting_items):
+        """
+        Prüft Bedingungen für ein komplexes Rezept und führt es aus.
+        """
+        # 1. Prüfe Station (falls benötigt)
+        required_station = recipe.get('station')
+        if required_station:
+            # Einer der interagierenden Gegenstände MUSS die Station sein,
+            # ODER der Spieler steht davor (im Raum).
+            station_present = False
             
-            # Wir prüfen, ob die beiden Items (id1, id2) in der Menge der benötigten Dinge vorkommen.
-            if id1 in all_parts and id2 in all_parts and id1 != id2:
-                # Treffer! 
-                return recipe
+            # Check interaction
+            for item in interacting_items:
+                if item[ATTR_ID] == required_station:
+                    station_present = True
+                    break
             
-            # Sonderfall: Single Ingredient + Tool (z.B. "use screwdriver with door")
-            # Wenn Ingredient 'door' und Tool 'screwdriver' ist.
-            # Hier prüfen wir explizit auf die Rollenverteilung, falls id1 und id2 nicht beide in all_parts sind (was selten ist, außer das Rezept ist komplexer)
-            if len(ing) == 1 and len(tools) >= 1:
-                if (id1 == ing[0] and id2 in tools) or (id2 == ing[0] and id1 in tools):
-                    return recipe
-
-        return None
-
-    def _is_station_available(self, station_id):
-        """Prüft, ob die Station im Raum oder (selten) im Inventar ist."""
-        if self.game.location == station_id:
-            return True
+            # Check environment (falls Station im Raum ist)
+            if not station_present:
+                station_obj = self.game.objects.get(required_station)
+                if station_obj and station_obj['location'] == self.game.location:
+                    station_present = True
             
-        for obj in self.game.objects.values():
-            if obj['id'] == station_id:
-                if obj['location'] == self.game.location or obj['location'] == LOC_INVENTORY:
-                    return True
-        return False
+            if not station_present:
+                # Rezept passt theoretisch, aber Station fehlt
+                # Wir geben hier False zurück, damit evtl. andere Rezepte geprüft werden,
+                # aber eigentlich ist es ein logischer Fehlschlag.
+                return False, None 
 
-    def _has_item_in_inventory(self, item_id):
-        """Prüft auf Besitz eines Items (für Werkzeuge)."""
-        for obj in self.game.objects.values():
-            if obj['id'] == item_id and obj['location'] == LOC_INVENTORY:
-                return True
-        return False
+        # 2. Prüfe Zutaten (Inventar)
+        ingredients = recipe.get('ingredients', {})
+        # Legacy Support: 'items' Liste in Dict wandeln
+        if 'items' in recipe and not ingredients:
+            ingredients = {i_id: 1 for i_id in recipe['items']}
 
-    def _get_obj_name(self, obj_id):
-        """Hilfsfunktion für Fehlernachrichten."""
-        obj = self.game.objects.get(obj_id)
-        if obj: return obj[ATTR_NAME]
+        inventory_ids = [o[ATTR_ID] for o in self.game.objects.values() if o['location'] == LOC_INVENTORY]
         
-        room = self.game.rooms.get(obj_id)
-        if room: return room[ATTR_NAME]
-        return "Unbekanntes Objekt"
+        missing = []
+        for ing_id, count in ingredients.items():
+            # Zähle verfügbare Items (oder Stack-Größe)
+            available = 0
+            # Check Inventar
+            item = self.game.objects.get(ing_id)
+            if not item: continue
+            
+            # Ist es im Inventar?
+            if item['location'] == LOC_INVENTORY:
+                # Wenn es ein stapelbares Item ist (Resource), hat es ein 'count' Attribut
+                if item.get('is_resource'):
+                    available = item.get('count', 1)
+                else:
+                    available = 1 # Unikate Items zählen als 1
+            
+            # Auch interagierende Items zählen (selbst wenn nicht im Inv, z.B. Station-Input)
+            for i_item in interacting_items:
+                if i_item[ATTR_ID] == ing_id and i_item['location'] != LOC_INVENTORY:
+                     if i_item.get('is_resource'): available += i_item.get('count', 1)
+                     else: available += 1
 
-    def _execute_crafting(self, obj1, obj2, recipe):
-        """Führt den Crafting-Prozess aus (Verbrauchen, Erzeugen, Effekte)."""
-        
-        preserved = recipe.get('preserve', [])
-        tools = recipe.get('tools', [])
-        
-        # Logik: Items verbrauchen, außer sie sind Tools oder auf der Preserve-Liste
-        if obj1['id'] not in preserved and obj1['id'] not in tools:
-            obj1['location'] = LOC_VOID
-        
-        if obj2['id'] not in preserved and obj2['id'] not in tools:
-            obj2['location'] = LOC_VOID
+            if available < count:
+                item_name = self.game.objects[ing_id][ATTR_NAME]
+                missing.append(f"{count}x {item_name}")
+
+        if missing:
+            return False, f"Dir fehlt noch: {', '.join(missing)}."
+
+        # 3. Ausführung (Crafting)
+        # Zutaten entfernen
+        for ing_id, count in ingredients.items():
+            item = self.game.objects.get(ing_id)
+            if not item: continue
+            
+            # Stationen oder Werkzeuge, die nicht verbraucht werden (`consumable: false`), behalten wir
+            if not recipe.get('consume_tools', True) and item.get('is_tool'):
+                continue
+                
+            # Entferne Item
+            if item.get('is_resource'):
+                # Reduziere Stack
+                current = item.get('count', 1)
+                if current > count:
+                    item['count'] = current - count
+                else:
+                    item['location'] = LOC_VOID # Aufgebraucht
+            else:
+                # Unikate Items
+                item['location'] = LOC_VOID
 
         # Ergebnis erzeugen
-        result_id = recipe.get('result')
-        if result_id:
-            result_obj = self.game.objects.get(result_id)
-            if result_obj:
-                result_obj['location'] = LOC_INVENTORY
-                
-                # Müll/Nebenprodukte
-                byproducts = recipe.get('byproducts', [])
-                for bid in byproducts:
-                    bp = self.game.objects.get(bid)
-                    if bp: bp['location'] = LOC_INVENTORY
-            else:
-                # Wenn Result None ist (nur Effekte), ist das okay. Aber wenn String da ist und Item fehlt: Fehler.
-                # Hier geben wir nur eine Warnung aus
-                pass
+        return True, self._execute_combination(recipe, interacting_items)
 
-        # Effekte ausführen
-        if 'effects' in recipe:
-            for eff in recipe['effects']:
-                e_type = eff.get('type')
-                
-                if e_type == 'update_object':
-                    target_id = eff.get('target')
-                    updates = eff.get('updates', {})
-                    
-                    target = self.game.objects.get(target_id)
-                    if not target: # Check NPCs
-                        target = next((n for n in self.game.npcs if n['id'] == target_id), None)
-                    
-                    if target:
-                        target.update(updates)
-                        
-                elif e_type == 'trigger_event':
-                    event_id = eff.get('id')
-                    if hasattr(self.game, 'events'):
-                        # Wir suchen das Event in der Liste
-                        target_event = next((e for e in self.game.events.events if e.get('id') == event_id), None)
-                        if target_event:
-                            self.game.events._execute_event(target_event)
-                        else:
-                            pass # Event nicht gefunden, stillschweigend ignorieren oder loggen
+    def _execute_combination(self, combo, objects):
+        # 1. Spawn Result
+        if 'spawn_item' in combo:
+            new_id = combo['spawn_item']
+            if new_id in self.game.objects:
+                self.game.objects[new_id]['location'] = LOC_INVENTORY
+                return f"Hergestellt: {self.game.objects[new_id][ATTR_NAME]}"
+        
+        # 2. Text Feedback
+        if 'message' in combo:
+            return combo['message']
+            
+        # 3. Generische Effekte
+        if 'effect' in combo:
+            # Context NPC ist hier None, da Crafting meist keine Person involviert
+            self.game.effects.process(combo['effect'])
+            return "Aktion ausgeführt."
 
-        return recipe.get('message', "Erledigt.")
+        return "Erledigt."
+
+    def _find_obj_by_name(self, name):
+        """Hilfsfunktion: Findet Objekt im Scope (Inv + Raum)."""
+        name_clean = name.lower().strip()
+        candidates = [o for o in self.game.objects.values() 
+                      if o['location'] in [LOC_INVENTORY, self.game.location]]
+        
+        # Exakter Match
+        for obj in candidates:
+            if obj[ATTR_NAME].lower() == name_clean: return obj
+            
+        # Alias Match
+        for obj in candidates:
+            if any(a.lower() == name_clean for a in obj.get(ATTR_ALIASES, [])): return obj
+            
+        # Fuzzy / Substring
+        for obj in candidates:
+            if name_clean in obj[ATTR_NAME].lower(): return obj
+            
+        return None

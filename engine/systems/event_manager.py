@@ -1,3 +1,4 @@
+# narratrix_engine/engine/systems/event_manager.py
 from engine.constants import *
 
 class EventManager:
@@ -91,6 +92,13 @@ class EventManager:
         if 'sound_msg' in event:
             origin = event.get('origin_id')
             
+            # WICHTIG: Informiere die KI über das Geräusch!
+            if origin and hasattr(self.game.ai, 'notify_noise'):
+                # Default Volume 1.0 wenn nicht spezifiziert
+                volume = event.get('volume', 1.0)
+                self.game.ai.notify_noise(origin, volume)
+
+            # Player Feedback (Akustik für den Spieler)
             if origin and origin != self.game.location:
                 vol, direction = self.game.acoustics.get_audibility_info(origin, self.game.location)
                 

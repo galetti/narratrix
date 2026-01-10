@@ -3,15 +3,43 @@ from engine.resolver import Resolver, ResolutionError
 from engine.constants import *
 from engine.strings import Texts
 from engine.handlers.common import CommonHandler
-# WICHTIG: Kein Import von DialogueHandler mehr!
 
 class InventoryHandler:
 
     @staticmethod
     def inventory(game, args):
+        """Zeigt das Inventar an, gruppiert Ressourcen."""
         items = [o for o in game.objects.values() if o['location'] == LOC_INVENTORY]
+        
         display_list = []
+        
+        # 1. Normale Items sammeln
+        normal_items = []
+        # 2. Ressourcen sammeln (Dict: id -> {name, count})
+        resources = {}
+        
         for item in items:
+            if item.get('is_resource'):
+                r_id = item[ATTR_ID]
+                count = item.get('count', 1)
+                
+                if r_id in resources:
+                    resources[r_id]['count'] += count
+                else:
+                    resources[r_id] = {
+                        'name': item[ATTR_NAME],
+                        'count': count,
+                        'obj': item
+                    }
+            else:
+                normal_items.append(item)
+                
+        # 3. Ressourcen formatieren
+        for res in resources.values():
+            display_list.append(f"{res['count']}x {res['name']}")
+            
+        # 4. Normale Items formatieren
+        for item in normal_items:
             name = item[ATTR_NAME]
             if CommonHandler.is_open_container(item):
                 content_str = CommonHandler.format_contents_recursive(game, item[ATTR_ID])
@@ -32,9 +60,20 @@ class InventoryHandler:
             candidates = [o for o in candidates if o['location'] != LOC_INVENTORY and o.get(ATTR_WEIGHT, float('inf')) < float('inf')]
             taken = []
             for item in candidates:
-                if item.get(ATTR_MATTER) == MATTER_LIQUID: continue 
+                if item.get(ATTR_MATTER) == MATTER_LIQUID: continue
+                
+                # Ressource Merge Check
+                if item.get('is_resource'):
+                    existing = InventoryHandler._find_resource_in_inventory(game, item[ATTR_ID])
+                    if existing:
+                        existing['count'] = existing.get('count', 1) + item.get('count', 1)
+                        item['location'] = LOC_VOID # Original entfernen (Merge)
+                        taken.append(f"{item.get('count',1)}x {item[ATTR_NAME]}")
+                        continue
+                
                 item['location'] = LOC_INVENTORY
                 taken.append(item[ATTR_NAME])
+                
             if taken:
                 game.log('success', f"Genommen: {', '.join(taken)}")
                 game.tick(len(taken))
@@ -49,6 +88,17 @@ class InventoryHandler:
                 weight = target.get(ATTR_WEIGHT, float('inf'))
                 if weight == float('inf'): return game.log('error', Texts.TAKE_TOO_HEAVY)
                 if target.get(ATTR_MATTER) == MATTER_LIQUID: return game.log('error', Texts.TAKE_LIQUID_ERROR)
+
+                # Ressource Merge Check (Einzelaufnahme)
+                if target.get('is_resource'):
+                    existing = InventoryHandler._find_resource_in_inventory(game, target[ATTR_ID])
+                    if existing:
+                        amount = target.get('count', 1)
+                        existing['count'] = existing.get('count', 1) + amount
+                        target['location'] = LOC_VOID # Original entfernen
+                        game.log('success', f"Du nimmst {amount}x {target[ATTR_NAME]} (Total: {existing['count']}).")
+                        game.tick(1)
+                        return
 
                 target['location'] = LOC_INVENTORY
                 game.log('success', Texts.TAKE_SUCCESS.format(item=target[ATTR_NAME]))
@@ -71,7 +121,8 @@ class InventoryHandler:
         clean_args = Resolver.clean_args(args)
         try:
             target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_INVENTORY, verb='drop')
-            if target: 
+            if target:
+                # TODO: Optional "drop 5 scrap" parsing
                 target['location'] = game.location
                 game.log('success', Texts.DROP_SUCCESS.format(item=target[ATTR_NAME]))
                 game.tick(1)
@@ -140,3 +191,11 @@ class InventoryHandler:
                 else: 
                     game.log('character', Texts.GIVE_REFUSED.format(npc=npc[ATTR_NAME]))
         except ResolutionError as e: game.log('error', str(e))
+
+    @staticmethod
+    def _find_resource_in_inventory(game, item_id):
+        """Hilfsfunktion: Findet existierenden Ressourcen-Stack im Inventar."""
+        for obj in game.objects.values():
+            if obj['location'] == LOC_INVENTORY and obj[ATTR_ID] == item_id and obj.get('is_resource'):
+                return obj
+        return None

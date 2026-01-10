@@ -5,39 +5,40 @@ NPCS = [
     {
         "id": "runner_bot",
         ATTR_NAME: "Läufer-Bot",
-        ATTR_DESC: "Ein kleiner Roboter auf Rädern.",
+        ATTR_DESC: "Ein kleiner Roboter auf Rädern mit blinkenden Lichtern.",
         "location": "upper_deck",
         "state": "idle",
+        
+        # KI Konfiguration
+        "behavior_id": "guard",  # Nutzt den Behavior Tree 'guard' (Patrouille + Wache)
+        "speed": 2.0,            # Ziemlich schnell (2 Räume pro Minute)
+        
+        # Patrouillen-Route
+        "waypoints": ["upper_deck", "central_hub", "lower_deck", "central_hub"],
+        "waypoint_index": 0,
+
         "dialogue": {
             "idle": {
-                "greeting": "Beep boop. Ich warte auf Befehle.",
+                "greeting": "Beep boop. Sicherheitspatrouille aktiv.",
                 "lauf": {
-                    "label": "Lauf in den Keller!",
-                    "text": "Verstanden. Ich begebe mich nach unten.",
-                    # TEST: Neues Effekt-System
+                    "label": "Geh zur Testkammer!",
+                    "text": "Verstanden. Ändere Route zur Testkammer.",
+                    # Override via Effect: Schickt ihn weg, aber KI wird danach versuchen,
+                    # wieder zur Patrouille zurückzukehren (da 'target_location' gelöscht wird bei Ankunft).
                     "effect": {
                         "type": "move_npc",
                         "npc": "runner_bot",
-                        "target": "lower_deck"
+                        "target": "test_chamber"
                     }
                 },
-                "komm": {
-                    "label": "Komm her!",
-                    "text": "Bin unterwegs.",
-                    # TEST: Context-basiertes Target (wo der Spieler ist, nicht hardcoded)
-                    # Da move_npc im EffectProcessor 'context_npc' nutzt, 
-                    # brauchen wir hier Logik. Aktuell muss target eine ID sein.
-                    # Wir schicken ihn zur Zentrale als Test.
-                    "effect": {
-                        "type": "move_npc",
-                        "npc": "runner_bot",
-                        "target": "central_hub"
-                    }
+                "status": {
+                    "label": "Statusbericht",
+                    "text": "Systeme nominal. Sensoren aktiv. Ich höre alles."
                 }
             }
         },
         "behavior": {
-            # Einfaches Verhalten: Wenn er im Lower Deck ist, macht er Lärm
+            # Veraltete Behavior-Logik (wird vom neuen System ignoriert, wenn behavior_id gesetzt ist)
         }
     }
 ]
