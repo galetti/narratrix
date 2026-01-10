@@ -1,3 +1,4 @@
+# narratrix_engine/engine/systems/acoustics.py
 from engine.constants import *
 from collections import deque
 
@@ -10,7 +11,7 @@ class AcousticsSystem:
         Berechnet die Hörbarkeit und die Richtung des Schalls.
         Returns: (volume, direction_text)
         volume: 0.0 bis 1.0
-        direction_text: z.B. "Norden" oder "der Wand zum Reaktor"
+        direction_text: z.B. "Norden", "der Wand zum Reaktor" oder "oben"
         """
         if source_room_id == listener_room_id:
             return 1.0, "hier"
@@ -21,7 +22,7 @@ class AcousticsSystem:
 
     def _calculate_sound_from_listener_perspective(self, listener_id, source_id):
         # Wir schauen uns alle Nachbarn des Hörers an und prüfen, wie laut die Quelle von dort zu hören wäre.
-        # + Wir prüfen, wie laut es ist, wenn wir durch eine Wand lauschen.
+        # + Wir prüfen, wie laut es ist, wenn wir durch eine Wand/Decke/Boden lauschen.
         
         # 1. Tool-Bonus prüfen
         tool_bonus = 0.0
@@ -37,17 +38,22 @@ class AcousticsSystem:
 
         max_vol = 0.0
         direction_str = "irgendwo"
-
-        # Wir scannen die Umgebung des Listeners
+        
         listener_room = self.game.rooms.get(listener_id)
         if not listener_room: return 0.0, ""
 
-        # A. Exits (Offene/Geschlossene Türen)
+        trans_map = {
+            "north": "Norden", "south": "Süden", "east": "Osten", "west": "Westen", 
+            "up": "Oben", "down": "Unten", "out": "Draußen"
+        }
+
+        # --- A. Exits (Offene/Geschlossene Türen/Treppen) ---
+        # Das deckt auch normale vertikale Bewegung ab (Treppen, Leitern)
         for direction, neighbor_id in listener_room.get('exits', {}).items():
             # Wie durchlässig ist dieser Ausgang?
             trans_local = self._calculate_exit_transmission(listener_id, direction)
             
-            # Wie laut ist es im Nachbarraum? (Rekursiver Check der Quelle dort)
+            # Wie laut ist es im Nachbarraum?
             vol_at_neighbor = self._get_volume_at_room(source_id, neighbor_id, visited={listener_id})
             
             total_vol = vol_at_neighbor * trans_local
@@ -58,17 +64,28 @@ class AcousticsSystem:
 
             if total_vol > max_vol:
                 max_vol = total_vol
-                trans_map = {"north": "Norden", "south": "Süden", "east": "Osten", "west": "Westen", "up": "Oben", "down": "Unten", "out": "Draußen"}
                 direction_str = trans_map.get(direction, direction)
 
-        # B. Wände (Acoustics Definition)
-        acoustics = listener_room.get('acoustics', {})
-        for neighbor_id, wall_trans in acoustics.items():
+        # --- B. Wände & Vertikale Schächte (Acoustics Definition) ---
+        # 'acoustics' Dictionary im Raum definiert direkte Schallverbindungen ohne Weg.
+        # Format: { "room_id": transmission_float }
+        # NEU: Wir prüfen auch implizite vertikale Nachbarn, wenn nicht explizit definiert.
+        
+        acoustics = listener_room.get('acoustics', {}).copy()
+        
+        # Automatische Erkennung vertikaler Nachbarn über Koordinaten (falls vorhanden)
+        # Annahme: Räume haben 'z' Koordinate oder explizite 'up'/'down' exits, die wir schon prüften.
+        # Aber manchmal gibt es Löcher im Boden ohne Exit. Das muss über 'acoustics' manuell definiert sein.
+        
+        for neighbor_id, data in acoustics.items():
+            # data kann float (transmission) oder dict sein
+            wall_trans = data if isinstance(data, float) else data.get('transmission', 0.0)
+            custom_dir_text = data.get('direction_text') if isinstance(data, dict) else None
+            
             if neighbor_id not in self.game.rooms: continue
             
             vol_at_neighbor = self._get_volume_at_room(source_id, neighbor_id, visited={listener_id})
             
-            # Tool Bonus wirkt stark bei Wänden
             effective_trans = wall_trans
             if tool_bonus > 0:
                 effective_trans = min(1.0, wall_trans + tool_bonus)
@@ -77,8 +94,19 @@ class AcousticsSystem:
             
             if total_vol > max_vol:
                 max_vol = total_vol
-                n_room = self.game.rooms.get(neighbor_id)
-                direction_str = f"der Wand zu {n_room[ATTR_NAME]}"
+                
+                if custom_dir_text:
+                    direction_str = custom_dir_text
+                else:
+                    # Versuche Richtung abzuleiten
+                    n_room = self.game.rooms.get(neighbor_id)
+                    
+                    # Checke ob es Oben/Unten ist (basierend auf Exits des Nachbarn zurück zu uns?)
+                    # Einfacher: Wenn neighbor 'down' exit zu uns hat, ist er 'oben'.
+                    n_exits = n_room.get('exits', {})
+                    if n_exits.get('down') == listener_id: direction_str = "Oben (durch die Decke)"
+                    elif n_exits.get('up') == listener_id: direction_str = "Unten (durch den Boden)"
+                    else: direction_str = f"der Wand zu {n_room[ATTR_NAME]}"
 
         return max_vol, direction_str
 
@@ -92,8 +120,25 @@ class AcousticsSystem:
         if current_id in visited:
             return 0.0
         
+        # WICHTIG: Pathfinder sucht normalerweise begehbare Wege. 
+        # Für Schall wollen wir aber auch "Hör-Wege" (durch Wände/Decken).
+        # Wir bräuchten einen speziellen 'AcousticPathfinder'. 
+        # Da wir den nicht haben, nutzen wir den normalen Pathfinder als Approximation für die Distanz,
+        # ABER wir checken direkte 'acoustics' Links als Abkürzungen.
+        
+        # Da eine volle Schall-Simulation zu teuer ist (Dijkstra auf Schall), 
+        # machen wir hier eine Vereinfachung: Wir nutzen den normalen Pfad.
+        # Das limitiert Schall durch Wände auf *direkte* Nachbarn.
+        # Für Schall über 2 Räume hinweg durch 2 Wände bräuchten wir einen Graph-Search.
+        
         path = self.game.pathfinder.find_path(source_id, current_id)
         if not path:
+            # Fallback: Check direkte akustische Verbindung
+            s_room = self.game.rooms.get(source_id)
+            if s_room and current_id in s_room.get('acoustics', {}):
+                # Direkter Schall-Link existiert!
+                trans = self._get_transmission_between(source_id, current_id)
+                return trans
             return 0.0
         
         # Pfad gefunden. Dämpfung berechnen.
@@ -111,16 +156,18 @@ class AcousticsSystem:
     def _get_transmission_between(self, room_a_id, room_b_id):
         """Berechnet Transmission zwischen zwei direkt benachbarten Räumen."""
         room_a = self.game.rooms.get(room_a_id)
+        if not room_a: return 0.0
         
-        # 1. Suche nach Exit
+        # 1. Suche nach Exit (Luftschall)
         for direction, target_id in room_a.get('exits', {}).items():
             if target_id == room_b_id:
                 return self._calculate_exit_transmission(room_a_id, direction)
         
-        # 2. Suche nach Acoustic Link (Wand)
+        # 2. Suche nach Acoustic Link (Körperschall / Wand / Decke)
         acoustics = room_a.get('acoustics', {})
         if room_b_id in acoustics:
-            return acoustics[room_b_id]
+            val = acoustics[room_b_id]
+            return val if isinstance(val, float) else val.get('transmission', 0.0)
             
         return 0.0 
 

@@ -1,9 +1,14 @@
+# narratrix_engine/engine/action_dispatcher.py
 from engine.handlers.movement import MovementHandler
 from engine.handlers.dialogue import DialogueHandler
 from engine.handlers.system import SystemHandler
 from engine.handlers.exploration import ExplorationHandler
 from engine.handlers.inventory import InventoryHandler
 from engine.handlers.mechanics import MechanicsHandler
+
+# NEU: Wir müssen AmbiguityError importieren
+from engine.resolver import AmbiguityError
+from engine.constants import ATTR_NAME
 
 class ActionDispatcher:
     COMMAND_MAP = {
@@ -37,7 +42,7 @@ class ActionDispatcher:
         'oracle': SystemHandler.oracle, 'orakel': SystemHandler.oracle, 'hack': SystemHandler.oracle,
         'map': SystemHandler.map, 'karte': SystemHandler.map,
         'help': SystemHandler.help,
-        'journal': SystemHandler.journal, 'logbuch': SystemHandler.journal, 'aufgaben': SystemHandler.journal # NEU
+        'journal': SystemHandler.journal, 'logbuch': SystemHandler.journal, 'aufgaben': SystemHandler.journal 
     }
 
     @staticmethod
@@ -52,10 +57,23 @@ class ActionDispatcher:
             ActionDispatcher._handle_disambiguation(game, verb, args)
             return
 
-        # 3. Normales Dispatching
+        # 3. Normales Dispatching mit Ambiguity Handling
         handler_func = ActionDispatcher.COMMAND_MAP.get(verb)
         if handler_func:
-            handler_func(game, args)
+            try:
+                handler_func(game, args)
+            except AmbiguityError as e:
+                # Hier fangen wir den Fehler vom Resolver
+                names = [m[ATTR_NAME] for m in e.candidates]
+                game.log('info', f"Meinst du: {', '.join(names)}?")
+                
+                # Wir speichern den Kontext, um den Befehl später neu bauen zu können
+                game.disambiguation = {
+                    'verb': verb,
+                    'full_args': args,             # Die vollen Argumente (z.B. ["key", "with", "door"])
+                    'ambiguous_words': e.query_words, # Der Teil, der mehrdeutig war (z.B. ["key"])
+                    'candidates': e.candidates
+                }
             return
 
         # 4. Fallback: Richtung?
@@ -92,18 +110,13 @@ class ActionDispatcher:
     @staticmethod
     def _handle_disambiguation(game, verb, args):
         state = game.disambiguation
-        original_verb = state['verb']
         candidates = state['candidates']
         
-        # WICHTIG: Wenn der Aufruf direkt vom GUI kommt (via "disambiguate" dummy verb),
-        # steht der gesamte Input im ersten Argument von args.
-        # Wenn er vom Parser kommt, ist 'verb' das erkannte Wort und 'args' leer.
-        
+        # User Input verarbeiten
         filter_text = ""
         if verb == "disambiguate":
             filter_text = args[0].strip().lower()
         else:
-            # Fallback falls über Parser (sollte eigentlich durch GUI umgangen werden)
             filter_text = f"{verb} {' '.join(args)}".strip().lower()
         
         if filter_text in ["stop", "abbrechen", "nein", "cancel", "zurück"]:
@@ -111,59 +124,65 @@ class ActionDispatcher:
             game.disambiguation = None
             return
 
-        # Filtern der Kandidaten basierend auf User-Input
+        # Filtern der Kandidaten
         matches = []
         for cand in candidates:
-            # Wir suchen ob der filter_text im Namen oder Alias vorkommt
-            # Bessere Logik: Prüfen ob filter_text "ähnlich" ist oder substring
             c_name = cand['name'].lower()
             if filter_text in c_name or any(filter_text in a.lower() for a in cand.get('aliases', [])):
                 matches.append(cand)
         
         if len(matches) == 1:
             target = matches[0]
-            game.disambiguation = None 
             game.log('user', f"(Ausgewählt: {target['name']})")
             
-            # Wir müssen den ursprünglichen Befehl mit dem EINDEUTIGEN Zielnamen neu starten.
-            # Dazu holen wir die originalen Argumente aus dem State.
-            # Das ist tricky, da der Original-Befehl z.B. "benutze tool mit sicherung" war.
-            # Wir wissen nicht, WELCHES Argument mehrdeutig war (tool oder sicherung).
-            # Workaround: Wir rufen dispatch auf und hoffen, dass der Name jetzt eindeutig ist.
-            # Aber wir ersetzen NICHTS im Original-String, da das Parsen schwer ist.
+            # --- REKONSTRUKTION DES BEFEHLS ---
+            original_verb = state['verb']
+            full_args = state['full_args'] # Liste von Strings
+            ambiguous_part = state['ambiguous_words'] # Liste von Strings (z.B. ["key"])
             
-            # Bessere Strategie: Wir führen den Handler direkt aus, wenn möglich, 
-            # oder wir starten den Resolver neu mit dem präzisen Namen.
+            # Wir müssen die ambiguous_part Sequenz in full_args finden und durch den vollen Namen ersetzen
+            new_args = list(full_args)
             
-            # Da 'ActionDispatcher' stateless ist, ist Restart schwer.
-            # Einfachste Lösung: Wir loggen nur und der User muss den Befehl erneut eingeben? Nein, frustrierend.
+            # Einfacher Ansatz: Wir suchen das erste Vorkommen des ersten Worts der Ambiguität
+            # und ersetzen die Länge der Ambiguität.
+            if ambiguous_part:
+                start_word = ambiguous_part[0]
+                try:
+                    # Finde Startindex
+                    idx = -1
+                    # Wir suchen manuell, um sicher zu sein (case sensitive check in args)
+                    for i, w in enumerate(new_args):
+                        if w == start_word: # Strenger Match, da Resolver clean_args nutzt, könnte unscharf sein
+                            idx = i
+                            break
+                    
+                    if idx == -1:
+                        # Fallback: Versuche case-insensitive
+                        for i, w in enumerate(new_args):
+                            if w.lower() == start_word.lower():
+                                idx = i
+                                break
+
+                    if idx != -1:
+                        # Wir entfernen die mehrdeutigen Worte
+                        # Wir ersetzen sie durch den präzisen Namen des Ziels (als Token-Liste)
+                        target_tokens = target['name'].split()
+                        
+                        # Slice replacement
+                        end_idx = idx + len(ambiguous_part)
+                        new_args[idx:end_idx] = target_tokens
+                        
+                except Exception as e:
+                    print(f"[WARN] Disambiguierung Rekonstruktion fehlgeschlagen: {e}")
+                    # Fallback: Einfach Namen anhängen (funktioniert nur bei simplen Verben)
+                    new_args = [target['name']]
+
+            # Reset State
+            game.disambiguation = None 
             
-            # Wir versuchen den Resolver zu 'primen' oder den Befehl neu zu bauen.
-            # Wenn original_args da sind:
-            # "benutze [tool] mit sicherung". Wir wissen nicht wo [tool] stand.
-            
-            # Pragmatisch: Wir rufen den Handler auf und übergeben den KLARTEXT Namen des gewählten Objekts
-            # zusammen mit dem Rest. Aber woher wissen wir den Rest?
-            # Im State 'original_args' steht z.B. ["tool", "mit", "sicherung"]
-            
-            # Da wir nicht wissen, welches Wort ersetzt werden muss, ist das hier eine Sackgasse der aktuellen Architektur.
-            # ABER: Die meisten Disambiguierungen passieren bei einfachen Befehlen wie "nimm tool".
-            # Bei "benutze X mit Y" ist es komplexer.
-            
-            # Lösung: Wir geben dem User Feedback und er muss es (leider) präziser eingeben,
-            # ODER wir hacken es: Wir bauen einen neuen String, in dem der 'filter_text' (der den Match ausgelöst hat)
-            # durch den vollen Namen ersetzt wird? Nein, der filter_text war ja die User-Eingabe JETZT.
-            
-            # Wir brechen hier ab und bitten den User, den Befehl mit dem eindeutigen Namen zu wiederholen.
-            # game.log('info', f"Okay, ich nehme an du meinst {target['name']}. Bitte wiederhole den Befehl damit.")
-            
-            # ALTERNATIVE: Wir führen den Befehl aus und übergeben target['name'] als Argument.
-            # Das klappt nur, wenn der Handler nur 1 Argument erwartet.
-            # Bei 'use' (2 Args) schwierig.
-            
-            # Wir versuchen es einfach mit dem Namen des Targets als einziges Argument.
-            # Das funktioniert für 'look', 'take', 'drop'. Für 'use' scheitert es ggf.
-            ActionDispatcher.dispatch(game, original_verb, [target['name']])
+            # Erneuter Dispatch mit präzisiertem Befehl
+            # game.log('info', f"DEBUG: Executing '{original_verb} {new_args}'")
+            ActionDispatcher.dispatch(game, original_verb, new_args)
 
         elif len(matches) > 1:
             names = [m['name'] for m in matches]

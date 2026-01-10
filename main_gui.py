@@ -1,3 +1,4 @@
+# narratrix_engine/main_gui.py
 import pygame
 import sys
 import threading
@@ -6,6 +7,8 @@ import os
 import re 
 import pygame.scrap
 import warnings
+import queue
+import json 
 
 warnings.filterwarnings("ignore", category=UserWarning, module='pygame')
 
@@ -25,7 +28,35 @@ except ImportError:
     SPACY_AVAILABLE = False
     print("[SYSTEM] Spacy nicht gefunden, nutze RuleBasedParser.")
 
-INIT_WIDTH, INIT_HEIGHT = 1024, 768
+# NEU: Config Loader aus 'data/' Verzeichnis
+def load_system_config():
+    default_conf = {
+        "game": {"start_chapter": "data.chapters.ep0_arrival.config", "title": "Narratrix"},
+        "system": {"resolution_width": 1024, "resolution_height": 768}
+    }
+    
+    # Pfadänderung: Config liegt jetzt in data/config.json
+    base_path = os.path.dirname(__file__)
+    config_path = os.path.join(base_path, "data", "config.json")
+    
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if "game" in data: default_conf["game"].update(data["game"])
+                if "system" in data: default_conf["system"].update(data["system"])
+                print(f"[SYSTEM] Config geladen von: {config_path}")
+                return default_conf
+        except Exception as e:
+            print(f"[WARN] Konnte data/config.json nicht lesen: {e}")
+    else:
+        print(f"[INFO] Keine Config gefunden unter {config_path}, nutze Defaults.")
+    
+    return default_conf
+
+SYS_CONFIG = load_system_config()
+INIT_WIDTH = SYS_CONFIG["system"].get("resolution_width", 1024)
+INIT_HEIGHT = SYS_CONFIG["system"].get("resolution_height", 768)
 PARSER_MODE = "SPACY" 
 
 class RichTextRenderer:
@@ -153,7 +184,7 @@ class GameGUI:
     def __init__(self):
         pygame.init()
         self.screen = pygame.display.set_mode((INIT_WIDTH, INIT_HEIGHT), pygame.RESIZABLE)
-        pygame.display.set_caption("NARRATRIX v5.7 - Rich Text Edition") 
+        pygame.display.set_caption(f"{SYS_CONFIG['game'].get('title', 'Narratrix')} v5.9") 
         
         try: pygame.scrap.init()
         except pygame.error: print("[WARN] Clipboard konnte nicht initialisiert werden.")
@@ -173,7 +204,12 @@ class GameGUI:
         self.renderer = RichTextRenderer(self.font_log, theme.COLOR_TEXT)
         self.assets = AssetLoader() 
         
-        self.current_chapter = "data.chapters.ep0_arrival.config"
+        # Threading Queue für Rückmeldungen vom Worker an den Main Thread
+        self.result_queue = queue.Queue()
+        
+        # WICHTIG: Lese Start-Kapitel aus Config, statt Hardcoding
+        self.current_chapter = SYS_CONFIG['game'].get("start_chapter", "data.chapters.ep0_arrival.config")
+        print(f"[SYSTEM] Starte mit Kapitel: {self.current_chapter}")
         self.load_game_chapter(self.current_chapter)
 
     def load_game_chapter(self, chapter_path, transfer_state=None):
@@ -212,7 +248,8 @@ class GameGUI:
         self.submit_command("look", echo=False)
 
     def restart_game(self):
-        self.current_chapter = "data.chapters.ep0_arrival.config"
+        # Nutze wieder das konfigurierte Start-Kapitel
+        self.current_chapter = SYS_CONFIG['game'].get("start_chapter", "data.chapters.ep0_arrival.config")
         self.load_game_chapter(self.current_chapter)
 
     def run(self):
@@ -220,6 +257,14 @@ class GameGUI:
             self.handle_events(); self.update(); self.draw(); self.clock.tick(30)
 
     def handle_events(self):
+        # 1. Prüfen ob Worker fertig ist
+        try:
+            while not self.result_queue.empty():
+                msg = self.result_queue.get_nowait()
+                if msg == "DONE":
+                    self.is_processing = False
+        except queue.Empty: pass
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT: pygame.quit(); sys.exit()
             elif event.type == pygame.VIDEORESIZE: self.screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
@@ -302,14 +347,25 @@ class GameGUI:
         if echo: self.game.log('user', f"> {text}")
         
         def worker():
-            if self.game.dialogue_active:
-                ActionDispatcher.dialogue_step(self.game, text)
-            elif self.game.disambiguation:
-                ActionDispatcher.dispatch(self.game, "disambiguate", [text])
-            else:
-                self.parser.parse(text)
-            self.is_processing = False
-        t = threading.Thread(target=worker); t.start()
+            try:
+                # WICHTIG: GameState Lock wird innerhalb der Methoden (z.B. game.log) verwendet.
+                # Wir müssen nur sicherstellen, dass keine konkurrierenden Schreibzugriffe von außen kommen.
+                if self.game.dialogue_active:
+                    ActionDispatcher.dialogue_step(self.game, text)
+                elif self.game.disambiguation:
+                    ActionDispatcher.dispatch(self.game, "disambiguate", [text])
+                else:
+                    self.parser.parse(text)
+            except Exception as e:
+                print(f"[ERROR] Worker Thread Exception: {e}")
+                self.game.log('error', f"Systemfehler: {str(e)}")
+            finally:
+                # Signal an Main Thread
+                self.result_queue.put("DONE")
+
+        t = threading.Thread(target=worker)
+        t.daemon = True # Thread stirbt, wenn Main Thread stirbt
+        t.start()
 
     def update(self): 
         self.cursor_blink += 1
@@ -323,12 +379,17 @@ class GameGUI:
                 "inventory_ids": [o['id'] for o in self.game.objects.values() if o['location'] == LOC_INVENTORY]
             }
             
+            # TODO: Auch diese Map sollte idealerweise in die Config oder dynamisch sein
             chapter_map = {
                 "ep1_station": "data.chapters.ep1_station.config",
                 "ep0_arrival": "data.chapters.ep0_arrival.config"
             }
             
             path = chapter_map.get(target_chapter)
+            if not path:
+                # Fallback: Versuche direkten Importpfad
+                if "data.chapters" in target_chapter: path = target_chapter
+
             if path:
                 self.load_game_chapter(path, transfer_state)
             else:
@@ -336,6 +397,7 @@ class GameGUI:
                 self.game.pending_chapter_load = None
 
     def draw(self):
+        # Thread-Safety: get_snapshot nutzt intern self.lock
         snapshot = self.game.get_snapshot()
         self.screen.fill(theme.COLOR_BG); w, h = self.screen.get_size()
         
@@ -477,9 +539,6 @@ class GameGUI:
             
             raw_text = prefix + log['text']
             
-            # WICHTIG: Text bereinigen (Encoding Fix)
-            # Wir nehmen an, dass Text bereits Unicode ist, aber manchmal machen externe Libs Quatsch.
-            # Hier: Nur sicherstellen, dass es String ist.
             wrapped_lines = self.renderer.parse_and_wrap(str(raw_text), max_text_width, base_color)
             render_rows.extend(wrapped_lines)
         

@@ -1,3 +1,5 @@
+# narratrix_engine/engine/constants.py
+
 # Objekt-Zustände
 STATE_NORMAL = "normal"
 STATE_SABOTAGED = "sabotaged"
@@ -8,6 +10,7 @@ TYPE_CONTAINER = "container"
 TYPE_SURFACE = "surface"
 TYPE_ITEM = "item"
 TYPE_SCENERY = "scenery"
+TYPE_FIXTURE = "fixture" # Fest installierte, interaktive Objekte (Maschinen etc.)
 
 # Aggregatzustände
 MATTER_SOLID = "solid"
@@ -25,8 +28,8 @@ ATTR_ALIASES = "aliases"
 ATTR_DESC = "desc"
 ATTR_ID = "id"
 ATTR_NAME = "name"
-ATTR_TEMP = "temp" 
-ATTR_MATTER = "matter" 
+ATTR_TEMP = "temp"
+ATTR_MATTER = "matter"
 
 # Dialog & AI
 AI_CHANCE_MOVE_DEFAULT = 20

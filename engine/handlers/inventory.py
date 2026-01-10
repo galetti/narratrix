@@ -1,8 +1,9 @@
+# narratrix_engine/engine/handlers/inventory.py
 from engine.resolver import Resolver, ResolutionError
 from engine.constants import *
 from engine.strings import Texts
 from engine.handlers.common import CommonHandler
-# Import von DialogueHandler entfernt (wird lokal importiert)
+# WICHTIG: Kein Import von DialogueHandler mehr!
 
 class InventoryHandler:
 
@@ -12,7 +13,6 @@ class InventoryHandler:
         display_list = []
         for item in items:
             name = item[ATTR_NAME]
-            # Wenn das Item selbst ein Container ist (z.B. Rucksack)
             if CommonHandler.is_open_container(item):
                 content_str = CommonHandler.format_contents_recursive(game, item[ATTR_ID])
                 if content_str: name += f" (enthält: {content_str})"
@@ -27,10 +27,8 @@ class InventoryHandler:
     def take(game, args):
         if game.hidden_in: return game.log('error', Texts.ERR_HIDDEN)
         
-        # Spezialfall: "nimm alles"
         if any(w in args for w in ["all", "alles", "alle"]):
             candidates = Resolver._collect_candidates(game, FILTER_RECURSIVE)
-            # Nur Dinge, die nicht schon im Inventar sind und tragbar sind
             candidates = [o for o in candidates if o['location'] != LOC_INVENTORY and o.get(ATTR_WEIGHT, float('inf')) < float('inf')]
             taken = []
             for item in candidates:
@@ -55,15 +53,13 @@ class InventoryHandler:
                 target['location'] = LOC_INVENTORY
                 game.log('success', Texts.TAKE_SUCCESS.format(item=target[ATTR_NAME]))
                 
-                # Logic: Wenn man ein Tablett nimmt, kommen die Sachen drauf mit
                 if target.get('type') == TYPE_SURFACE:
                     contents = [o for o in game.objects.values() if o['location'] == target[ATTR_ID]]
-                    if contents:
-                        names = []
-                        for item in contents:
-                            item['location'] = LOC_INVENTORY
-                            names.append(item[ATTR_NAME])
-                        if names: game.log('info', f"Du verstaust auch: {', '.join(names)}.")
+                    names = []
+                    for item in contents:
+                        item['location'] = LOC_INVENTORY
+                        names.append(item[ATTR_NAME])
+                    if names: game.log('info', f"Du verstaust auch: {', '.join(names)}.")
                 
                 game.tick(1)
         except ResolutionError as e: game.log('error', str(e))
@@ -87,17 +83,14 @@ class InventoryHandler:
         
         if not args: return game.log('error', Texts.GIVE_MISSING_ARGS)
         
-        # Parsing "gib X an Y"
         separators = ["an", "to", "dem", "der"]
         sep_indices = [i for i, w in enumerate(args) if w.lower() in separators]
         
-        # FIX: Korrekte Zuweisung, wenn keine Trennwörter da sind (angenommen: letztes Wort ist NPC)
         if sep_indices:
-            idx = sep_indices[0] # Das erste gefundene Trennwort
+            idx = sep_indices[0]
             item_words = args[:idx]
             npc_words = args[idx+1:]
         else:
-            # Fallback: "gib schachtel aris" -> Letztes Wort ist Empfänger
             item_words = args[:-1]
             npc_words = [args[-1]]
         
@@ -112,17 +105,16 @@ class InventoryHandler:
                     contents = [o for o in game.objects.values() if o['location'] == item[ATTR_ID]]
                     for c in contents: trigger_ids.append(f"received_{c[ATTR_ID]}")
                 
+                # Check Reaction
                 current_state = npc.get('state', 'default')
-                
-                # State Handling
-                dialogue_root = {}
+                dialogue_db = {}
                 if 'states' in npc:
-                    dialogue_root = npc['states'].get(current_state, {}).get('dialogue', {})
+                    dialogue_db = npc['states'].get(current_state, {}).get('dialogue', {})
                 else:
-                    dialogue_root = npc.get('dialogue', {}).get(current_state, {})
+                    dialogue_db = npc.get('dialogue', {}).get(current_state, {})
 
                 reaction_entry = None
-                for topic, entry in dialogue_root.items():
+                for topic, entry in dialogue_db.items():
                     if isinstance(entry, dict) and 'condition' in entry:
                         cond = entry['condition']
                         if isinstance(cond, dict) and cond.get('type') == 'knowledge' and cond.get('value') in trigger_ids: 
@@ -135,14 +127,16 @@ class InventoryHandler:
                     item['location'] = LOC_VOID 
                     for t_id in trigger_ids: game.add_knowledge(t_id)
                     
-                    # LOCAL IMPORT FIX: Import hier, um Zirkelschluss zu verhindern
-                    from engine.handlers.dialogue import DialogueHandler
-                    
+                    # NEU: Nutzung des DialogueSystems anstelle des Handlers
                     game.dialogue_active = True
                     game.dialogue_partner = npc
+                    
                     game.log('event', f"--- GESPRÄCH MIT {npc[ATTR_NAME].upper()} ---")
-                    DialogueHandler._print_dialogue(game, npc, reaction_entry)
-                    DialogueHandler.process_effects(game, reaction_entry, npc)
+                    game.dialogue_system.print_dialogue(npc, reaction_entry)
+                    
+                    # Effekte via EffectProcessor (Delegation)
+                    if 'effect' in reaction_entry:
+                         game.effects.process(reaction_entry['effect'], context_npc=npc)
                 else: 
                     game.log('character', Texts.GIVE_REFUSED.format(npc=npc[ATTR_NAME]))
         except ResolutionError as e: game.log('error', str(e))

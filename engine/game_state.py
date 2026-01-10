@@ -1,3 +1,4 @@
+# narratrix_engine/engine/game_state.py
 import copy
 import re
 import threading
@@ -10,6 +11,10 @@ from engine.systems.object_behavior import ObjectBehaviorSystem
 from engine.systems.acoustics import AcousticsSystem
 from engine.systems.quest_manager import QuestManager
 from engine.systems.event_manager import EventManager
+
+# NEU: Import der neuen Systeme
+from engine.systems.effect_processor import EffectProcessor
+from engine.systems.dialogue_system import DialogueSystem
 
 class GameState:
     def __init__(self, config, silent=False):
@@ -56,6 +61,10 @@ class GameState:
             if ATTR_TEMP not in obj: obj[ATTR_TEMP] = 20
             if ATTR_MATTER not in obj: obj[ATTR_MATTER] = MATTER_SOLID
 
+        # NEU: Initialisierung der Systeme
+        self.effects = EffectProcessor(self)
+        self.dialogue_system = DialogueSystem(self)
+        
         self.crafting = CraftingSystem(self)
         self.pathfinder = Pathfinder(self)
         self.ai = AISystem(self)
@@ -118,18 +127,30 @@ class GameState:
 
         room = self.rooms.get(room_id)
         if not room: return f"ERROR: Raum '{room_id}' nicht gefunden."
+        
         text = room[ATTR_DESC]
+        
         def replace_match(match):
             key = match.group(1)
+            
+            # 1. Versuche Objekt zu finden
             obj = self.objects.get(key)
-            if not obj: return f"ERROR:{key}"
-            display_text = obj[ATTR_NAME]
-            if obj.get('state') == STATE_SABOTAGED: display_text += " [SABOTIERT]"
-            elif obj.get('state') == STATE_BROKEN: display_text += " [DEFEKT]"
-            elif obj.get('is_container'):
-                if obj.get('is_open'): display_text += " [OFFEN]"
-                else: display_text += " [VERSCHLOSSEN]"
-            return display_text
+            if obj:
+                display_text = obj[ATTR_NAME]
+                if obj.get('state') == STATE_SABOTAGED: display_text += " [SABOTIERT]"
+                elif obj.get('state') == STATE_BROKEN: display_text += " [DEFEKT]"
+                elif obj.get('is_container'):
+                    if obj.get('is_open'): display_text += " [OFFEN]"
+                    else: display_text += " [VERSCHLOSSEN]"
+                return display_text
+            
+            # 2. Versuche Raum zu finden (NEU)
+            target_room = self.rooms.get(key)
+            if target_room:
+                return target_room[ATTR_NAME]
+                
+            return f"ERROR:{key}"
+            
         return re.sub(r"\{(\w+)\}", replace_match, text)
 
     def log(self, type_str, text):
@@ -163,7 +184,6 @@ class GameState:
     def add_knowledge(self, fact_id): 
         if fact_id not in self.knowledge: self.knowledge.add(fact_id)
 
-    # FIX: Parameter verb=... erlauben
     def perform_combine(self, item1_name, item2_name, verb="use"):
         return self.crafting.perform_combine(item1_name, item2_name, verb)
 
@@ -190,16 +210,6 @@ class GameState:
             self.log('alarm', "GAME OVER: STATION KRITISCH.")
             self.game_over = True
 
-    def _trigger_event(self, event):
-        event['triggered'] = True
-        if 'message' in event: self.log('event', event['message'])
-        if 'quest_update' in event:
-            q_data = event['quest_update']
-            if isinstance(q_data, dict) and 'id' in q_data and 'stage' in q_data:
-                self.quests.update_quest(q_data['id'], q_data['stage'])
-        if 'sound' in event:
-            self.log('info', f"[SOUND: {event['sound']}]") 
-
     def serialize_state(self):
         return {
             "location": self.location, "time": self.time, "stability": self.stability,
@@ -208,7 +218,7 @@ class GameState:
             "quests": self.quests.get_save_data(), 
             "events": self.events.events, 
             "combinations": self.combinations,
-            "meta": {"version": "1.1"} 
+            "meta": {"version": "1.3"} 
         }
 
     def deserialize_state(self, data):
