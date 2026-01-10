@@ -15,7 +15,7 @@ class StoryLoader:
             return module.COMMON_CONFIG
         except ImportError as e:
             print(f"[WARN] StoryLoader: Konnte Common-Layer nicht laden: {e}")
-            return {"rooms": {}, "objects": {}, "npcs": [], "matrix": [], "combinations": [], "quests": {}}
+            return {"rooms": {}, "objects": {}, "npcs": [], "matrix": [], "events": [], "combinations": [], "quests": {}}
 
     @staticmethod
     def load_chapter(chapter_module_path):
@@ -43,8 +43,13 @@ class StoryLoader:
             final_combinations = copy.deepcopy(common_data.get('combinations', []))
             final_combinations.extend(copy.deepcopy(chapter_data.get('combinations', [])))
             
+            # Narrative Matrix (Hauptstory)
             final_matrix = copy.deepcopy(common_data.get('matrix', []))
             final_matrix.extend(copy.deepcopy(chapter_data.get('matrix', [])))
+
+            # Dynamische Events (Umgebung, Timer, Trigger) - WICHTIG: Hier fehlte der Merge!
+            final_events = copy.deepcopy(common_data.get('events', []))
+            final_events.extend(copy.deepcopy(chapter_data.get('events', [])))
 
             final_npcs = copy.deepcopy(common_data.get('npcs', [])) + copy.deepcopy(chapter_data.get('npcs', []))
             
@@ -60,6 +65,7 @@ class StoryLoader:
                 "objects": final_objects,
                 "combinations": final_combinations,
                 "narrative_matrix": final_matrix,
+                "events": final_events, # NEU: Events werden jetzt zurückgegeben
                 "npcs": final_npcs,
                 "quests": final_quests
             }

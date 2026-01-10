@@ -1,7 +1,7 @@
-# narratrix_engine/engine/game_state.py
 import copy
 import re
 import threading
+import traceback
 from engine.constants import *
 
 from engine.systems.crafting import CraftingSystem
@@ -12,14 +12,14 @@ from engine.systems.acoustics import AcousticsSystem
 from engine.systems.quest_manager import QuestManager
 from engine.systems.event_manager import EventManager
 
-# NEU: Import der neuen Systeme
 from engine.systems.effect_processor import EffectProcessor
 from engine.systems.dialogue_system import DialogueSystem
 
 class GameState:
     def __init__(self, config, silent=False):
         self.config = config
-        self.silent = silent 
+        self.silent = silent
+        
         self.time = 0
         self.logs = []
         self.lock = threading.RLock()
@@ -47,6 +47,8 @@ class GameState:
         self.rooms = copy.deepcopy(config['rooms'])
         self.npcs = copy.deepcopy(config['npcs'])
         self.matrix = copy.deepcopy(config.get('narrative_matrix', []))
+        self.dynamic_events = copy.deepcopy(config.get('events', []))
+        
         self.objects = copy.deepcopy(config['objects'])
         self.combinations = copy.deepcopy(config.get('combinations', []))
         
@@ -61,7 +63,6 @@ class GameState:
             if ATTR_TEMP not in obj: obj[ATTR_TEMP] = 20
             if ATTR_MATTER not in obj: obj[ATTR_MATTER] = MATTER_SOLID
 
-        # NEU: Initialisierung der Systeme
         self.effects = EffectProcessor(self)
         self.dialogue_system = DialogueSystem(self)
         
@@ -74,7 +75,10 @@ class GameState:
         self.quests.load_definitions(config.get('quests', {}))
         
         self.events = EventManager(self)
-        self.events.load_events(self.matrix)
+        
+        # Events laden
+        all_events = self.matrix + self.dynamic_events
+        self.events.load_events(all_events)
         
         if not self.silent:
             self.events.update()
@@ -113,6 +117,8 @@ class GameState:
             new_state.rooms = copy.deepcopy(self.rooms)
             new_state.npcs = copy.deepcopy(self.npcs)
             new_state.matrix = copy.deepcopy(self.matrix)
+            new_state.dynamic_events = copy.deepcopy(self.dynamic_events)
+            
             new_state.objects = copy.deepcopy(self.objects)
             new_state.inventory = copy.deepcopy(self.inventory)
             new_state.combinations = copy.deepcopy(self.combinations)
@@ -132,8 +138,6 @@ class GameState:
         
         def replace_match(match):
             key = match.group(1)
-            
-            # 1. Versuche Objekt zu finden
             obj = self.objects.get(key)
             if obj:
                 display_text = obj[ATTR_NAME]
@@ -144,7 +148,6 @@ class GameState:
                     else: display_text += " [VERSCHLOSSEN]"
                 return display_text
             
-            # 2. Versuche Raum zu finden (NEU)
             target_room = self.rooms.get(key)
             if target_room:
                 return target_room[ATTR_NAME]
@@ -155,6 +158,7 @@ class GameState:
 
     def log(self, type_str, text):
         if self.silent: return 
+        
         with self.lock:
             self.logs.append({"type": type_str, "text": text, "turn": self.time})
 
@@ -201,7 +205,12 @@ class GameState:
                     if abs(change := diff * 0.1) < 0.5: obj[ATTR_TEMP] = target
                     else: obj[ATTR_TEMP] += change
         
-        self.events.update()
+        try:
+            self.events.update()
+        except Exception as e:
+            print(f"[FATAL] EventManager Update Error: {e}")
+            traceback.print_exc()
+            self.log('error', f"Systemfehler (Events): {e}")
 
         if hasattr(self.ai, 'process_all_npcs'): self.ai.process_all_npcs()
         if hasattr(self.object_behavior, 'update'): self.object_behavior.update()
