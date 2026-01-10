@@ -1,163 +1,134 @@
-import random
+# narratrix_engine/engine/systems/ai.py
 from engine.constants import *
-from engine.action_dispatcher import ActionDispatcher
-from engine.systems.pathfinder import Pathfinder
-
-# Restauriertes AI System: Behält alte Methoden bei und integriert neue Logik.
 
 class AISystem:
-    """
-    Steuert NPCs, ihre Bewegungen und autonomes Handeln.
-    Integriert Pathfinding und komplexe Verhaltensmuster.
-    """
-    
     def __init__(self, game):
         self.game = game
-        self.pathfinder = Pathfinder(game)
 
-    def process_all_npcs(self):
-        """Wird jeden Tick aufgerufen. (Früher update)"""
+    def process_all_npcs(self, minutes=1):
+        """
+        Wird jeden Tick aufgerufen.
+        minutes: Die vergangene Zeit in Minuten (wichtig für Geschwindigkeit).
+        """
         for npc in self.game.npcs:
-            self._process_npc(npc)
+            self._handle_movement(npc, minutes)
+            # Hier könnte später komplexe Behavior-Tree Logik folgen
+            # self._handle_behavior(npc)
 
-    # --- CORE PROCESS ---
-
-    def _process_npc(self, npc):
-        # 1. State Management (einfacher State Machine Ansatz)
-        current_state = npc.get('state', 'idle')
-        
-        # 2. Priorität: Pathfinding (hat der NPC ein Ziel?)
-        target_room = npc.get('target_room')
-        if target_room and npc['location'] != target_room:
-            self._move_towards_target(npc, target_room)
+    def move_npc(self, npc_id, target_room_id, instant=False):
+        """
+        Befiehlt einem NPC, sich zu einem Ziel zu bewegen.
+        instant=True erzwingt Teleportation.
+        """
+        npc = self._find_npc(npc_id)
+        if not npc: 
+            print(f"[AI] Warnung: NPC {npc_id} nicht gefunden.")
             return
 
-        # 3. Verhalten basierend auf Rolle/State
-        if npc.get('roam') and random.random() < 0.1: 
-            self._roam(npc)
-            
-        # 4. Reaktives Verhalten (z.B. Engineer repariert sabotierte Räume)
-        self._check_environment_triggers(npc)
+        if instant:
+            # Teleportation (für Debugging oder SciFi-Tech)
+            old_loc = npc.get('location')
+            npc['location'] = target_room_id
+            npc['path'] = [] # Alten Pfad löschen
+            npc['target_location'] = None
+            if old_loc != target_room_id:
+                # Logik für Spieler-Feedback beim Teleport könnte hier rein
+                pass
+            return
 
-    # --- MOVEMENT LOGIC ---
+        # Echte Bewegung berechnen
+        start_room = npc.get('location')
+        if start_room == target_room_id:
+            return # Schon da
 
-    def move_npc(self, npc_id, target_room_id):
-        """
-        Öffentliche Methode zum direkten Bewegen eines NPCs (z.B. durch Events).
-        Dies entspricht der alten Funktionalität, die Events genutzt haben könnten.
-        """
-        npc = next((n for n in self.game.npcs if n['id'] == npc_id), None)
-        if npc:
-            self._execute_move(npc, "teleport", target_room_id)
-            npc['target_room'] = None # Ziel löschen, da angekommen
-
-    def _move_towards_target(self, npc, target_room_id):
-        """Nutzt den Pathfinder, um den nächsten Schritt zum Ziel zu finden."""
-        path = self.pathfinder.find_path(npc['location'], target_room_id)
-        
-        if path and len(path) > 1:
-            next_step = path[1] # [0] ist start, [1] ist nächster Raum
+        # Pfad finden
+        path = self.game.pathfinder.find_path(start_room, target_room_id)
+        if path:
+            # Pathfinder gibt Liste exklusive Start, inklusive Ziel zurück (z.B. ['flur', 'keller'])
+            npc['path'] = path
+            npc['target_location'] = target_room_id
             
-            # Finde die Richtung (Direction) für diesen Schritt
-            current_room = self.game.rooms.get(npc['location'])
-            exits = current_room.get('exits', {})
-            direction = None
-            for d, r_id in exits.items():
-                if r_id == next_step:
-                    direction = d
-                    break
+            # Bewegungsspeicher initialisieren falls nicht vorhanden
+            if 'move_acc' not in npc: npc['move_acc'] = 0.0
             
-            if direction:
-                self._execute_move(npc, direction, next_step)
-            else:
-                # Fallback: Teleport oder Fehler (Pfad existiert, aber kein Exit?)
-                # Wir teleportieren sicherheitshalber zum nächsten Schritt
-                self._execute_move(npc, "path_link", next_step)
+            # Optional: Feedback, dass er losläuft (nur wenn Spieler dabei ist)
+            if self.game.location == start_room:
+                # Wohin geht der erste Schritt?
+                first_step = path[0]
+                direction = self._get_exit_direction(start_room, first_step)
+                dir_str = f" nach {direction}" if direction else ""
+                self.game.log('character', f"{npc[ATTR_NAME]} macht sich auf den Weg{dir_str}.")
         else:
-            # Ziel erreicht oder kein Pfad
-            if npc['location'] == target_room_id:
-                npc['target_room'] = None # Ziel löschen
-                if self.game.location == npc['location']:
-                    self.game.log('character', f"{npc['name']} ist angekommen.")
+            print(f"[AI] Kein Weg gefunden für {npc[ATTR_NAME]} von {start_room} nach {target_room_id}")
 
-    def _execute_move(self, npc, direction, target_id):
-        old_loc = npc['location']
-        npc['location'] = target_id
+    def _handle_movement(self, npc, minutes):
+        """Verarbeitet die Bewegung eines NPCs basierend auf Zeit und Geschwindigkeit."""
+        path = npc.get('path')
+        if not path: return
+
+        # Geschwindigkeit: Default 1.0 (1 Raum pro Minute)
+        # 2.0 = Doppelt so schnell, 0.5 = Halb so schnell
+        speed = npc.get('speed', 1.0)
         
-        # Logs nur wenn Spieler relevant
-        if self.game.location == old_loc:
-            if direction in ["teleport", "path_link"]:
-                self.game.log('character', f"{npc['name']} verlässt den Raum.")
-            else:
-                self.game.log('character', f"{npc['name']} geht nach {direction}.")
-        elif self.game.location == target_id:
-            if direction in ["teleport", "path_link"]:
-                self.game.log('character', f"{npc['name']} betritt den Raum.")
-            else:
-                self.game.log('character', f"{npc['name']} kommt aus {self._inverse_dir(direction)}.")
-
-    def _roam(self, npc):
-        """Zufällige Bewegung."""
-        current_loc_id = npc['location']
-        room = self.game.rooms.get(current_loc_id)
-        if not room: return
-        exits = room.get('exits', {})
-        if not exits: return
+        # Bewegungs-Akku aufladen
+        current_acc = npc.get('move_acc', 0.0) + (speed * minutes)
         
-        direction = random.choice(list(exits.keys()))
-        target_id = exits[direction]
-        self._execute_move(npc, direction, target_id)
-
-    # --- INTERACTION LOGIC ---
-
-    def npc_look(self, npc):
-        """
-        Simuliert Wahrnehmung des NPCs.
-        Kann von Events genutzt werden, um zu prüfen, was der NPC sieht.
-        """
-        local_objs = [o for o in self.game.objects.values() if o['location'] == npc['location']]
-        return local_objs
-
-    def _check_environment_triggers(self, npc):
-        """Spezifische Interaktionen je nach Rolle."""
-        current_room = self.game.rooms.get(npc['location'])
-        if not current_room: return
-
-        # Engineer Logic
-        if npc.get('role') == 'engineer' and current_room.get('state') == STATE_SABOTAGED:
-            # 50% Chance zu reparieren wenn im Raum
-            if random.random() < 0.5:
-                # Wir rufen die Aktion direkt auf
-                if self.game.location == npc['location']:
-                    self.game.log('character', f"{npc['name']} beginnt Reparaturen an den Systemen...")
-                    
-                # Fix durchführen
-                current_room['state'] = STATE_NORMAL
-                
-                if self.game.location == npc['location']:
-                    self.game.log('success', f"{npc['name']} hat die Systeme stabilisiert!")
-
-    def _inverse_dir(self, direction):
-        mapping = {"north": "Süden", "south": "Norden", "east": "Westen", "west": "Osten", "up": "Unten", "down": "Oben", "out": "Drinnen"}
-        return mapping.get(direction, "irgendwo")
-
-    def _perform_action(self, npc, verb, args):
-        """Generische Aktion (Platzhalter für komplexere Interaktionen)."""
-        if self.game.location == npc['location']:
-            # Detaillierte Logs für den Spieler
-            item_name = args[0] if args else "etwas"
+        # Schritte abarbeiten
+        steps_taken = 0
+        
+        # Solange genug "Energie" für einen Schritt (Kosten: 1.0) da ist
+        while current_acc >= 1.0 and path:
+            next_room_id = path.pop(0)
+            old_room_id = npc['location']
             
-            if verb == 'take':
-                self.game.log('character', f"{npc['name']} steckt {item_name} ein.")
-            elif verb == 'drop':
-                self.game.log('character', f"{npc['name']} legt {item_name} ab.")
-            elif verb == 'open':
-                self.game.log('character', f"{npc['name']} öffnet {item_name}.")
-            elif verb == 'close':
-                self.game.log('character', f"{npc['name']} schließt {item_name}.")
-            elif verb == 'use':
-                self.game.log('character', f"{npc['name']} benutzt {item_name}.")
-            elif verb == 'fix':
-                self.game.log('character', f"{npc['name']} repariert {item_name}.")
-            else:
-                self.game.log('character', f"{npc['name']} macht etwas mit {item_name}.")
+            # Bewegung ausführen
+            npc['location'] = next_room_id
+            current_acc -= 1.0
+            steps_taken += 1
+            
+            # Spieler-Feedback generieren (Begegnungen)
+            self._broadcast_movement(npc, old_room_id, next_room_id)
+            
+        npc['move_acc'] = current_acc
+        
+        # Ziel erreicht?
+        if not path and steps_taken > 0:
+            npc['target_location'] = None
+            npc['move_acc'] = 0.0 # Rest-Energie verfällt bei Ankunft (oder behalten?)
+            # Hier könnte man ein "Arrived" Event triggern
+
+    def _broadcast_movement(self, npc, old_room, new_room):
+        """Erzeugt Textausgaben, wenn der Spieler die Bewegung sieht."""
+        player_loc = self.game.location
+        npc_name = npc[ATTR_NAME]
+
+        # Fall A: Spieler ist im Raum, den der NPC verlässt
+        if player_loc == old_room:
+            direction = self._get_exit_direction(old_room, new_room)
+            dir_text = f" nach {direction}" if direction else ""
+            self.game.log('character', f"{npc_name} verlässt den Bereich{dir_text}.")
+        
+        # Fall B: Spieler ist im Raum, den der NPC betritt
+        elif player_loc == new_room:
+            # Wir brauchen die Richtung, aus der er kommt (Exit vom NEUEN zum ALTEN Raum)
+            direction = self._get_exit_direction(new_room, old_room)
+            dir_text = f" aus {direction}" if direction else ""
+            self.game.log('character', f"{npc_name} betritt den Bereich{dir_text}.")
+
+    def _get_exit_direction(self, source_id, target_id):
+        """Hilfsfunktion: Findet den Namen des Exits zu einem Raum."""
+        room = self.game.rooms.get(source_id)
+        if not room: return None
+        
+        trans_map = {
+            "north": "Norden", "south": "Süden", "east": "Osten", "west": "Westen", 
+            "up": "Oben", "down": "Unten", "out": "Draußen"
+        }
+        
+        for direction, dest in room.get('exits', {}).items():
+            if dest == target_id:
+                return trans_map.get(direction, direction)
+        return None
+
+    def _find_npc(self, identifier):
+        return next((n for n in self.game.npcs if n.get('id') == identifier or n.get('name') == identifier), None)

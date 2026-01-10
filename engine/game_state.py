@@ -1,3 +1,4 @@
+# narratrix_engine/engine/game_state.py
 import copy
 import re
 import threading
@@ -158,7 +159,6 @@ class GameState:
 
     def log(self, type_str, text):
         if self.silent: return 
-        
         with self.lock:
             self.logs.append({"type": type_str, "text": text, "turn": self.time})
 
@@ -212,7 +212,16 @@ class GameState:
             traceback.print_exc()
             self.log('error', f"Systemfehler (Events): {e}")
 
-        if hasattr(self.ai, 'process_all_npcs'): self.ai.process_all_npcs()
+        # UPDATE: Wir übergeben 'minutes' an das AI System!
+        if hasattr(self.ai, 'process_all_npcs'): 
+            # Check signatur (falls AI System noch alt ist, safety check)
+            # Da wir AI System aber kontrollieren, rufen wir es direkt mit Argument auf
+            try:
+                self.ai.process_all_npcs(minutes)
+            except TypeError:
+                # Fallback für altes AI System ohne Argument
+                self.ai.process_all_npcs()
+
         if hasattr(self.object_behavior, 'update'): self.object_behavior.update()
 
         if self.stability <= 0: 

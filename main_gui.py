@@ -514,8 +514,11 @@ class GameGUI:
         self.screen.blit(text_room, (20, 20))
         
         surf_time = self.font_log.render(f"ZEIT: T+{snap['time']}m", True, theme.COLOR_TEXT)
-        surf_stab = self.font_log.render(f"INTEGRITÄT: {snap['stability']}%", True, theme.COLOR_ACCENT if snap['stability'] > 50 else theme.COLOR_ALERT)
-        self.screen.blit(surf_time, (20, 70)); self.screen.blit(surf_stab, (20, 95))
+        self.screen.blit(surf_time, (20, 70))
+        
+        # ENTFERNT: Integritäts-Anzeige
+        # surf_stab = self.font_log.render(f"INTEGRITÄT: {snap['stability']}%", True, theme.COLOR_ACCENT if snap['stability'] > 50 else theme.COLOR_ALERT)
+        # self.screen.blit(surf_stab, (20, 95))
 
     def draw_log_area(self, rect, snap):
         padding_x = theme.PADDING; padding_y = theme.PADDING

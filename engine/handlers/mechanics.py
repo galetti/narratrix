@@ -1,146 +1,269 @@
+# narratrix_engine/engine/handlers/mechanics.py
 from engine.resolver import Resolver, ResolutionError
 from engine.constants import *
 from engine.strings import Texts
-from engine.handlers.common import CommonHandler
-from engine.handlers.exploration import ExplorationHandler
 
 class MechanicsHandler:
 
     @staticmethod
-    def wait(game, args):
-        game.log('info', Texts.WAIT_MSG)
-        game.tick(10)
+    def put(game, args):
+        if game.hidden_in: return game.log('error', Texts.ERR_HIDDEN)
+        
+        separators = ["in", "into", "auf", "on", "an"]
+        sep_indices = [i for i, w in enumerate(args) if w.lower() in separators]
+        
+        if not sep_indices:
+            return game.log('error', "Wo willst du das hintun? (Benutze 'in' oder 'auf')")
+            
+        idx = sep_indices[0]
+        item_words = args[:idx]
+        container_words = args[idx+1:]
+        
+        try:
+            # 1. Was wollen wir reinlegen? (Muss im Inventar oder greifbar sein)
+            item = Resolver.resolve_target(game, item_words, location_filter=FILTER_RECURSIVE, verb='put_item')
+            
+            # 2. Wo soll es rein?
+            target = Resolver.resolve_target(game, container_words, location_filter=FILTER_ROOM, verb='put_container')
+            
+            if item[ATTR_ID] == target[ATTR_ID]:
+                return game.log('error', "Das geht physikalisch nicht.")
+            
+            # Logic: Ist es ein Container/Surface?
+            if target.get('type') not in [TYPE_CONTAINER, TYPE_SURFACE, TYPE_FIXTURE]: # Fixture als Ablage ok?
+                return game.log('error', f"Du kannst nichts in oder auf {target[ATTR_NAME]} legen.")
+                
+            if target.get('type') == TYPE_CONTAINER and not target.get('is_open', False):
+                return game.log('error', f"{target[ATTR_NAME]} ist geschlossen.")
+
+            # Verschieben
+            item['location'] = target[ATTR_ID]
+            game.log('success', f"Du legst {item[ATTR_NAME]} in/auf {target[ATTR_NAME]}.")
+            game.tick(1)
+            
+        except ResolutionError as e:
+            game.log('error', str(e))
 
     @staticmethod
     def use(game, args):
         if game.hidden_in: return game.log('error', Texts.ERR_HIDDEN)
-        if not args: return game.log('error', Texts.USE_MISSING_ARGS.format("..."))
         
-        separators = ["mit", "with", "und", "an", "auf", "on"]
+        # Check auf "use X with Y"
+        separators = ["mit", "with", "an", "on", "in"]
         sep_indices = [i for i, w in enumerate(args) if w.lower() in separators]
         
-        item1_name = ""
-        item2_name = ""
-        
         if sep_indices:
-            idx = sep_indices[0]
-            item1_name = " ".join(args[:idx])
-            item2_name = " ".join(args[idx+1:])
-        elif len(args) >= 2:
-            item1_name = " ".join(args[:-1])
-            item2_name = args[-1]
+            # Kombinationsversuch
+            idx = sep_indices[-1] # Nimm das letzte "mit", falls Namen auch "mit" enthalten (selten)
+            obj1_words = args[:idx]
+            obj2_words = args[idx+1:]
+            
+            obj1_name = " ".join(obj1_words)
+            obj2_name = " ".join(obj2_words)
+            
+            # Wir nutzen direkt perform_combine des GameState, das Resolver nutzt
+            result = game.perform_combine(obj1_name, obj2_name, verb="use")
+            
+            # Feedback-Interpretation (perform_combine gibt String zurück)
+            if "nichts" in result.lower() or "nicht" in result.lower() and "funktionier" in result.lower():
+                 game.log('info', result)
+            else:
+                 game.log('success', result)
+                 game.tick(2)
         else:
-            game.log('info', Texts.USE_MISSING_ARGS.format(' '.join(args)))
-            game.pending_interaction = {'verb': 'use', 'args': args}
-            return
-        
-        result_msg = game.perform_combine(item1_name, item2_name)
-        if "Fehler" in result_msg or "nicht" in result_msg.lower(): 
-            game.log('error', result_msg)
-        else: 
-            game.log('success', result_msg)
-            game.tick(2)
+            # Einzelnutzung (Schalter drücken etc.)
+            try:
+                target = Resolver.resolve_target(game, args, location_filter=FILTER_RECURSIVE, verb='use')
+                
+                # Checke, ob das Item eine 'use' Funktion in den Daten hat (Events)
+                # Oder generische Schalter-Logik
+                if target.get('type') == TYPE_FIXTURE or target.get('usable', False):
+                    # Einfaches Toggle Beispiel
+                    if 'state' in target:
+                        old_state = target['state']
+                        new_state = "on" if old_state == "off" else "off"
+                        target['state'] = new_state
+                        game.log('success', f"Du benutzt {target[ATTR_NAME]}. (Zustand: {new_state})")
+                        
+                        # Trigger Events basierend auf State Change? -> Passiert via EventManager check
+                    else:
+                        game.log('info', f"Du benutzt {target[ATTR_NAME]}, aber nichts passiert.")
+                    game.tick(1)
+                else:
+                    # Wenn nicht direkt benutzbar, merken wir es uns für den nächsten Klick als "Pending Combine"
+                    game.pending_interaction = {'verb': 'use', 'args': args}
+                    game.log('info', f"Was willst du mit {target[ATTR_NAME]} benutzen?")
+                    
+            except ResolutionError as e:
+                game.log('error', str(e))
 
     @staticmethod
     def open(game, args):
         if game.hidden_in: return game.log('error', Texts.ERR_HIDDEN)
-        if any(sep in args for sep in ["mit", "with", "using"]):
-             return MechanicsHandler.use(game, args)
-
-        clean_args = Resolver.clean_args(args)
         try:
-            target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_RECURSIVE, verb='open')
-            if target: 
-                if target.get('type') == TYPE_SURFACE: return game.log('info', Texts.OPEN_SURFACE_ERROR)
-                if target.get('type') != TYPE_CONTAINER: return game.log('error', Texts.OPEN_ERROR)
-                
-                if target.get('is_locked'):
-                    key_id = target.get('key_id')
-                    if key_id:
-                        has_key = any(o[ATTR_ID] == key_id and o['location'] == LOC_INVENTORY for o in game.objects.values())
-                        if has_key: 
-                            key_obj = game.objects[key_id]
-                            game.log('info', Texts.OPEN_KEY_USED.format(key=key_obj[ATTR_NAME]))
-                            target['is_locked'] = False
-                        else: return game.log('error', Texts.OPEN_LOCKED_KEY)
-                    else: 
-                        if target.get('state') == STATE_BROKEN:
-                             return game.log('error', "Der Mechanismus ist beschädigt. Du musst ihn reparieren.")
-                        return game.log('error', Texts.OPEN_LOCKED)
-                
-                if target.get('is_open'): return game.log('info', Texts.OPEN_ALREADY)
-                target['is_open'] = True
-                game.log('success', Texts.OPEN_SUCCESS.format(target=target[ATTR_NAME]))
-                ExplorationHandler.look(game, clean_args)
-        except ResolutionError as e: game.log('error', str(e))
-
-    @staticmethod
-    def fix(game, args):
-        return MechanicsHandler._generic_action(game, args, 'fix', STATE_BROKEN, Texts.FIX_SUCCESS, Texts.FIX_NOT_BROKEN)
+            target = Resolver.resolve_target(game, args, location_filter=FILTER_RECURSIVE, verb='open')
+            
+            if target.get('type') == TYPE_CONTAINER:
+                if target.get('locked', False):
+                    game.log('info', f"{target[ATTR_NAME]} ist verschlossen.")
+                elif target.get('is_open', False):
+                    game.log('info', f"{target[ATTR_NAME]} ist bereits offen.")
+                else:
+                    target['is_open'] = True
+                    game.log('success', f"Du öffnest {target[ATTR_NAME]}.")
+                    # Zeige Inhalt
+                    contents = [o[ATTR_NAME] for o in game.objects.values() if o['location'] == target[ATTR_ID]]
+                    if contents:
+                        game.log('info', f"Darin befindet sich: {', '.join(contents)}")
+                    game.tick(1)
+            else:
+                game.log('error', "Das kann man nicht öffnen.")
+        except ResolutionError as e:
+            game.log('error', str(e))
 
     @staticmethod
     def break_(game, args):
-        # 'break' braucht keinen Status, es funktioniert immer, wenn man ein Brecheisen hat
-        return MechanicsHandler._generic_action(game, args, 'break', None, "Du hast es aufgebrochen.", "Das lässt sich nicht aufbrechen.")
-
-    @staticmethod
-    def put(game, args):
+        """
+        Versucht, ein Objekt zu zerstören.
+        Unterstützt: 'break X', 'break X with Y', 'break X in Y'
+        """
         if game.hidden_in: return game.log('error', Texts.ERR_HIDDEN)
-        if not args: return game.log('error', Texts.PUT_MISSING_ARGS)
         
-        separators = ["in", "auf", "on", "into", "an"]
+        # 1. Argumente trennen (Ziel vs. Werkzeug)
+        separators = ["mit", "with", "in", "using", "an", "gegen"]
         sep_indices = [i for i, w in enumerate(args) if w.lower() in separators]
-        item_words = args[:sep_indices[0]] if sep_indices else args[:-1]
-        container_words = args[sep_indices[0]+1:] if sep_indices else [args[-1]]
         
+        target_words = []
+        tool_words = []
+        separator_used = ""
+        
+        if sep_indices:
+            idx = sep_indices[0] # Erstes Vorkommen trennt
+            separator_used = args[idx].lower()
+            target_words = args[:idx]
+            tool_words = args[idx+1:]
+        else:
+            target_words = args
+            
         try:
-            item = Resolver.resolve_target(game, item_words, location_filter=FILTER_INVENTORY, verb='put_item')
-            if item: 
-                container = Resolver.resolve_target(game, container_words, location_filter=FILTER_RECURSIVE, verb='put_container')
-                if container:
-                    if container == item: return game.log('error', Texts.PUT_SAME_ITEM)
-                    if container.get('type') not in [TYPE_CONTAINER, TYPE_SURFACE]: return game.log('error', Texts.PUT_ERROR_TYPE)
-                    if container.get('type') == TYPE_CONTAINER and not container.get('is_open'): 
-                        return game.log('error', Texts.PUT_ERROR_CLOSED.format(container=container[ATTR_NAME]))
-                    if container.get('is_scale'):
-                        if CommonHandler.is_held_by_player(game, container):
-                            return game.log('error', Texts.PUT_SCALE_ERROR)
-
-                    item['location'] = container[ATTR_ID]
-                    prep = "auf" if container.get('type') == TYPE_SURFACE else "in"
-                    game.log('success', Texts.PUT_SUCCESS.format(item=item[ATTR_NAME], prep=prep, container=container[ATTR_NAME]))
-                    game.tick(2)
+            target = Resolver.resolve_target(game, target_words, location_filter=FILTER_RECURSIVE, verb='break_target')
+            
+            # --- Fall A: Zerstören MIT/IN etwas ---
+            if tool_words:
+                # Wir lösen das Werkzeug auf
+                tool = Resolver.resolve_target(game, tool_words, location_filter=FILTER_RECURSIVE, verb='break_tool')
+                
+                # Check 1: Gibt es ein explizites Crafting-Rezept für "break"?
+                # Wir bauen die Namen zusammen für perform_combine
+                # Achtung: perform_combine erwartet Strings, keine Objekte
+                
+                # Wir nutzen die Resolver-Logik in perform_combine nicht direkt, sondern rufen das System manuell auf,
+                # da wir die Objekte schon haben. Aber perform_combine ist auf Namen ausgelegt.
+                # Wir rufen es einfach auf, da es robust ist.
+                
+                target_name_str = " ".join(target_words)
+                tool_name_str = " ".join(tool_words)
+                
+                # Wir "missbrauchen" das Crafting System mit dem Verb "break"
+                result = game.perform_combine(target_name_str, tool_name_str, verb="break")
+                
+                # Wenn perform_combine kein Rezept findet, gibt es oft einen Standard-Fehler zurück.
+                # Wir wollen aber unsere eigene Fallback-Logik, falls es kein Rezept gibt.
+                # Da perform_combine Strings zurückgibt, ist das Parsen schwer.
+                # Besser: Wir schauen direkt in die Kombinationen des GameState.
+                
+                found_recipe = False
+                for combo in game.combinations:
+                    items = combo.get('items', [])
+                    if len(items) != 2: continue
                     
-                    if container.get('is_scale'):
-                        contents = [o for o in game.objects.values() if o['location'] == container[ATTR_ID]]
-                        total_weight = sum(o.get('weight', 0) for o in contents)
-                        game.log('info', f"Das Display der Waage springt an: {total_weight:.2f} kg")
-        except ResolutionError as e: game.log('error', str(e))
+                    # Check, ob IDs passen (Reihenfolge egal)
+                    ids = [target[ATTR_ID], tool[ATTR_ID]]
+                    if set(items) == set(ids):
+                        # Check Verb
+                        if combo.get('verb') == 'break':
+                            # Treffer! Führe aus via GameState
+                            msg = game.crafting._execute_combination(combo, [target, tool])
+                            game.log('success', msg)
+                            game.tick(1)
+                            return
+                
+                # --- Fallback: Generische Physik ---
+                # Wenn kein spezielles Rezept da ist ("Hammer auf Glas"), prüfen wir Attribute
+                
+                # Beispiel: Tool hat 'damage' Wert, Target hat 'toughness'
+                tool_dmg = tool.get('damage', 1) # Standard 1
+                target_hp = target.get('toughness', 1) # Standard 1
+                
+                if separator_used in ["in", "im"]:
+                    # Kontext "in": Z.B. "Wirf Papier in Ofen"
+                    if tool.get('type') == TYPE_CONTAINER or tool.get('type') == TYPE_FIXTURE:
+                        if tool.get('state') == 'on' or tool.get('hot', False):
+                            game.log('success', f"Du zerstörst {target[ATTR_NAME]} in {tool[ATTR_NAME]}.")
+                            target['location'] = LOC_VOID
+                            game.tick(1)
+                            return
+                        else:
+                            game.log('info', f"{tool[ATTR_NAME]} ist nicht aktiv/heiß genug.")
+                            return
+                
+                if tool_dmg >= target_hp:
+                    game.log('success', f"Mit {tool[ATTR_NAME]} zerstörst du {target[ATTR_NAME]}!")
+                    target['state'] = STATE_BROKEN
+                    target['name'] = f"kaputte(s) {target['name']}"
+                    target['desc'] = "Völlig zerstört."
+                    game.tick(1)
+                else:
+                    game.log('info', f"{tool[ATTR_NAME]} ist nicht stark genug, um {target[ATTR_NAME]} zu zerstören.")
+
+            # --- Fall B: Zerstören OHNE Werkzeug (Hände) ---
+            else:
+                if target.get('state') == STATE_BROKEN:
+                    return game.log('info', f"{target[ATTR_NAME]} ist bereits kaputt.")
+                
+                # Check Fragilität
+                if target.get('fragile', False) or target.get('toughness', 1) == 0:
+                    game.log('success', f"Du zerstörst {target[ATTR_NAME]} mit bloßen Händen.")
+                    target['state'] = STATE_BROKEN
+                    target['name'] = f"kaputte(s) {target['name']}"
+                    game.tick(1)
+                else:
+                    game.log('info', f"Du kannst {target[ATTR_NAME]} nicht einfach so zerstören. Du brauchst wohl ein Werkzeug.")
+
+        except ResolutionError as e:
+            game.log('error', str(e))
 
     @staticmethod
-    def _generic_action(game, args, verb, required_state, success_msg, fail_msg):
+    def fix(game, args):
         if game.hidden_in: return game.log('error', Texts.ERR_HIDDEN)
-        clean_args = Resolver.clean_args(args)
+        
+        # Ähnlich wie break, könnte man "fix X with Y" erlauben
+        # Hier vereinfacht:
         try:
-            target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_RECURSIVE, verb=verb)
-            if target: 
-                if required_state and target.get('state') == required_state: 
+            target = Resolver.resolve_target(game, args, location_filter=FILTER_RECURSIVE, verb='fix')
+            
+            if target.get('state') == STATE_BROKEN:
+                # Check inventory for repair kit?
+                # Vereinfacht: Braucht "tool_kit" oder ähnliches
+                has_tools = any(o.get('is_tool', False) for o in game.objects.values() if o['location'] == LOC_INVENTORY)
+                
+                if has_tools:
                     target['state'] = STATE_NORMAL
-                    game.log('success', success_msg)
-                    game.tick(15)
-                elif verb == 'break' and target.get('type') == TYPE_CONTAINER and target.get('is_locked'):
-                    # FIX: Brachiale Methode (Benötigt Brecheisen)
-                    prying_tools = [o for o in game.objects.values() if o['location'] == LOC_INVENTORY and o.get('tool_type') == 'prying']
-                    if prying_tools:
-                        target['is_locked'] = False
-                        target['is_open'] = True
-                        game.log('success', f"Mit lautem Krachen bricht {target[ATTR_NAME]} auf.")
-                        game.tick(5)
-                    else:
-                        game.log('error', "Du brauchst ein Brecheisen.")
-                elif not required_state and verb != 'break':
-                    game.log('info', fail_msg)
+                    clean_name = target['name'].replace("kaputte(s) ", "").replace("broken ", "")
+                    target['name'] = clean_name
+                    game.log('success', f"Du hast {target[ATTR_NAME]} repariert.")
+                    game.tick(5)
                 else:
-                    # Fallback für Break wenn nicht locked oder falsches Ziel
-                    game.log('info', fail_msg)
-        except ResolutionError as e: game.log('error', str(e))
+                    game.log('error', "Du hast kein Werkzeug für eine Reparatur.")
+            elif target.get('state') == STATE_SABOTAGED:
+                game.log('info', "Das sieht nach Sabotage aus. Das ist komplizierter.")
+            else:
+                game.log('info', f"{target[ATTR_NAME]} scheint in Ordnung zu sein.")
+                
+        except ResolutionError as e:
+            game.log('error', str(e))
+
+    @staticmethod
+    def wait(game, args):
+        game.log('info', "Du wartest eine Weile...")
+        game.tick(10)
