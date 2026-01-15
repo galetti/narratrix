@@ -30,6 +30,7 @@ ATTR_ID = "id"
 ATTR_NAME = "name"
 ATTR_TEMP = "temp"
 ATTR_MATTER = "matter"
+ATTR_CLIMBABLE = "climbable" # NEU: Ist das Objekt bekletterbar?
 
 # Dialog & AI
 AI_CHANCE_MOVE_DEFAULT = 20

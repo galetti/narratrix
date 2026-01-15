@@ -92,22 +92,27 @@ class EventManager:
         if 'sound_msg' in event:
             origin = event.get('origin_id')
             
-            # WICHTIG: Informiere die KI über das Geräusch!
             if origin and hasattr(self.game.ai, 'notify_noise'):
-                # Default Volume 1.0 wenn nicht spezifiziert
                 volume = event.get('volume', 1.0)
                 self.game.ai.notify_noise(origin, volume)
 
-            # Player Feedback (Akustik für den Spieler)
             if origin and origin != self.game.location:
-                vol, direction = self.game.acoustics.get_audibility_info(origin, self.game.location)
+                vol, direction_str = self.game.acoustics.get_audibility_info(origin, self.game.location)
                 
                 if vol > 0.05: 
                     sound_msg = event.get('sound_msg', "Ein Geräusch.")
                     prefix = ""
                     if vol < 0.3: prefix = "(leise) "
                     elif vol > 0.8: prefix = "(LAUT) "
-                    self.game.log('event', f"Aus {direction} hörst du: {prefix}{sound_msg}")
+                    
+                    # Logik-Update: direction_str enthält jetzt schon die Präposition ("von Unten", "aus Norden")
+                    # Wir setzen "Aus " nur davor, wenn der String nicht mit einer Präposition beginnt (Fallback).
+                    # Da AcousticsSystem jetzt immer Präpositionen liefert, können wir es direkt nutzen.
+                    
+                    # Capitalize first letter if needed
+                    direction_formatted = direction_str[0].upper() + direction_str[1:]
+                    
+                    self.game.log('event', f"{direction_formatted} hörst du: {prefix}{sound_msg}")
             
             elif origin == self.game.location:
                 if 'description' not in event:

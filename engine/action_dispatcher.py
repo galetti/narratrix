@@ -32,6 +32,8 @@ class ActionDispatcher:
 
         # Movement
         'move': MovementHandler.handle, 'gehe': MovementHandler.handle, 'lauf': MovementHandler.handle,
+        # NEU: Klettern
+        'climb': MovementHandler.climb, 'klettere': MovementHandler.climb,
 
         # Dialogue
         'talk': DialogueHandler.talk, 'rede': DialogueHandler.talk, 'sprich': DialogueHandler.talk,

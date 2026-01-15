@@ -55,10 +55,6 @@ class AISystem:
 
     def _init_default_behaviors(self):
         # Standard-Verhalten: "Wache"
-        # 1. Wenn Geräusch gehört -> Untersuchen
-        # 2. Wenn Spieler gesehen -> Ansprechen (einmalig)
-        # 3. Sonst -> Patrouille oder Idle
-        
         self.trees['guard'] = Selector([
             Sequence([
                 Condition(self._cond_hear_noise),
@@ -73,8 +69,6 @@ class AISystem:
         ])
         
         # Standard-Verhalten: "Ängstlich"
-        # 1. Wenn Spieler nah -> Weglaufen
-        # 2. Sonst -> Zittern/Idle
         self.trees['fearful'] = Selector([
             Sequence([
                 Condition(self._cond_player_near),
@@ -86,16 +80,12 @@ class AISystem:
     def process_all_npcs(self, minutes=1):
         """Wird jeden Tick aufgerufen."""
         for npc in self.game.npcs:
-            # 1. Bewegung abarbeiten (Physik)
             self._handle_movement(npc, minutes)
             
-            # 2. Verhalten entscheiden (Gehirn)
-            behavior_id = npc.get('behavior_id', 'guard') # Default Behavior
+            behavior_id = npc.get('behavior_id', 'guard') 
             tree = self.trees.get(behavior_id)
             
             if tree:
-                # Wir führen den Baum aus. 
-                # Wichtig: Der Baum setzt Ziele (target_location), die _handle_movement dann ausführt.
                 tree.execute(npc, self)
 
     # --- CONDITIONS ---
@@ -104,9 +94,7 @@ class AISystem:
         return sys.game.location == npc['location']
 
     def _cond_player_near(self, npc, sys):
-        # Prüft, ob Spieler im gleichen oder Nachbarraum ist
         if sys.game.location == npc['location']: return True
-        # Nachbar-Check via Pathfinder Distanz 1
         path = sys.game.pathfinder.find_path(npc['location'], sys.game.location)
         return path and len(path) == 1
 
@@ -114,8 +102,6 @@ class AISystem:
         return not npc.get('has_greeted', False)
 
     def _cond_hear_noise(self, npc, sys):
-        # Prüfen, ob im 'memory' des NPC ein Lärm-Event gespeichert ist
-        # (Das Akustik-System müsste Events in NPC-Memory pushen)
         return npc.get('memory', {}).get('last_noise_loc') is not None
 
     # --- ACTIONS ---
@@ -131,37 +117,28 @@ class AISystem:
         return True
 
     def _act_flee(self, npc, sys):
-        # Finde Exit, der WEG vom Spieler führt
         current = npc['location']
         player_loc = sys.game.location
-        
         room = sys.game.rooms.get(current)
         best_exit = None
-        
         for direction, target in room.get('exits', {}).items():
             if target != player_loc:
                 best_exit = target
                 break
-        
         if best_exit:
             sys.move_npc(npc['id'], best_exit)
             return True
-        return False # Sackgasse!
+        return False 
 
     def _act_patrol(self, npc, sys):
-        # Einfache Patrouille zwischen Waypoints
         waypoints = npc.get('waypoints', [])
         if not waypoints: return False
-        
-        # Wenn wir noch laufen, tun wir nichts (Move System übernimmt)
         if npc.get('target_location'): return True
         
-        # Nächsten Waypoint wählen
         idx = npc.get('waypoint_index', 0)
         target = waypoints[idx]
         
         if npc['location'] == target:
-            # Angekommen, wähle nächsten
             idx = (idx + 1) % len(waypoints)
             npc['waypoint_index'] = idx
             target = waypoints[idx]
@@ -174,15 +151,14 @@ class AISystem:
         if not target: return False
         
         if npc['location'] == target:
-            # Angekommen
             sys.game.log('character', f"{npc[ATTR_NAME]} sieht sich suchend um.")
-            npc['memory']['last_noise_loc'] = None # Vergessen
+            npc['memory']['last_noise_loc'] = None 
             return True
             
         sys.move_npc(npc['id'], target)
         return True
 
-    # --- MOVEMENT LOGIC (aus vorigem Schritt übernommen) ---
+    # --- MOVEMENT LOGIC ---
 
     def move_npc(self, npc_id, target_room_id, instant=False):
         npc = self._find_npc(npc_id)
@@ -197,7 +173,6 @@ class AISystem:
         start_room = npc.get('location')
         if start_room == target_room_id: return
 
-        # Wenn wir schon auf dem Weg dahin sind, nicht neu berechnen
         if npc.get('target_location') == target_room_id and npc.get('path'):
             return
 
@@ -207,7 +182,6 @@ class AISystem:
             npc['target_location'] = target_room_id
             if 'move_acc' not in npc: npc['move_acc'] = 0.0
             
-            # Feedback nur wenn Spieler es sieht
             if self.game.location == start_room:
                 first_step = path[0]
                 direction = self._get_exit_direction(start_room, first_step)
@@ -254,7 +228,12 @@ class AISystem:
     def _get_exit_direction(self, source_id, target_id):
         room = self.game.rooms.get(source_id)
         if not room: return None
-        trans_map = {"north": "Norden", "south": "Süden", "east": "Osten", "west": "Westen", "up": "Oben", "down": "Unten"}
+        trans_map = {
+            "north": "Norden", "south": "Süden", "east": "Osten", "west": "Westen", 
+            "up": "Oben", "down": "Unten",
+            "northeast": "Nordosten", "northwest": "Nordwesten",
+            "southeast": "Südosten", "southwest": "Südwesten"
+        }
         for direction, dest in room.get('exits', {}).items():
             if dest == target_id: return trans_map.get(direction, direction)
         return None
@@ -262,18 +241,9 @@ class AISystem:
     def _find_npc(self, identifier):
         return next((n for n in self.game.npcs if n.get('id') == identifier or n.get('name') == identifier), None)
     
-    # NEU: Methode für das Akustik-System, um Lärm zu "hören"
     def notify_noise(self, origin_id, volume):
-        # Alle NPCs prüfen, ob sie es hören
         for npc in self.game.npcs:
-            # Einfache Distanzprüfung oder echte Akustik?
-            # Wir nutzen den vollen Akustik-Check vom NPC zum Origin
-            # Achtung: Das könnte teuer sein bei vielen NPCs.
-            # Vereinfachung: Nur NPCs im Radius oder mit direktem Link.
-            
-            # Hier simulieren wir es einfach, indem wir das Akustiksystem fragen
             vol, _ = self.game.acoustics.get_audibility_info(origin_id, npc['location'])
-            if vol > 0.2: # NPCs hören schlechter als Spieler? oder besser?
+            if vol > 0.2: 
                 if 'memory' not in npc: npc['memory'] = {}
                 npc['memory']['last_noise_loc'] = origin_id
-                # Optional: NPC sagt was ("Was war das?")

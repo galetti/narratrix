@@ -195,22 +195,25 @@ class GameGUI:
             self.font_log = pygame.font.SysFont("Consolas", theme.FONT_SIZE_LOG)
             self.font_header = pygame.font.SysFont("Verdana", theme.FONT_SIZE_HEADER, bold=True)
             self.font_big = pygame.font.SysFont("Verdana", theme.FONT_SIZE_GAME_OVER, bold=True)
+            self.font_sensor = pygame.font.SysFont("Consolas", 14) # Kleine Schrift für Sensoren
         except: 
             print("[WARN] Systemfonts nicht gefunden, nutze Fallback.")
             self.font_log = pygame.font.SysFont("Arial", theme.FONT_SIZE_LOG)
             self.font_header = pygame.font.SysFont("Arial", theme.FONT_SIZE_HEADER)
             self.font_big = pygame.font.SysFont("Arial", theme.FONT_SIZE_GAME_OVER)
+            self.font_sensor = pygame.font.SysFont("Arial", 12)
 
         self.renderer = RichTextRenderer(self.font_log, theme.COLOR_TEXT)
         self.assets = AssetLoader() 
         
-        # Threading Queue für Rückmeldungen vom Worker an den Main Thread
         self.result_queue = queue.Queue()
         
-        # WICHTIG: Lese Start-Kapitel aus Config, statt Hardcoding
         self.current_chapter = SYS_CONFIG['game'].get("start_chapter", "data.chapters.ep0_arrival.config")
         print(f"[SYSTEM] Starte mit Kapitel: {self.current_chapter}")
         self.load_game_chapter(self.current_chapter)
+        
+        # DEBUG FLAG: Setze auf True, um alle Logs auch unten zu sehen
+        self.show_all_logs_in_main = False
 
     def load_game_chapter(self, chapter_path, transfer_state=None):
         new_config = StoryLoader.load_chapter(chapter_path)
@@ -248,7 +251,6 @@ class GameGUI:
         self.submit_command("look", echo=False)
 
     def restart_game(self):
-        # Nutze wieder das konfigurierte Start-Kapitel
         self.current_chapter = SYS_CONFIG['game'].get("start_chapter", "data.chapters.ep0_arrival.config")
         self.load_game_chapter(self.current_chapter)
 
@@ -257,7 +259,6 @@ class GameGUI:
             self.handle_events(); self.update(); self.draw(); self.clock.tick(30)
 
     def handle_events(self):
-        # 1. Prüfen ob Worker fertig ist
         try:
             while not self.result_queue.empty():
                 msg = self.result_queue.get_nowait()
@@ -309,6 +310,11 @@ class GameGUI:
                         print("Clipboard copy success.")
                     except Exception as e: print(f"Clipboard Error: {e}")
                     continue
+                
+                # DEBUG TOGGLE: F1 umschalten der Log-Ansicht
+                elif event.key == pygame.K_F1:
+                    self.show_all_logs_in_main = not self.show_all_logs_in_main
+                    print(f"DEBUG: Show all logs = {self.show_all_logs_in_main}")
 
                 elif event.key == pygame.K_RETURN:
                     if self.user_text.strip():
@@ -348,8 +354,6 @@ class GameGUI:
         
         def worker():
             try:
-                # WICHTIG: GameState Lock wird innerhalb der Methoden (z.B. game.log) verwendet.
-                # Wir müssen nur sicherstellen, dass keine konkurrierenden Schreibzugriffe von außen kommen.
                 if self.game.dialogue_active:
                     ActionDispatcher.dialogue_step(self.game, text)
                 elif self.game.disambiguation:
@@ -360,11 +364,10 @@ class GameGUI:
                 print(f"[ERROR] Worker Thread Exception: {e}")
                 self.game.log('error', f"Systemfehler: {str(e)}")
             finally:
-                # Signal an Main Thread
                 self.result_queue.put("DONE")
 
         t = threading.Thread(target=worker)
-        t.daemon = True # Thread stirbt, wenn Main Thread stirbt
+        t.daemon = True 
         t.start()
 
     def update(self): 
@@ -379,7 +382,6 @@ class GameGUI:
                 "inventory_ids": [o['id'] for o in self.game.objects.values() if o['location'] == LOC_INVENTORY]
             }
             
-            # TODO: Auch diese Map sollte idealerweise in die Config oder dynamisch sein
             chapter_map = {
                 "ep1_station": "data.chapters.ep1_station.config",
                 "ep0_arrival": "data.chapters.ep0_arrival.config"
@@ -387,7 +389,6 @@ class GameGUI:
             
             path = chapter_map.get(target_chapter)
             if not path:
-                # Fallback: Versuche direkten Importpfad
                 if "data.chapters" in target_chapter: path = target_chapter
 
             if path:
@@ -397,7 +398,6 @@ class GameGUI:
                 self.game.pending_chapter_load = None
 
     def draw(self):
-        # Thread-Safety: get_snapshot nutzt intern self.lock
         snapshot = self.game.get_snapshot()
         self.screen.fill(theme.COLOR_BG); w, h = self.screen.get_size()
         
@@ -448,6 +448,17 @@ class GameGUI:
         if snap['stability'] < 50 and (self.cursor_blink // 15) % 2 == 0: bg_color = (40, 20, 20)
         pygame.draw.rect(self.screen, bg_color, rect)
         
+        # --- HEADER & STATUS ---
+        header_text = snap['dialogue_header'] if snap['dialogue_active'] else snap['room_name'].upper()
+        header_col = theme.COLOR_DIALOGUE_BORDER if snap['dialogue_active'] else theme.COLOR_ACCENT
+        
+        text_room = self.font_header.render(header_text, True, header_col)
+        self.screen.blit(text_room, (20, 20))
+        
+        surf_time = self.font_log.render(f"ZEIT: T+{snap['time']}m", True, theme.COLOR_TEXT)
+        self.screen.blit(surf_time, (20, 70))
+
+        # --- VISUALS (Rechts) ---
         max_h = rect.height - 40 
         max_w = int(rect.width * 0.4) 
         area_x = rect.width - max_w - 20
@@ -460,6 +471,10 @@ class GameGUI:
         room_img = self.assets.get_image(snap['room_img'])
         dialogue_img = self.assets.get_image(snap['dialogue_img']) if snap['dialogue_active'] else None
         
+        final_visual_rect = default_rect
+        bg_surf_to_draw = None
+        bg_pos = (0,0)
+        
         def get_scaled_rect_and_surf(img, max_w, max_h):
             o_w, o_h = img.get_size()
             aspect = o_w / o_h
@@ -467,10 +482,6 @@ class GameGUI:
             if t_w > max_w: t_w = max_w; t_h = int(t_w / aspect)
             return pygame.Rect(0, 0, t_w, t_h), pygame.transform.smoothscale(img, (t_w, t_h))
 
-        final_visual_rect = default_rect
-        bg_surf_to_draw = None
-        bg_pos = (0,0)
-        
         if room_img:
             r_rect, r_surf = get_scaled_rect_and_surf(room_img, max_w, max_h)
             draw_x = area_x + (max_w - r_rect.width) // 2
@@ -507,18 +518,88 @@ class GameGUI:
         border_col = theme.COLOR_DIALOGUE_BORDER if snap['dialogue_active'] else theme.COLOR_UI_BORDER
         pygame.draw.rect(self.screen, border_col, final_visual_rect, 2)
 
-        if snap['dialogue_active']: header_text = snap['dialogue_header']; header_col = theme.COLOR_DIALOGUE_BORDER
-        else: header_text = snap['room_name'].upper(); header_col = theme.COLOR_ACCENT
+        # --- SENSOR HUD (NEU: Oben Links) ---
+        sensor_x = 20
+        sensor_y = 110
+        sensor_width = rect.width - final_visual_rect.width - 60
         
-        text_room = self.font_header.render(header_text, True, header_col)
-        self.screen.blit(text_room, (20, 20))
+        # 1. Personen Scan
+        # Da wir im Snapshot keine NPCs haben (nur in 'logs'), müssen wir das besser lösen.
+        # Aktuell haben wir aber "Personen: Name" als Log-Typ 'character', wenn look ausgeführt wird.
+        # Besser: Wir nutzen get_snapshot() und greifen auf game.npcs zu?
+        # get_snapshot() gibt nur ein Dict zurück.
+        # Hack: Wir suchen in logs nach der letzten "Personen: ..." Zeile
         
-        surf_time = self.font_log.render(f"ZEIT: T+{snap['time']}m", True, theme.COLOR_TEXT)
-        self.screen.blit(surf_time, (20, 70))
+        # Aber halt! GameState.get_snapshot könnte auch direkt die NPCs im Raum liefern.
+        # Das wäre sauberer. Da ich GameState aber hier nicht ändern kann, nutzen wir den Log-Parsing-Hack
+        # oder wir hoffen auf ein zukünftiges Update.
+        # Für jetzt: Zeige einfach die letzte "Personen:" Meldung permanent an, wenn sie aktuell ist?
+        # Nein, zu fehleranfällig.
         
-        # ENTFERNT: Integritäts-Anzeige
-        # surf_stab = self.font_log.render(f"INTEGRITÄT: {snap['stability']}%", True, theme.COLOR_ACCENT if snap['stability'] > 50 else theme.COLOR_ALERT)
-        # self.screen.blit(surf_stab, (20, 95))
+        # Besser: Sensor Log (Events & Character Actions)
+        # Sammle Logs für HUD
+        hud_logs = []
+        # Wir durchsuchen rückwärts
+        for l in reversed(snap['logs']):
+            if l['type'] in ['event', 'character']:
+                # Filter '---' (Dialog-Trenner) und 'Personen:' (Statusmeldungen)
+                if '---' in l['text']: continue
+                if l['text'].startswith("Personen:"): continue 
+                hud_logs.append(l)
+            if len(hud_logs) >= 5: break # Max 5 Einträge
+        
+        # 1. Überschrift: PERSONEN IM RAUM
+        # Wir scannen die Logs nach "Personen: X, Y" (wird von ExplorationHandler.look erzeugt)
+        last_people_log = None
+        for l in reversed(snap['logs']):
+            if l['type'] == 'character' and l['text'].startswith("Personen:"):
+                # Prüfen ob dieser Log seit dem letzten Raumwechsel war?
+                # Wir nehmen einfach den allerletzten.
+                last_people_log = l['text'].replace("Personen: ", "")
+                break
+        
+        if last_people_log:
+            lbl = self.font_sensor.render("SCAN: LEBENSFORMEN", True, (100, 255, 100))
+            self.screen.blit(lbl, (sensor_x, sensor_y))
+            sensor_y += 20
+            
+            people = last_people_log.split(", ")
+            for p in people:
+                surf = self.font_sensor.render(f" [!] {p}", True, (150, 255, 150))
+                self.screen.blit(surf, (sensor_x, sensor_y))
+                sensor_y += 18
+            sensor_y += 10 # Abstand
+            
+        pygame.draw.line(self.screen, (50, 50, 60), (sensor_x, sensor_y), (sensor_x + 200, sensor_y), 1)
+        sensor_y += 10
+        
+        # 2. Sensor Log (Events)
+        lbl = self.font_sensor.render("SENSOR LOG:", True, (100, 150, 200))
+        self.screen.blit(lbl, (sensor_x, sensor_y))
+        sensor_y += 20
+        
+        # Zeige Logs (Neueste oben? Nein, Liste ist reversed -> index 0 ist neueste)
+        # Wir wollen Neueste UNTEN oder OBEN? Sensor Logs laufen meist von unten nach oben oder oben nach unten.
+        # Hier: Neueste OBEN (unter dem Label).
+        
+        for i, log in enumerate(hud_logs):
+            # Alpha/Farbe berechnen (Dimmen älterer Beiträge)
+            # Index 0 = Hell, Index 2+ = Dunkel
+            brightness = 255
+            if i == 1: brightness = 200
+            elif i == 2: brightness = 150
+            elif i >= 3: brightness = 100 # Stark gedimmt
+            
+            base_col = (brightness, brightness, brightness)
+            if log['type'] == 'event': base_col = (brightness, int(brightness*0.8), 50) # Orange-ish
+            elif log['type'] == 'character': base_col = (int(brightness*0.4), int(brightness*0.8), brightness) # Blue-ish
+            
+            txt = log['text']
+            if len(txt) > 55: txt = txt[:52] + "..."
+            
+            surf = self.font_sensor.render(f"> {txt}", True, base_col)
+            self.screen.blit(surf, (sensor_x, sensor_y))
+            sensor_y += 18
 
     def draw_log_area(self, rect, snap):
         padding_x = theme.PADDING; padding_y = theme.PADDING
@@ -527,6 +608,20 @@ class GameGUI:
         render_rows = []
         
         for log in snap['logs']: 
+            # FILTERUNG:
+            # Wenn Debug-Flag NICHT gesetzt ist, filtern wir Sensor-Nachrichten aus dem Haupt-Log
+            if not self.show_all_logs_in_main:
+                if log['type'] in ['event', 'character']:
+                    # Ausnahme: Dialog-Trenner und "Personen:" Listen sollen vielleicht bleiben?
+                    # Nein, "Personen" ist jetzt im HUD. Dialoge sollten im Log bleiben.
+                    # Dialoge sind meist 'character' type. Das ist tricky.
+                    # Dialoge haben Anführungszeichen oder Doppelpunkt.
+                    if '---' in log['text']: pass # Trenner behalten
+                    elif '"' in log['text']: pass # Gesprochener Text behalten
+                    elif log['text'].startswith("Personen:"): continue # Filtern (ist im HUD)
+                    else:
+                        continue # Allgemeine Events/Bewegungen filtern (sind im HUD)
+
             base_color = theme.COLOR_TEXT
             prefix = ""
             
@@ -577,6 +672,7 @@ class GameGUI:
             pygame.draw.rect(self.screen, theme.COLOR_ACCENT, (rect.right - 10, bar_y, 4, bar_height))
 
     def draw_input_area(self, rect, snap):
+        # ... (unverändert) ...
         pygame.draw.rect(self.screen, (0, 0, 0), rect)
         padding = theme.PADDING
         prompt = "> "
@@ -599,6 +695,7 @@ class GameGUI:
             pygame.draw.line(self.screen, theme.COLOR_INPUT, (cursor_x, cursor_y), (cursor_x, cursor_y + cursor_h), 2)
 
     def draw_loading_spinner(self, w, h, snap):
+        # ... (unverändert) ...
         center_x, center_y = w - 30, h - 25
         angle = (self.cursor_blink * theme.CURSOR_BLINK_SPEED) % 360
         radius = 10

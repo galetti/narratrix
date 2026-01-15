@@ -1,9 +1,15 @@
 from engine.constants import *
 from collections import deque
+import math
 
 class AcousticsSystem:
     def __init__(self, game):
         self.game = game
+        # Konfigurierbare Reichweite für Optimierung
+        # Angenommen: Transmission ist im Schnitt 0.9 pro Raum.
+        # 0.9^x < 0.05 (Hörschwelle) -> x ≈ 28 Räume.
+        # Bei geschlossenen Türen (0.2) -> 0.2^x < 0.05 -> x ≈ 2 Räume.
+        self.max_propagation_distance = 20 # Sicherheitslimit für Pathfinder
 
     def get_audibility_info(self, source_room_id, listener_room_id):
         """
@@ -13,7 +19,41 @@ class AcousticsSystem:
         if source_room_id == listener_room_id:
             return 1.0, "hier"
 
+        # Optimierung: Distanz-Check VOR teurer Pfadsuche
+        if not self._is_potentially_audible(source_room_id, listener_room_id):
+            return 0.0, ""
+
         return self._calculate_sound_from_listener_perspective(listener_room_id, source_room_id)
+
+    def _is_potentially_audible(self, source_id, listener_id):
+        """
+        Schneller Check, ob es sich überhaupt lohnt, Pfade zu berechnen.
+        Nutzt Koordinaten (falls vorhanden) für Heuristik.
+        """
+        room_s = self.game.rooms.get(source_id)
+        room_l = self.game.rooms.get(listener_id)
+        
+        if not room_s or not room_l: return False
+        
+        # Koordinaten aus Editor-Daten nutzen (falls vorhanden)
+        ed_s = room_s.get('_editor', {})
+        ed_l = room_l.get('_editor', {})
+        
+        if 'x' in ed_s and 'x' in ed_l:
+            # Einfache Euklidische Distanz im Grid (Skalierung beachten!)
+            # Annahme: Grid Size im Editor ist ca. 100-150px pro Raum.
+            # Wir normalisieren das grob auf "Raum-Einheiten".
+            dx = (ed_s['x'] - ed_l['x']) / 100.0
+            dy = (ed_s['y'] - ed_l['y']) / 100.0
+            dz = (ed_s.get('z', 0) - ed_l.get('z', 0)) * 2 # Z zählt mehr (Decken dämpfen stark)
+            
+            dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+            
+            # Wenn Distanz > Max Reichweite -> Abbruch
+            if dist > self.max_propagation_distance:
+                return False
+                
+        return True
 
     def _calculate_sound_from_listener_perspective(self, listener_id, source_id):
         tool_bonus = 0.0
@@ -31,13 +71,26 @@ class AcousticsSystem:
         if not listener_room: return 0.0, ""
 
         trans_map = {
-            "north": "Norden", "south": "Süden", "east": "Osten", "west": "Westen", 
-            "up": "Oben", "down": "Unten", "out": "Draußen"
+            "north": ("Norden", "aus"), 
+            "south": ("Süden", "aus"), 
+            "east": ("Osten", "aus"), 
+            "west": ("Westen", "aus"), 
+            "up": ("Oben", "von"), 
+            "down": ("Unten", "von"), 
+            "out": ("Draußen", "von"),
+            "northeast": ("Nordosten", "aus"), 
+            "northwest": ("Nordwesten", "aus"),
+            "southeast": ("Südosten", "aus"), 
+            "southwest": ("Südwesten", "aus")
         }
 
         # --- A. Exits ---
         for direction, neighbor_id in listener_room.get('exits', {}).items():
             trans_local = self._calculate_exit_transmission(listener_id, direction)
+            
+            # WICHTIG: Wenn der Ausgang schon fast dicht ist, brechen wir diesen Zweig ab
+            if trans_local <= 0.01: continue
+
             vol_at_neighbor = self._get_volume_at_room(source_id, neighbor_id, visited={listener_id})
             
             total_vol = vol_at_neighbor * trans_local
@@ -47,7 +100,8 @@ class AcousticsSystem:
 
             if total_vol > max_vol:
                 max_vol = total_vol
-                direction_str = trans_map.get(direction, direction)
+                name, prep = trans_map.get(direction, (direction, "aus"))
+                direction_str = f"{prep} {name}"
 
         # --- B. Wände & Acoustics ---
         acoustics = listener_room.get('acoustics', {}).copy()
@@ -55,6 +109,9 @@ class AcousticsSystem:
             wall_trans = data if isinstance(data, float) else data.get('transmission', 0.0)
             custom_dir_text = data.get('direction_text') if isinstance(data, dict) else None
             
+            # WICHTIG: Wanddichte Check
+            if wall_trans <= 0.01: continue
+
             if neighbor_id not in self.game.rooms: continue
             
             vol_at_neighbor = self._get_volume_at_room(source_id, neighbor_id, visited={listener_id})
@@ -65,23 +122,36 @@ class AcousticsSystem:
             
             if total_vol > max_vol:
                 max_vol = total_vol
-                if custom_dir_text: direction_str = custom_dir_text
+                if custom_dir_text: 
+                    direction_str = custom_dir_text 
                 else:
                     n_room = self.game.rooms.get(neighbor_id)
                     n_exits = n_room.get('exits', {})
-                    if n_exits.get('down') == listener_id: direction_str = "Oben (durch die Decke)"
-                    elif n_exits.get('up') == listener_id: direction_str = "Unten (durch den Boden)"
-                    else: direction_str = f"der Wand zu {n_room[ATTR_NAME]}"
+                    if n_exits.get('down') == listener_id: direction_str = "von Oben (durch die Decke)"
+                    elif n_exits.get('up') == listener_id: direction_str = "von Unten (durch den Boden)"
+                    else: direction_str = f"hinter der Wand zu {n_room[ATTR_NAME]}"
 
+        # Cutoff: Wenn Lautstärke mikroskopisch klein ist, betrachte es als 0
+        if max_vol < 0.01: return 0.0, ""
+        
         return max_vol, direction_str
 
     def _get_volume_at_room(self, source_id, current_id, visited):
         if source_id == current_id: return 1.0
         if current_id in visited: return 0.0
         
+        # Performance: Nutze limitierte Pfadsuche (nicht unendlich tief)
+        # Wir modifizieren find_path aber nicht, da er BFS ist (kürzester Weg zuerst).
+        # Aber wir können prüfen, ob der Weg zu lang ist.
+        
         path = self.game.pathfinder.find_path(source_id, current_id)
+        
+        # Optimierung: Wenn Weg zu lang für Akustik, brich ab.
+        # Annahme: Selbst bei offener Tür (0.9) ist nach 30 Räumen Stille (0.9^30 = 0.04)
+        if path and len(path) > 30: 
+            return 0.0
+
         if not path:
-            # Fallback Check
             s_room = self.game.rooms.get(source_id)
             if s_room and current_id in s_room.get('acoustics', {}):
                 trans = self._get_transmission_between(source_id, current_id)
@@ -94,6 +164,7 @@ class AcousticsSystem:
             trans = self._get_transmission_between(trace_room, step_room)
             volume *= trans
             trace_room = step_room
+            # WICHTIG: Early Exit während der Berechnung
             if volume <= 0.01: return 0.0
             
         return volume

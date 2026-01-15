@@ -47,7 +47,7 @@ class StoryLoader:
             final_matrix = copy.deepcopy(common_data.get('matrix', []))
             final_matrix.extend(copy.deepcopy(chapter_data.get('matrix', [])))
 
-            # Dynamische Events (Umgebung, Timer, Trigger) - WICHTIG: Hier fehlte der Merge!
+            # Dynamische Events (Umgebung, Timer, Trigger)
             final_events = copy.deepcopy(common_data.get('events', []))
             final_events.extend(copy.deepcopy(chapter_data.get('events', [])))
 
@@ -65,7 +65,7 @@ class StoryLoader:
                 "objects": final_objects,
                 "combinations": final_combinations,
                 "narrative_matrix": final_matrix,
-                "events": final_events, # NEU: Events werden jetzt zurückgegeben
+                "events": final_events,
                 "npcs": final_npcs,
                 "quests": final_quests
             }
@@ -123,7 +123,9 @@ class StoryLoader:
                 "hack": ["hack", "hacken", "zugriff", "system", "override"],
                 "help": ["hilfe", "help", "h", "?", "commands", "befehle"],
                 "hide": ["verstecke", "hide", "krieche", "duck"],
-                "journal": ["journal", "logbuch", "aufgaben", "quests", "ziele", "j"]
+                "journal": ["journal", "logbuch", "aufgaben", "quests", "ziele", "j"],
+                # NEU: Klettern
+                "climb": ["klettere", "climb", "steige", "erklimme"]
             },
             "directions": {
                 # Klassisches Set
@@ -132,9 +134,12 @@ class StoryLoader:
                 "east": ["e", "ost", "osten"],
                 "west": ["w", "west", "westen"],
                 "up": ["u", "up", "oben", "rauf"],
-                "down": ["d", "down", "unten", "runter"]
-                # "in" und "out" sind entfernt!
+                "down": ["d", "down", "unten", "runter"],
+                # NEU: Diagonale
+                "northeast": ["ne", "no", "nordost", "nordosten"],
+                "northwest": ["nw", "nordwest", "nordwesten"],
+                "southeast": ["se", "so", "südost", "südosten"],
+                "southwest": ["sw", "südwest", "südwesten"]
             },
-            # "in" und "out" sind jetzt Skip-Words, damit Sätze wie "gehe in den Raum" funktionieren
             "skip_words": ["der", "die", "das", "dem", "den", "ein", "eine", "einen", "mit", "zum", "zur", "im", "am", "auf", "in", "aus", "out"]
         }
