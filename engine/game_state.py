@@ -1,4 +1,3 @@
-# narratrix_engine/engine/game_state.py
 import copy
 import re
 import threading
@@ -35,6 +34,8 @@ class GameState:
             start_room = list(config['rooms'].keys())[0] if config['rooms'] else LOC_VOID
 
         self.location = start_room
+        self.elevation = 0 # NEU: Vertikale Ebene im Raum (0 = Boden)
+        
         self.inventory = []
         self.stability = 100
         self.game_over = False
@@ -77,7 +78,6 @@ class GameState:
         
         self.events = EventManager(self)
         
-        # Events laden
         all_events = self.matrix + self.dynamic_events
         self.events.load_events(all_events)
         
@@ -110,6 +110,7 @@ class GameState:
         with self.lock:
             new_state.time = self.time
             new_state.location = self.location
+            new_state.elevation = self.elevation # NEU
             new_state.stability = self.stability
             new_state.game_over = self.game_over
             new_state.knowledge = copy.deepcopy(self.knowledge)
@@ -137,6 +138,10 @@ class GameState:
         
         text = room[ATTR_DESC]
         
+        # NEU: Spezielle Beschreibung abhängig von der Ebene/Höhe?
+        # Man könnte hier prüfen, ob der Raum unterschiedliche Beschreibungen pro Level hat.
+        # Für jetzt belassen wir es beim Standardtext.
+        
         def replace_match(match):
             key = match.group(1)
             obj = self.objects.get(key)
@@ -155,10 +160,17 @@ class GameState:
                 
             return f"ERROR:{key}"
             
-        return re.sub(r"\{(\w+)\}", replace_match, text)
+        desc = re.sub(r"\{(\w+)\}", replace_match, text)
+        
+        # Zusatzinfo für Elevation
+        if self.elevation > 0:
+            desc += f"\n(Du befindest dich auf Ebene {self.elevation}.)"
+            
+        return desc
 
     def log(self, type_str, text):
         if self.silent: return 
+        
         with self.lock:
             self.logs.append({"type": type_str, "text": text, "turn": self.time})
 
@@ -181,7 +193,9 @@ class GameState:
                 "dialogue_active": self.dialogue_active,
                 "dialogue_header": f"GESPRÄCH: {partner_name.upper()}" if partner_name else "",
                 "dialogue_img": partner_img if partner_img else (partner_name if partner_name else "???"),
-                "logs": list(self.logs)
+                "logs": list(self.logs),
+                # NEU: Info für GUI (könnte man z.B. im Sensor Log anzeigen)
+                "elevation": self.elevation
             }
 
     def get_room(self, room_id): return self.rooms.get(room_id)
@@ -212,14 +226,10 @@ class GameState:
             traceback.print_exc()
             self.log('error', f"Systemfehler (Events): {e}")
 
-        # UPDATE: Wir übergeben 'minutes' an das AI System!
         if hasattr(self.ai, 'process_all_npcs'): 
-            # Check signatur (falls AI System noch alt ist, safety check)
-            # Da wir AI System aber kontrollieren, rufen wir es direkt mit Argument auf
             try:
                 self.ai.process_all_npcs(minutes)
             except TypeError:
-                # Fallback für altes AI System ohne Argument
                 self.ai.process_all_npcs()
 
         if hasattr(self.object_behavior, 'update'): self.object_behavior.update()
@@ -231,12 +241,13 @@ class GameState:
     def serialize_state(self):
         return {
             "location": self.location, "time": self.time, "stability": self.stability,
+            "elevation": self.elevation, # NEU
             "knowledge": list(self.knowledge), "rooms": self.rooms,   
             "objects": self.objects, "npcs": self.npcs,     
             "quests": self.quests.get_save_data(), 
             "events": self.events.events, 
             "combinations": self.combinations,
-            "meta": {"version": "1.3"} 
+            "meta": {"version": "1.4"} 
         }
 
     def deserialize_state(self, data):
@@ -244,6 +255,7 @@ class GameState:
             self.location = data.get("location", "start_room")
             self.time = data.get("time", 0)
             self.stability = data.get("stability", 100)
+            self.elevation = data.get("elevation", 0) # NEU
             self.knowledge = set(data.get("knowledge", []))
             
             if "rooms" in data: self.rooms = data["rooms"]

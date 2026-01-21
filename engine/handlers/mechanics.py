@@ -30,7 +30,7 @@ class MechanicsHandler:
                 return game.log('error', "Das geht physikalisch nicht.")
             
             # Logic: Ist es ein Container/Surface?
-            if target.get('type') not in [TYPE_CONTAINER, TYPE_SURFACE, TYPE_FIXTURE]: # Fixture als Ablage ok?
+            if target.get('type') not in [TYPE_CONTAINER, TYPE_SURFACE, TYPE_FIXTURE]: 
                 return game.log('error', f"Du kannst nichts in oder auf {target[ATTR_NAME]} legen.")
                 
             if target.get('type') == TYPE_CONTAINER and not target.get('is_open', False):
@@ -38,6 +38,9 @@ class MechanicsHandler:
 
             # Verschieben
             item['location'] = target[ATTR_ID]
+            # NEU: Item übernimmt Level des Containers/Surface
+            item['level'] = target.get('level', 0)
+            
             game.log('success', f"Du legst {item[ATTR_NAME]} in/auf {target[ATTR_NAME]}.")
             game.tick(1)
             
@@ -54,43 +57,78 @@ class MechanicsHandler:
         
         if sep_indices:
             # Kombinationsversuch
-            idx = sep_indices[-1] # Nimm das letzte "mit", falls Namen auch "mit" enthalten (selten)
+            idx = sep_indices[-1] 
             obj1_words = args[:idx]
             obj2_words = args[idx+1:]
             
             obj1_name = " ".join(obj1_words)
             obj2_name = " ".join(obj2_words)
             
-            # Wir nutzen direkt perform_combine des GameState, das Resolver nutzt
+            # 1. Standard: Versuche Crafting/Interaktion via GameState
             result = game.perform_combine(obj1_name, obj2_name, verb="use")
             
-            # Feedback-Interpretation (perform_combine gibt String zurück)
-            if "nichts" in result.lower() or "nicht" in result.lower() and "funktionier" in result.lower():
-                 game.log('info', result)
-            else:
+            # Prüfen ob es ein Fehler war (Heuristik basierend auf Standard-Antworten)
+            is_failure = "scheint nicht" in result or "weiß nicht" in result or "nicht zu funktionieren" in result
+            
+            if not is_failure:
                  game.log('success', result)
                  game.tick(2)
+                 return
+
+            # 2. Smart Fallback: "Reach" Scenario (Zange mit Karte -> Nimm Karte)
+            # Wenn Crafting fehlschlägt, prüfen wir, ob der Spieler eigentlich etwas nehmen wollte.
+            try:
+                # Import hier um Zirkelbezüge auf Modulebene zu vermeiden
+                from engine.handlers.inventory import InventoryHandler
+                
+                # Wir lösen die Objekte auf, um ihre Eigenschaften zu prüfen
+                o1 = Resolver.resolve_target(game, obj1_words, location_filter=FILTER_RECURSIVE)
+                o2 = Resolver.resolve_target(game, obj2_words, location_filter=FILTER_RECURSIVE)
+                
+                tool = None
+                target = None
+                
+                # Hilfsfunktion: Ist es ein Greifwerkzeug?
+                def is_reach_tool(o): return o and o.get('is_tool') and o.get('reach', 0) > 0
+                
+                # Fall A: "Benutze Zange mit Karte" (o1=Tool, o2=Target)
+                if is_reach_tool(o1) and o2 and o2['location'] != LOC_INVENTORY:
+                    tool = o1; target = o2
+                    # Argumente für Take: [target] mit [tool]
+                    take_args = obj2_words + ["mit"] + obj1_words
+                    
+                # Fall B: "Benutze Karte mit Zange" (o1=Target, o2=Tool)
+                elif is_reach_tool(o2) and o1 and o1['location'] != LOC_INVENTORY:
+                    tool = o2; target = o1
+                    take_args = obj1_words + ["mit"] + obj2_words
+                
+                if tool and target:
+                    # Umleitung zum InventoryHandler
+                    game.log('info', f"(Versuche, {target[ATTR_NAME]} mit {tool[ATTR_NAME]} zu nehmen...)")
+                    InventoryHandler.take(game, take_args)
+                    return
+
+            except ResolutionError:
+                # Wenn Auflösung fehlschlägt, zeigen wir einfach den originalen Fehler
+                pass
+
+            # Wenn kein Fallback griff, zeige den originalen Crafting-Fehler
+            game.log('info', result)
         else:
             # Einzelnutzung (Schalter drücken etc.)
             try:
                 target = Resolver.resolve_target(game, args, location_filter=FILTER_RECURSIVE, verb='use')
                 
-                # Checke, ob das Item eine 'use' Funktion in den Daten hat (Events)
-                # Oder generische Schalter-Logik
                 if target.get('type') == TYPE_FIXTURE or target.get('usable', False):
-                    # Einfaches Toggle Beispiel
                     if 'state' in target:
                         old_state = target['state']
                         new_state = "on" if old_state == "off" else "off"
                         target['state'] = new_state
                         game.log('success', f"Du benutzt {target[ATTR_NAME]}. (Zustand: {new_state})")
-                        
-                        # Trigger Events basierend auf State Change? -> Passiert via EventManager check
                     else:
                         game.log('info', f"Du benutzt {target[ATTR_NAME]}, aber nichts passiert.")
                     game.tick(1)
                 else:
-                    # Wenn nicht direkt benutzbar, merken wir es uns für den nächsten Klick als "Pending Combine"
                     game.pending_interaction = {'verb': 'use', 'args': args}
                     game.log('info', f"Was willst du mit {target[ATTR_NAME]} benutzen?")
                     
@@ -129,7 +167,6 @@ class MechanicsHandler:
         """
         if game.hidden_in: return game.log('error', Texts.ERR_HIDDEN)
         
-        # 1. Argumente trennen (Ziel vs. Werkzeug)
         separators = ["mit", "with", "in", "using", "an", "gegen"]
         sep_indices = [i for i, w in enumerate(args) if w.lower() in separators]
         
@@ -138,7 +175,7 @@ class MechanicsHandler:
         separator_used = ""
         
         if sep_indices:
-            idx = sep_indices[0] # Erstes Vorkommen trennt
+            idx = sep_indices[0] 
             separator_used = args[idx].lower()
             target_words = args[:idx]
             tool_words = args[idx+1:]
@@ -150,53 +187,32 @@ class MechanicsHandler:
             
             # --- Fall A: Zerstören MIT/IN etwas ---
             if tool_words:
-                # Wir lösen das Werkzeug auf
                 tool = Resolver.resolve_target(game, tool_words, location_filter=FILTER_RECURSIVE, verb='break_tool')
-                
-                # Check 1: Gibt es ein explizites Crafting-Rezept für "break"?
-                # Wir bauen die Namen zusammen für perform_combine
-                # Achtung: perform_combine erwartet Strings, keine Objekte
-                
-                # Wir nutzen die Resolver-Logik in perform_combine nicht direkt, sondern rufen das System manuell auf,
-                # da wir die Objekte schon haben. Aber perform_combine ist auf Namen ausgelegt.
-                # Wir rufen es einfach auf, da es robust ist.
                 
                 target_name_str = " ".join(target_words)
                 tool_name_str = " ".join(tool_words)
                 
-                # Wir "missbrauchen" das Crafting System mit dem Verb "break"
+                # "Missbrauch" des Crafting Systems für 'break'
                 result = game.perform_combine(target_name_str, tool_name_str, verb="break")
-                
-                # Wenn perform_combine kein Rezept findet, gibt es oft einen Standard-Fehler zurück.
-                # Wir wollen aber unsere eigene Fallback-Logik, falls es kein Rezept gibt.
-                # Da perform_combine Strings zurückgibt, ist das Parsen schwer.
-                # Besser: Wir schauen direkt in die Kombinationen des GameState.
                 
                 found_recipe = False
                 for combo in game.combinations:
                     items = combo.get('items', [])
                     if len(items) != 2: continue
                     
-                    # Check, ob IDs passen (Reihenfolge egal)
                     ids = [target[ATTR_ID], tool[ATTR_ID]]
                     if set(items) == set(ids):
-                        # Check Verb
                         if combo.get('verb') == 'break':
-                            # Treffer! Führe aus via GameState
                             msg = game.crafting._execute_combination(combo, [target, tool])
                             game.log('success', msg)
                             game.tick(1)
                             return
                 
                 # --- Fallback: Generische Physik ---
-                # Wenn kein spezielles Rezept da ist ("Hammer auf Glas"), prüfen wir Attribute
-                
-                # Beispiel: Tool hat 'damage' Wert, Target hat 'toughness'
-                tool_dmg = tool.get('damage', 1) # Standard 1
-                target_hp = target.get('toughness', 1) # Standard 1
+                tool_dmg = tool.get('damage', 1) 
+                target_hp = target.get('toughness', 1) 
                 
                 if separator_used in ["in", "im"]:
-                    # Kontext "in": Z.B. "Wirf Papier in Ofen"
                     if tool.get('type') == TYPE_CONTAINER or tool.get('type') == TYPE_FIXTURE:
                         if tool.get('state') == 'on' or tool.get('hot', False):
                             game.log('success', f"Du zerstörst {target[ATTR_NAME]} in {tool[ATTR_NAME]}.")
@@ -221,7 +237,6 @@ class MechanicsHandler:
                 if target.get('state') == STATE_BROKEN:
                     return game.log('info', f"{target[ATTR_NAME]} ist bereits kaputt.")
                 
-                # Check Fragilität
                 if target.get('fragile', False) or target.get('toughness', 1) == 0:
                     game.log('success', f"Du zerstörst {target[ATTR_NAME]} mit bloßen Händen.")
                     target['state'] = STATE_BROKEN
@@ -237,14 +252,10 @@ class MechanicsHandler:
     def fix(game, args):
         if game.hidden_in: return game.log('error', Texts.ERR_HIDDEN)
         
-        # Ähnlich wie break, könnte man "fix X with Y" erlauben
-        # Hier vereinfacht:
         try:
             target = Resolver.resolve_target(game, args, location_filter=FILTER_RECURSIVE, verb='fix')
             
             if target.get('state') == STATE_BROKEN:
-                # Check inventory for repair kit?
-                # Vereinfacht: Braucht "tool_kit" oder ähnliches
                 has_tools = any(o.get('is_tool', False) for o in game.objects.values() if o['location'] == LOC_INVENTORY)
                 
                 if has_tools:

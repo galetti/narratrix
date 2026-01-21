@@ -8,14 +8,10 @@ class InventoryHandler:
 
     @staticmethod
     def inventory(game, args):
-        """Zeigt das Inventar an, gruppiert Ressourcen."""
         items = [o for o in game.objects.values() if o['location'] == LOC_INVENTORY]
         
         display_list = []
-        
-        # 1. Normale Items sammeln
         normal_items = []
-        # 2. Ressourcen sammeln (Dict: id -> {name, count})
         resources = {}
         
         for item in items:
@@ -34,11 +30,9 @@ class InventoryHandler:
             else:
                 normal_items.append(item)
                 
-        # 3. Ressourcen formatieren
         for res in resources.values():
             display_list.append(f"{res['count']}x {res['name']}")
             
-        # 4. Normale Items formatieren
         for item in normal_items:
             name = item[ATTR_NAME]
             if CommonHandler.is_open_container(item):
@@ -55,19 +49,37 @@ class InventoryHandler:
     def take(game, args):
         if game.hidden_in: return game.log('error', Texts.ERR_HIDDEN)
         
+        # Check "take X with Y"
+        separators = ["mit", "with", "using"]
+        sep_indices = [i for i, w in enumerate(args) if w.lower() in separators]
+        
+        item_words = args
+        tool_words = []
+        
+        if sep_indices:
+            idx = sep_indices[0]
+            item_words = args[:idx]
+            tool_words = args[idx+1:]
+
         if any(w in args for w in ["all", "alles", "alle"]):
+            # Alles nehmen (nur reachable)
             candidates = Resolver._collect_candidates(game, FILTER_RECURSIVE)
             candidates = [o for o in candidates if o['location'] != LOC_INVENTORY and o.get(ATTR_WEIGHT, float('inf')) < float('inf')]
             taken = []
             for item in candidates:
                 if item.get(ATTR_MATTER) == MATTER_LIQUID: continue
                 
-                # Ressource Merge Check
+                # Check Reach (Reichweite)
+                # Man kann Items auf der gleichen Ebene ODER eine Ebene höher nehmen (Tisch)
+                item_level = item.get('level', 0)
+                if not (item_level == game.elevation or item_level == game.elevation + 1): 
+                    continue
+
                 if item.get('is_resource'):
                     existing = InventoryHandler._find_resource_in_inventory(game, item[ATTR_ID])
                     if existing:
                         existing['count'] = existing.get('count', 1) + item.get('count', 1)
-                        item['location'] = LOC_VOID # Original entfernen (Merge)
+                        item['location'] = LOC_VOID 
                         taken.append(f"{item.get('count',1)}x {item[ATTR_NAME]}")
                         continue
                 
@@ -77,25 +89,67 @@ class InventoryHandler:
             if taken:
                 game.log('success', f"Genommen: {', '.join(taken)}")
                 game.tick(len(taken))
-            else: game.log('info', Texts.TAKE_NOTHING)
+            else: game.log('info', "Nichts Greifbares hier.")
             return
 
-        clean_args = Resolver.clean_args(args)
+        clean_args = Resolver.clean_args(item_words)
         try:
             target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_RECURSIVE, verb='take')
             if target:
                 if target['location'] == LOC_INVENTORY: return game.log('info', Texts.TAKE_ALREADY)
+                
+                # Vertikaler Check
+                item_level = target.get('level', 0)
+                player_level = game.elevation
+                
+                # Erlaubt: Gleiche Ebene oder +1 (Tischhöhe)
+                is_reachable = (item_level == player_level) or (item_level == player_level + 1)
+                
+                if not is_reachable:
+                    can_reach = False
+                    dist = abs(item_level - player_level)
+                    
+                    # Tool Check
+                    if tool_words:
+                        try:
+                            tool = Resolver.resolve_target(game, tool_words, location_filter=FILTER_INVENTORY, verb='tool')
+                            reach = tool.get('reach', 0)
+                            # Wenn wir das Tool nutzen, addieren wir die Reichweite
+                            # Ein Tool mit reach 1 macht item_level+1 erreichbar von item_level-1?
+                            # Einfach: Distanz muss <= Reichweite + Standard-Armlänge (1 Ebene nach oben ist Standard)
+                            
+                            # Wenn Item höher ist: Standard reach ist 1. Tool addiert dazu.
+                            # Wenn Item tiefer ist: Standard reach ist 0 (bücken ist keine Tool action hier, sondern climb down).
+                            # Aber mit Stange kann man auch nach unten angeln.
+                            
+                            if reach >= dist: # Vereinfacht: Tool Reichweite überbrückt die komplette Distanz
+                                can_reach = True
+                                game.log('info', f"Du benutzt {tool[ATTR_NAME]}, um {target[ATTR_NAME]} zu erreichen.")
+                            else:
+                                game.log('error', f"{tool[ATTR_NAME]} ist nicht lang genug.")
+                                return
+                        except ResolutionError:
+                            game.log('error', "Du hast dieses Werkzeug nicht.")
+                            return
+                    else:
+                        # Kein Tool
+                        if item_level > player_level + 1:
+                            game.log('error', f"{target[ATTR_NAME]} ist zu weit oben (Ebene {item_level}). Du kommst nicht heran.")
+                            return
+                        elif item_level < player_level:
+                            game.log('error', f"{target[ATTR_NAME]} liegt zu weit unten (Ebene {item_level}). Du musst runterklettern.")
+                            return
+
                 weight = target.get(ATTR_WEIGHT, float('inf'))
                 if weight == float('inf'): return game.log('error', Texts.TAKE_TOO_HEAVY)
                 if target.get(ATTR_MATTER) == MATTER_LIQUID: return game.log('error', Texts.TAKE_LIQUID_ERROR)
 
-                # Ressource Merge Check (Einzelaufnahme)
                 if target.get('is_resource'):
                     existing = InventoryHandler._find_resource_in_inventory(game, target[ATTR_ID])
                     if existing:
                         amount = target.get('count', 1)
                         existing['count'] = existing.get('count', 1) + amount
-                        target['location'] = LOC_VOID # Original entfernen
+                        target['location'] = LOC_VOID 
                         game.log('success', f"Du nimmst {amount}x {target[ATTR_NAME]} (Total: {existing['count']}).")
                         game.tick(1)
                         return
@@ -103,6 +157,7 @@ class InventoryHandler:
                 target['location'] = LOC_INVENTORY
                 game.log('success', Texts.TAKE_SUCCESS.format(item=target[ATTR_NAME]))
                 
+                # Items IN target auch mitnehmen?
                 if target.get('type') == TYPE_SURFACE:
                     contents = [o for o in game.objects.values() if o['location'] == target[ATTR_ID]]
                     names = []
@@ -122,8 +177,10 @@ class InventoryHandler:
         try:
             target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_INVENTORY, verb='drop')
             if target:
-                # TODO: Optional "drop 5 scrap" parsing
                 target['location'] = game.location
+                # Item landet auf aktueller Ebene
+                target['level'] = game.elevation
+                
                 game.log('success', Texts.DROP_SUCCESS.format(item=target[ATTR_NAME]))
                 game.tick(1)
         except ResolutionError as e: game.log('error', str(e))
@@ -156,7 +213,6 @@ class InventoryHandler:
                     contents = [o for o in game.objects.values() if o['location'] == item[ATTR_ID]]
                     for c in contents: trigger_ids.append(f"received_{c[ATTR_ID]}")
                 
-                # Check Reaction
                 current_state = npc.get('state', 'default')
                 dialogue_db = {}
                 if 'states' in npc:
@@ -178,14 +234,12 @@ class InventoryHandler:
                     item['location'] = LOC_VOID 
                     for t_id in trigger_ids: game.add_knowledge(t_id)
                     
-                    # NEU: Nutzung des DialogueSystems anstelle des Handlers
                     game.dialogue_active = True
                     game.dialogue_partner = npc
                     
                     game.log('event', f"--- GESPRÄCH MIT {npc[ATTR_NAME].upper()} ---")
                     game.dialogue_system.print_dialogue(npc, reaction_entry)
                     
-                    # Effekte via EffectProcessor (Delegation)
                     if 'effect' in reaction_entry:
                          game.effects.process(reaction_entry['effect'], context_npc=npc)
                 else: 
@@ -194,7 +248,6 @@ class InventoryHandler:
 
     @staticmethod
     def _find_resource_in_inventory(game, item_id):
-        """Hilfsfunktion: Findet existierenden Ressourcen-Stack im Inventar."""
         for obj in game.objects.values():
             if obj['location'] == LOC_INVENTORY and obj[ATTR_ID] == item_id and obj.get('is_resource'):
                 return obj

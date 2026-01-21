@@ -43,11 +43,9 @@ class StoryLoader:
             final_combinations = copy.deepcopy(common_data.get('combinations', []))
             final_combinations.extend(copy.deepcopy(chapter_data.get('combinations', [])))
             
-            # Narrative Matrix (Hauptstory)
             final_matrix = copy.deepcopy(common_data.get('matrix', []))
             final_matrix.extend(copy.deepcopy(chapter_data.get('matrix', [])))
 
-            # Dynamische Events (Umgebung, Timer, Trigger)
             final_events = copy.deepcopy(common_data.get('events', []))
             final_events.extend(copy.deepcopy(chapter_data.get('events', [])))
 
@@ -97,7 +95,6 @@ class StoryLoader:
                         if 'exits' not in rooms[from_id]: rooms[from_id]['exits'] = {}
                         rooms[from_id]['exits'][direction] = target_room_id
                         if 'exits' not in rooms[target_room_id]: rooms[target_room_id]['exits'] = {}
-                        # Rückweg nicht automatisch setzen, da Kompass-Logik komplex sein kann
 
     @staticmethod
     def _get_default_vocabulary():
@@ -105,7 +102,8 @@ class StoryLoader:
             "verbs": {
                 "inventory": ["i", "inv", "tasche", "rucksack", "ausrüstung", "inventar"],
                 "look": ["schau", "l", "x", "untersuche", "betrachte", "lies", "scan", "status", "ansehen"],
-                "move": ["gehe", "go", "lauf", "klettere", "schwebe", "wandere", "steig", "bewege"],
+                # WICHTIG: "klettere" hier entfernt!
+                "move": ["gehe", "go", "lauf", "schwebe", "wandere", "steig", "bewege"],
                 "take": ["nimm", "greif", "einstecken", "sammle", "aufheben", "nehmen"],
                 "drop": ["drop", "fallenlassen", "abwerfen", "hinlegen", "ablegen", "entferne", "lass"],
                 "put": ["put", "legen", "stecken", "tun", "platziere", "stell", "packe", "fülle", "stellen", "stelle"],
@@ -124,18 +122,16 @@ class StoryLoader:
                 "help": ["hilfe", "help", "h", "?", "commands", "befehle"],
                 "hide": ["verstecke", "hide", "krieche", "duck"],
                 "journal": ["journal", "logbuch", "aufgaben", "quests", "ziele", "j"],
-                # NEU: Klettern
+                # WICHTIG: "klettere" hier hinzugefügt!
                 "climb": ["klettere", "climb", "steige", "erklimme"]
             },
             "directions": {
-                # Klassisches Set
                 "north": ["n", "nord", "norden"],
                 "south": ["s", "süd", "süden"],
                 "east": ["e", "ost", "osten"],
                 "west": ["w", "west", "westen"],
                 "up": ["u", "up", "oben", "rauf"],
                 "down": ["d", "down", "unten", "runter"],
-                # NEU: Diagonale
                 "northeast": ["ne", "no", "nordost", "nordosten"],
                 "northwest": ["nw", "nordwest", "nordwesten"],
                 "southeast": ["se", "so", "südost", "südosten"],

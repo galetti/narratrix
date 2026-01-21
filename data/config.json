@@ -1,7 +1,7 @@
 {
     "game": {
         "title": "NARRATRIX",
-        "start_chapter": "data.chapters.ep0_test_lab.config",
+        "start_chapter": "data.chapters.ep1_deep_zero.config",
         "language": "de"
     },
     "system": {
