@@ -28,10 +28,8 @@ class EffectProcessor:
             room_id = eff.get('room') or eff.get('target') 
             
             if hasattr(self.game.ai, 'move_npc'):
-                # Standard: Bewegen (Laufen)
                 self.game.ai.move_npc(npc_id, room_id, instant=False)
                 
-                # Wenn der Dialog-Partner losläuft, Gespräch beenden
                 if context_npc and context_npc['id'] == npc_id and room_id != self.game.location:
                     if self.game.dialogue_active:
                         self.game.dialogue_active = False
@@ -47,10 +45,8 @@ class EffectProcessor:
             room_id = eff.get('target')
             
             if hasattr(self.game.ai, 'move_npc'):
-                # Instant Movement erzwingen
                 self.game.ai.move_npc(npc_id, room_id, instant=True)
             else:
-                # Fallback ohne AI System
                 target = self._find_npc(npc_id)
                 if target: target['location'] = room_id
 
@@ -67,7 +63,11 @@ class EffectProcessor:
             if target:
                 new_state = eff.get('value')
                 target['state'] = new_state
-                self.game.log('info', f"({target['name']} wirkt verändert.)")
+                
+                # Fix: Nur loggen, wenn Spieler den NPC sehen kann
+                if target.get('location') == self.game.location:
+                    self.game.log('info', f"({target['name']} wirkt verändert.)")
+                # Optional: Wenn nicht sichtbar, könnten wir das im Debug-Log vermerken, aber nicht für den Spieler
             else:
                 print(f"[WARN] EffectProcessor: Kein Ziel für set_state gefunden.")
 
@@ -75,7 +75,9 @@ class EffectProcessor:
         elif e_type == 'learn':
             fact = eff.get('fact')
             self.game.add_knowledge(fact)
-            self.game.log('success', f"(Wissen erhalten: {fact})")
+            # Log nur für Spieler relevante Infos, "technische" Flags müssen nicht geloggt werden
+            if not fact.startswith("task_"): 
+                self.game.log('success', f"(Wissen erhalten: {fact})")
 
         # --- ITEMS & OBJEKTE ---
         elif e_type == 'spawn_item' or e_type == 'receive_item':

@@ -56,20 +56,22 @@ class SystemHandler:
     def help(game, args):
         """Zeigt verfügbare Befehle."""
         help_text = """
-<header>VERFÜGBARE BEFEHLE</header>
+VERFÜGBARE BEFEHLE
 
-<accent>BEWEGUNG:</accent>
+BEWEGUNG:
   gehe <richtung> (n, s, e, w, u, d, out)
+  klettere <objekt> (climb)
   verstecke <objekt> (hide in)
 
-<accent>INTERAKTION:</accent>
+INTERAKTION:
   schaue / l [objekt]
   nimm <objekt>
   benutze <objekt> [mit <objekt>]
   öffne <objekt>
   lege <objekt> in/auf <objekt>
+  zerstöre / break <objekt>
 
-<accent>SYSTEM:</accent>
+SYSTEM:
   inv / i       - Inventar zeigen
   journal / j   - Aufgaben ansehen
   save [name]   - Speichern
@@ -81,18 +83,16 @@ class SystemHandler:
     @staticmethod
     def oracle(game, args):
         """Debug / Story Helper Tool: Zeigt interne Zustände an."""
-        game.log('system', "--- ORACLE SYSTEM STATUS ---")
+        game.log('info', "--- ORACLE SYSTEM STATUS ---")
         game.log('info', f"Zeit: T+{game.time}m | Stabilität: {game.stability}%")
         
-        # NEU: Quest Status
+        # Quest Status
         active_quests = game.quests.get_active_quests()
         if active_quests:
             game.log('info', f"Aktive Quests: {len(active_quests)}")
         else:
             game.log('info', "Keine aktiven Quests.")
 
-        # FIX: Zugriff auf EventManager statt event_queue
-        # Wir zählen Events, die noch nicht getriggert wurden und einen Zeit-Trigger haben
         pending_count = 0
         if hasattr(game, 'events'):
             for e in game.events.events:
@@ -101,7 +101,6 @@ class SystemHandler:
         
         game.log('info', f"Ausstehende Zeit-Events: {pending_count}")
         
-        # ... Rest der Methode wie gehabt (NPCs, Warnings) ...
         npc_info = []
         for npc in game.npcs:
             state = npc.get('state', 'default')
@@ -155,24 +154,32 @@ class SystemHandler:
             log_type = 'location' if r_id == game.location else 'info'
             game.log(log_type, f"> {name}{marker}\n  Verbindungen: {exits_display}")
 
-    # NEU: Journal Command
     @staticmethod
     def journal(game, args):
         """Zeigt aktive und erledigte Quests an."""
-        game.log('system', "--- PERSÖNLICHES LOGBUCH ---")
+        # Wir nutzen 'header' oder 'system' als Typ, je nachdem was im Renderer definiert ist.
+        # 'event' ist meist Orange/Gelb und gut sichtbar.
+        game.log('event', "--- PERSÖNLICHES LOGBUCH ---")
         
+        # Aktive Quests
         active = game.quests.get_active_quests()
         if active:
-            game.log('info', "<header>AKTUELLE ZIELE:</header>")
+            game.log('info', "AKTUELLE ZIELE:")
             for q in active:
+                # Titel hervorheben
                 game.log('success', f"[*] {q['title']}")
-                game.log('info', f"    > {q['stage_desc']}")
+                # Beschreibung einrücken
+                stage_desc = q.get('stage_desc', "")
+                if stage_desc:
+                    game.log('story', f"    > {stage_desc}")
         else:
             game.log('info', "Keine aktiven Aufgaben.")
             
+        # Erledigte Quests (Optional: Nur wenn Argument 'all' oder so, aber hier immer gut)
         completed = game.quests.get_completed_quests()
         if completed:
             game.log('info', "")
-            game.log('info', "<info>ERLEDIGT:</info>")
+            game.log('info', "ERLEDIGT:")
             for title in completed:
+                # Erledigt in Grau/Story-Farbe
                 game.log('story', f"[x] {title}")

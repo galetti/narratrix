@@ -5,7 +5,8 @@ ROOMS = {
     "room_quarters_aris": {
         ATTR_ID: "room_quarters_aris",
         ATTR_NAME: "Aris' Quartier",
-        ATTR_DESC: "Der Wecker summt. 07:00 Uhr Bordzeit. Ein weiterer Tag in der Leere. Die {ventilation} über dir gibt ein unregelmäßiges, nerviges Klappern von sich. Neben dem Bett liegt das {tablet}.",
+        # Fix: Uhrzeit entfernt, da sie statisch wäre.
+        ATTR_DESC: "Der Wecker hat aufgehört zu summen. Ein weiterer Tag in der Leere. Die {ventilation} über dir gibt ein unregelmäßiges, nerviges Klappern von sich. Neben dem Bett liegt das {tablet}.",
         "exits": {
             "out": "room_corridor_quarters",
             "east": "room_corridor_quarters"
@@ -57,7 +58,7 @@ ROOMS = {
             "east": "room_lab",
             "west": "room_control"
         },
-        "climb_targets": {}, # Wird dynamisch relevant durch Leiter
+        "climb_targets": {}, 
         "acoustics": {
             "room_control": 0.5
         }
@@ -81,7 +82,6 @@ ROOMS = {
             "exterior_hull": {"transmission": 0.9, "direction_text": "von der Außenhülle"}
         }
     },
-    # Virtueller Raum für Sound-Events von außen
     "exterior_hull": {
         ATTR_ID: "exterior_hull",
         ATTR_NAME: "Außenhülle",

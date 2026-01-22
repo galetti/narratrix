@@ -1,108 +1,93 @@
-from engine.strings import Texts
-
-class QuestStatus:
-    INACTIVE = "inactive"
-    ACTIVE = "active"
-    COMPLETED = "completed"
-    FAILED = "failed"
+from engine.constants import *
 
 class QuestManager:
-    """
-    Verwaltet Quests, ihren Status und Fortschritt.
-    """
     def __init__(self, game):
         self.game = game
-        self.definitions = {} # Statische Daten (Titel, Stufen)
-        # Dynamische Daten: {quest_id: {'status': 'active', 'stage': 1, 'visible': True}}
-        self.states = {} 
+        self.definitions = {}
+        self.states = {} # id -> {status: active/completed/failed, stage: int}
 
     def load_definitions(self, quests_data):
-        """Lädt die Quest-Definitionen aus der Config."""
         self.definitions = quests_data
-        # Initialisiere States für neue Quests als INACTIVE
+        # Ensure states exist for defined quests if not loaded from save
         for q_id in self.definitions:
             if q_id not in self.states:
-                self.states[q_id] = {
-                    'status': QuestStatus.INACTIVE,
-                    'stage': 0,
-                    'visible': False
-                }
+                self.states[q_id] = {'status': 'inactive', 'stage': 0}
 
-    def start_quest(self, quest_id, silent=False):
-        """Startet eine Quest."""
+    def start_quest(self, quest_id):
+        # Safety Check
         if quest_id not in self.definitions:
-            print(f"[WARN] Quest '{quest_id}' nicht gefunden.")
+            # Fallback: Vielleicht wurde definitions noch nicht geladen oder ID ist falsch
+            print(f"[WARN] Quest '{quest_id}' definition not found in {self.definitions.keys()}")
             return
-
-        state = self.states[quest_id]
-        if state['status'] == QuestStatus.INACTIVE:
-            state['status'] = QuestStatus.ACTIVE
-            state['stage'] = 1
-            state['visible'] = True
+        
+        if quest_id not in self.states:
+            self.states[quest_id] = {'status': 'inactive', 'stage': 0}
             
-            if not silent:
-                q_def = self.definitions[quest_id]
-                self.game.log('event', f"--- NEUE AUFGABE: {q_def['title']} ---")
-                self.game.log('info', f"Ziel: {self._get_stage_desc(quest_id, 1)}")
+        # Nur starten, wenn noch nicht aktiv oder abgeschlossen
+        if self.states[quest_id]['status'] == 'inactive':
+            self.states[quest_id]['status'] = 'active'
+            self.states[quest_id]['stage'] = 0
+            
+            q_def = self.definitions[quest_id]
+            title = q_def.get('title', quest_id)
+            self.game.log('success', f"NEUE AUFGABE: {title}")
+            
+            # Zeige ersten Schritt
+            desc = q_def.get('stages', {}).get(0, "")
+            if desc: self.game.log('info', f"Ziel: {desc}")
 
-    def update_quest(self, quest_id, stage_index, silent=False):
-        """Aktualisiert den Fortschritt einer Quest."""
+    def update_quest(self, quest_id, stage):
         if quest_id not in self.states: return
         
-        state = self.states[quest_id]
-        if state['status'] != QuestStatus.ACTIVE: return # Nur aktive Quests updaten
+        current_status = self.states[quest_id]['status']
+        if current_status != 'active': return 
         
-        if state['stage'] != stage_index:
-            state['stage'] = stage_index
-            if not silent:
-                self.game.log('success', f"Aufgabe aktualisiert: {self.definitions[quest_id]['title']}")
-                self.game.log('info', f"Neues Ziel: {self._get_stage_desc(quest_id, stage_index)}")
+        current_stage = self.states[quest_id].get('stage', 0)
+        if stage != current_stage:
+            self.states[quest_id]['stage'] = stage
+            self.game.log('success', f"AUFGABE AKTUALISIERT: {self.definitions[quest_id].get('title', quest_id)}")
+            
+            stage_desc = self.definitions[quest_id].get('stages', {}).get(stage, "")
+            if stage_desc:
+                self.game.log('info', f"Neues Ziel: {stage_desc}")
 
-    def complete_quest(self, quest_id, silent=False):
-        """Schließt eine Quest erfolgreich ab."""
-        if quest_id not in self.states: return
-        
-        state = self.states[quest_id]
-        if state['status'] != QuestStatus.COMPLETED:
-            state['status'] = QuestStatus.COMPLETED
-            if not silent:
-                self.game.log('success', f"AUFGABE ERLEDIGT: {self.definitions[quest_id]['title']}")
+    def complete_quest(self, quest_id):
+        if quest_id in self.states and self.states[quest_id]['status'] == 'active':
+            self.states[quest_id]['status'] = 'completed'
+            self.game.log('success', f"AUFGABE ERLEDIGT: {self.definitions[quest_id].get('title', quest_id)}")
 
-    def fail_quest(self, quest_id, silent=False):
-        """Markiert eine Quest als gescheitert."""
-        if quest_id not in self.states: return
-        
-        state = self.states[quest_id]
-        state['status'] = QuestStatus.FAILED
-        if not silent:
-            self.game.log('alarm', f"AUFGABE GESCHEITERT: {self.definitions[quest_id]['title']}")
+    def fail_quest(self, quest_id):
+        if quest_id in self.states and self.states[quest_id]['status'] == 'active':
+            self.states[quest_id]['status'] = 'failed'
+            self.game.log('error', f"AUFGABE FEHLGESCHLAGEN: {self.definitions[quest_id].get('title', quest_id)}")
 
     def get_active_quests(self):
-        """Gibt eine Liste aktiver Quests zurück."""
         active = []
         for q_id, state in self.states.items():
-            if state['status'] == QuestStatus.ACTIVE and state['visible']:
+            if state['status'] == 'active':
+                q_def = self.definitions.get(q_id, {})
+                title = q_def.get('title', q_id)
+                stage = state.get('stage', 0)
+                # Wichtig: Hole die Beschreibung für die aktuelle Stage
+                stage_desc = q_def.get('stages', {}).get(stage, "")
+                
                 active.append({
                     'id': q_id,
-                    'title': self.definitions[q_id]['title'],
-                    'stage_desc': self._get_stage_desc(q_id, state['stage'])
+                    'title': title,
+                    'stage': stage,
+                    'stage_desc': stage_desc
                 })
         return active
 
     def get_completed_quests(self):
         completed = []
         for q_id, state in self.states.items():
-            if state['status'] == QuestStatus.COMPLETED and state['visible']:
-                completed.append(self.definitions[q_id]['title'])
+            if state['status'] == 'completed':
+                q_def = self.definitions.get(q_id, {})
+                title = q_def.get('title', q_id)
+                completed.append(title)
         return completed
 
-    def _get_stage_desc(self, quest_id, stage_idx):
-        stages = self.definitions[quest_id].get('stages', {})
-        # JSON Keys sind oft Strings, wir versuchen Int Konvertierung
-        stage_text = stages.get(stage_idx) or stages.get(str(stage_idx))
-        return stage_text if stage_text else "..."
-
-    # --- SAVE/LOAD ---
     def get_save_data(self):
         return self.states
 

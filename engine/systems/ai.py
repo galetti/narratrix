@@ -107,13 +107,17 @@ class AISystem:
     # --- ACTIONS ---
 
     def _act_greet_player(self, npc, sys):
-        sys.game.log('character', f"{npc[ATTR_NAME]} nickt dir zu.")
-        npc['has_greeted'] = True
+        # Sicherheitscheck: Nur grüßen, wenn Spieler da ist
+        if sys.game.location == npc['location']:
+            sys.game.log('character', f"{npc[ATTR_NAME]} nickt dir zu.")
+            npc['has_greeted'] = True
         return True
 
     def _act_idle_nervous(self, npc, sys):
         if random.random() < 0.1:
-            sys.game.log('character', f"{npc[ATTR_NAME]} schaut sich nervös um.")
+            # FIX: Nur loggen, wenn Spieler anwesend ist
+            if sys.game.location == npc['location']:
+                sys.game.log('character', f"{npc[ATTR_NAME]} schaut sich nervös um.")
         return True
 
     def _act_flee(self, npc, sys):
@@ -151,7 +155,11 @@ class AISystem:
         if not target: return False
         
         if npc['location'] == target:
-            sys.game.log('character', f"{npc[ATTR_NAME]} sieht sich suchend um.")
+            # Angekommen
+            # FIX: Nur loggen, wenn Spieler anwesend ist
+            if sys.game.location == npc['location']:
+                sys.game.log('character', f"{npc[ATTR_NAME]} sieht sich suchend um.")
+            
             npc['memory']['last_noise_loc'] = None 
             return True
             
