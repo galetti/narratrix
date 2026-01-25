@@ -9,6 +9,7 @@ import pygame.scrap
 import warnings
 import queue
 import json 
+import subprocess # Für den Clipboard Fallback
 
 warnings.filterwarnings("ignore", category=UserWarning, module='pygame')
 
@@ -186,8 +187,13 @@ class GameGUI:
         self.screen = pygame.display.set_mode((INIT_WIDTH, INIT_HEIGHT), pygame.RESIZABLE)
         pygame.display.set_caption(f"{SYS_CONFIG['game'].get('title', 'Narratrix')} v5.9") 
         
-        try: pygame.scrap.init()
-        except pygame.error: print("[WARN] Clipboard konnte nicht initialisiert werden.")
+        # FIX: Clipboard Init
+        try: 
+            pygame.scrap.init()
+            # Unter Linux/X11 muss man manchmal warten oder den Type setzen
+            # pygame.scrap.set_mode(pygame.SCRAP_CLIPBOARD) 
+        except pygame.error as e: 
+            print(f"[WARN] Clipboard konnte nicht initialisiert werden: {e}")
 
         self.clock = pygame.time.Clock()
         
@@ -212,7 +218,6 @@ class GameGUI:
         print(f"[SYSTEM] Starte mit Kapitel: {self.current_chapter}")
         self.load_game_chapter(self.current_chapter)
         
-        # DEBUG FLAG: Setze auf True, um alle Logs auch unten zu sehen
         self.show_all_logs_in_main = False
 
     def load_game_chapter(self, chapter_path, transfer_state=None):
@@ -287,12 +292,60 @@ class GameGUI:
             elif event.type == pygame.KEYDOWN:
                 if self.is_processing: continue 
                 
+                # Scroll
                 if event.key == pygame.K_PAGEUP:
                     self.scroll_offset += theme.SCROLL_SPEED_KEY
                 elif event.key == pygame.K_PAGEDOWN:
                     self.scroll_offset -= theme.SCROLL_SPEED_KEY
                     if self.scroll_offset < 0: self.scroll_offset = 0
                 
+                # Clipboard Support (Strg+C) für Linux/Windows
+                elif event.key == pygame.K_c and (pygame.key.get_mods() & pygame.KMOD_CTRL):
+                    snapshot = self.game.get_logs()
+                    text_dump = "\n".join([f"{l['type']}: {l['text']}" for l in snapshot])
+                    
+                    success = False
+                    try: 
+                        # Versuch 1: Pygame Scrap
+                        pygame.scrap.put(pygame.SCRAP_TEXT, text_dump.encode('utf-8'))
+                        success = True
+                    except pygame.error: 
+                        pass # Fallback versuchen
+
+                    if not success:
+                        # Versuch 2: xclip (für Linux/X11)
+                        try:
+                            process = subprocess.Popen(['xclip', '-selection', 'clipboard'], stdin=subprocess.PIPE)
+                            process.communicate(input=text_dump.encode('utf-8'))
+                            success = True
+                        except FileNotFoundError:
+                            pass # xclip nicht installiert
+
+                    if not success:
+                        # Versuch 3: xsel (für Linux/X11)
+                        try:
+                            process = subprocess.Popen(['xsel', '-b', '-i'], stdin=subprocess.PIPE)
+                            process.communicate(input=text_dump.encode('utf-8'))
+                            success = True
+                        except FileNotFoundError:
+                            pass # xsel nicht installiert
+
+                    if success:
+                        print("Clipboard copy success.")
+                    else:
+                        print("Clipboard Error: Could not copy text. Please install xclip or xsel on Linux.")
+                        # Optional: Auf Konsole ausgeben, damit User es von dort kopieren kann
+                        # print("--- CLIPBOARD CONTENT ---")
+                        # print(text_dump)
+                        # print("-------------------------")
+                    continue
+                
+                # Debug Toggle
+                elif event.key == pygame.K_F1:
+                    self.show_all_logs_in_main = not self.show_all_logs_in_main
+                    print(f"DEBUG: Show all logs = {self.show_all_logs_in_main}")
+
+                # Input Handling
                 elif event.key == pygame.K_LEFT:
                     self.cursor_pos = max(0, self.cursor_pos - 1)
                     self.cursor_blink = 0 
@@ -301,20 +354,6 @@ class GameGUI:
                     self.cursor_blink = 0
                 elif event.key == pygame.K_HOME: self.cursor_pos = 0
                 elif event.key == pygame.K_END: self.cursor_pos = len(self.user_text)
-
-                elif event.key == pygame.K_c and (pygame.key.get_mods() & pygame.KMOD_CTRL):
-                    snapshot = self.game.get_logs()
-                    text_dump = "\n".join([f"{l['type']}: {l['text']}" for l in snapshot])
-                    try: 
-                        pygame.scrap.put(pygame.SCRAP_TEXT, text_dump.encode('utf-8'))
-                        print("Clipboard copy success.")
-                    except Exception as e: print(f"Clipboard Error: {e}")
-                    continue
-                
-                # DEBUG TOGGLE: F1 umschalten der Log-Ansicht
-                elif event.key == pygame.K_F1:
-                    self.show_all_logs_in_main = not self.show_all_logs_in_main
-                    print(f"DEBUG: Show all logs = {self.show_all_logs_in_main}")
 
                 elif event.key == pygame.K_RETURN:
                     if self.user_text.strip():
@@ -524,37 +563,17 @@ class GameGUI:
         sensor_width = rect.width - final_visual_rect.width - 60
         
         # 1. Personen Scan
-        # Da wir im Snapshot keine NPCs haben (nur in 'logs'), müssen wir das besser lösen.
-        # Aktuell haben wir aber "Personen: Name" als Log-Typ 'character', wenn look ausgeführt wird.
-        # Besser: Wir nutzen get_snapshot() und greifen auf game.npcs zu?
-        # get_snapshot() gibt nur ein Dict zurück.
-        # Hack: Wir suchen in logs nach der letzten "Personen: ..." Zeile
-        
-        # Aber halt! GameState.get_snapshot könnte auch direkt die NPCs im Raum liefern.
-        # Das wäre sauberer. Da ich GameState aber hier nicht ändern kann, nutzen wir den Log-Parsing-Hack
-        # oder wir hoffen auf ein zukünftiges Update.
-        # Für jetzt: Zeige einfach die letzte "Personen:" Meldung permanent an, wenn sie aktuell ist?
-        # Nein, zu fehleranfällig.
-        
-        # Besser: Sensor Log (Events & Character Actions)
-        # Sammle Logs für HUD
         hud_logs = []
-        # Wir durchsuchen rückwärts
         for l in reversed(snap['logs']):
             if l['type'] in ['event', 'character']:
-                # Filter '---' (Dialog-Trenner) und 'Personen:' (Statusmeldungen)
                 if '---' in l['text']: continue
                 if l['text'].startswith("Personen:"): continue 
                 hud_logs.append(l)
-            if len(hud_logs) >= 5: break # Max 5 Einträge
+            if len(hud_logs) >= 5: break 
         
-        # 1. Überschrift: PERSONEN IM RAUM
-        # Wir scannen die Logs nach "Personen: X, Y" (wird von ExplorationHandler.look erzeugt)
         last_people_log = None
         for l in reversed(snap['logs']):
             if l['type'] == 'character' and l['text'].startswith("Personen:"):
-                # Prüfen ob dieser Log seit dem letzten Raumwechsel war?
-                # Wir nehmen einfach den allerletzten.
                 last_people_log = l['text'].replace("Personen: ", "")
                 break
         
@@ -568,7 +587,7 @@ class GameGUI:
                 surf = self.font_sensor.render(f" [!] {p}", True, (150, 255, 150))
                 self.screen.blit(surf, (sensor_x, sensor_y))
                 sensor_y += 18
-            sensor_y += 10 # Abstand
+            sensor_y += 10 
             
         pygame.draw.line(self.screen, (50, 50, 60), (sensor_x, sensor_y), (sensor_x + 200, sensor_y), 1)
         sensor_y += 10
@@ -578,21 +597,15 @@ class GameGUI:
         self.screen.blit(lbl, (sensor_x, sensor_y))
         sensor_y += 20
         
-        # Zeige Logs (Neueste oben? Nein, Liste ist reversed -> index 0 ist neueste)
-        # Wir wollen Neueste UNTEN oder OBEN? Sensor Logs laufen meist von unten nach oben oder oben nach unten.
-        # Hier: Neueste OBEN (unter dem Label).
-        
         for i, log in enumerate(hud_logs):
-            # Alpha/Farbe berechnen (Dimmen älterer Beiträge)
-            # Index 0 = Hell, Index 2+ = Dunkel
             brightness = 255
             if i == 1: brightness = 200
             elif i == 2: brightness = 150
-            elif i >= 3: brightness = 100 # Stark gedimmt
+            elif i >= 3: brightness = 100 
             
             base_col = (brightness, brightness, brightness)
-            if log['type'] == 'event': base_col = (brightness, int(brightness*0.8), 50) # Orange-ish
-            elif log['type'] == 'character': base_col = (int(brightness*0.4), int(brightness*0.8), brightness) # Blue-ish
+            if log['type'] == 'event': base_col = (brightness, int(brightness*0.8), 50) 
+            elif log['type'] == 'character': base_col = (int(brightness*0.4), int(brightness*0.8), brightness) 
             
             txt = log['text']
             if len(txt) > 55: txt = txt[:52] + "..."
@@ -608,19 +621,13 @@ class GameGUI:
         render_rows = []
         
         for log in snap['logs']: 
-            # FILTERUNG:
-            # Wenn Debug-Flag NICHT gesetzt ist, filtern wir Sensor-Nachrichten aus dem Haupt-Log
             if not self.show_all_logs_in_main:
                 if log['type'] in ['event', 'character']:
-                    # Ausnahme: Dialog-Trenner und "Personen:" Listen sollen vielleicht bleiben?
-                    # Nein, "Personen" ist jetzt im HUD. Dialoge sollten im Log bleiben.
-                    # Dialoge sind meist 'character' type. Das ist tricky.
-                    # Dialoge haben Anführungszeichen oder Doppelpunkt.
-                    if '---' in log['text']: pass # Trenner behalten
-                    elif '"' in log['text']: pass # Gesprochener Text behalten
-                    elif log['text'].startswith("Personen:"): continue # Filtern (ist im HUD)
+                    if '---' in log['text']: pass 
+                    elif '"' in log['text']: pass 
+                    elif log['text'].startswith("Personen:"): continue 
                     else:
-                        continue # Allgemeine Events/Bewegungen filtern (sind im HUD)
+                        continue 
 
             base_color = theme.COLOR_TEXT
             prefix = ""
@@ -672,7 +679,6 @@ class GameGUI:
             pygame.draw.rect(self.screen, theme.COLOR_ACCENT, (rect.right - 10, bar_y, 4, bar_height))
 
     def draw_input_area(self, rect, snap):
-        # ... (unverändert) ...
         pygame.draw.rect(self.screen, (0, 0, 0), rect)
         padding = theme.PADDING
         prompt = "> "
@@ -695,7 +701,6 @@ class GameGUI:
             pygame.draw.line(self.screen, theme.COLOR_INPUT, (cursor_x, cursor_y), (cursor_x, cursor_y + cursor_h), 2)
 
     def draw_loading_spinner(self, w, h, snap):
-        # ... (unverändert) ...
         center_x, center_y = w - 30, h - 25
         angle = (self.cursor_blink * theme.CURSOR_BLINK_SPEED) % 360
         radius = 10

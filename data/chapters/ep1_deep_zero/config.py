@@ -1,4 +1,4 @@
-# narratrix_engine/data/chapters/ep1_deep_zero/config.py
+# narratrix_engine/data/chapters/ep1_arrival/config.py
 from .rooms import ROOMS
 from .items import ITEMS, COMBINATIONS
 from .npcs import NPCS
@@ -6,11 +6,11 @@ from .events import NARRATIVE_MATRIX, EVENTS, QUESTS
 
 CHAPTER_CONFIG = {
     "meta": {
-        "name": "Episode 1: Die Routine",
+        "name": "Episode 1: Die Ankunft",
         "author": "Narratrix Team",
-        "description": "Ein ganz normaler Tag auf der Deep Zero Station. Oder?",
-        "start_room": "room_quarters_aris",
-        "version": "1.0"
+        "description": "Willkommen auf Deep Zero. Ein Tutorial für Ohren und Verstand.",
+        "start_room": "room_outer_docking",
+        "version": "2.0"
     },
     "rooms": ROOMS,
     "objects": ITEMS,

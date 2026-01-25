@@ -1,152 +1,78 @@
-# narratrix_engine/data/chapters/ep1_deep_zero/events.py
+# narratrix_engine/data/chapters/ep1_arrival/events.py
 from engine.constants import *
 
 QUESTS = {
-    "daily_routine": {
-        "title": "Tagesroutine",
-        "desc": "Erledige deine Aufgaben auf der Station.",
+    "noise_pollution": {
+        "title": "Lärmbelästigung",
+        "desc": "Finde und deaktiviere den defekten Wartungsbot 'Rusty'.",
         "stages": {
-            0: "Bringe die Lüftung zum Schweigen, besorge Kaffee und warte auf Anweisungen.",
-            1: "Aufgaben erledigt: 1/3",
-            2: "Aufgaben erledigt: 2/3",
-            3: "Alle Aufgaben erledigt. Melde dich im Kontrollraum zur Übergabe."
+            0: "Dr. Sato hat Kopfschmerzen. Finde die Lärmquelle.",
+            1: "Der Bot ist abgeschaltet. Melde dich bei Sato.",
+            2: "Abgeschlossen."
         },
         "current_stage": 0
     }
 }
 
 NARRATIVE_MATRIX = [
-    # Start
     {
-        "id": "intro_wakeup",
-        # Fix: Time Trigger 0 ist zuverlässiger als Location beim Start
+        "id": "intro_sequence",
         "trigger": "time",
         "trigger_time": 0,
         "once": True,
-        # Wir geben keine Description aus, da diese eh beim Start (Look) kommt,
-        # aber wir nutzen es, um die Quest zu starten.
-        "quest_start": "daily_routine"
+        "description": "Die Andockklammern lösen sich mit einem metallischen Ächzen. Dein Shuttle, die 'Charon', hat dich sicher abgesetzt.",
+        "effects": [
+            {"type": "message", "message": "C.O.R.E. (Headset): 'Willkommen, Dr. Thorne. Dr. Sato erwartet Sie im Inner Ring. Folgen Sie den grünen Markierungen.'"}
+        ]
     }
 ]
 
 EVENTS = [
-    # --- ATMOSPHÄRE ---
+    # --- QUEST START ---
     {
-        "id": "vent_rattle",
+        "id": "quest_start_rusty",
+        "trigger": "manual", # Via Dialog
+        "quest_start": "noise_pollution",
+        "effects": [
+            {"type": "learn", "fact": "quest_started"},
+            {"type": "set_npc_state", "npc": "sato", "value": "waiting"}
+        ]
+    },
+
+    # --- DER LÄRM (Kernmechanik) ---
+    {
+        "id": "rusty_noise_loop",
         "trigger": "time",
         "trigger_time": 0,
-        "repeat": True,
-        "origin_id": "room_quarters_aris",
-        "sound_msg": "Ein nerviges, rhythmisches Klappern aus der Lüftung.",
-        "condition": {"type": "knowledge", "value": "task_vent_done", "not": True} 
+        "repeat": True, # Feuert jeden Tick
+        "origin_id": "room_outer_waste",
+        "condition": {"type": "knowledge", "value": "rusty_dead", "not": True}, # Stoppt wenn Rusty tot
+        "sound_msg": "Ein mechanisches KRK-KLONG. Metall auf Metall.",
+        "volume": 2.0 # Sehr laut, weit hörbar
     },
+
+    # --- ABSCHALTEN ---
     {
-        "id": "sato_mumbling",
-        "trigger": "time",
-        "trigger_time": 2, 
-        "once": True,
-        "origin_id": "room_corridor_quarters",
-        "sound_msg": "Schritte und ein leises Selbstgespräch. Jemand murmelt über 'falsche Messwerte'."
-    },
-    {
-        "id": "sato_move_to_mess",
-        "trigger": "time",
-        "trigger_time": 5,
-        "once": True,
+        "id": "rusty_shutdown",
+        "trigger": "manual", # Via Item Use
         "effects": [
-            {"type": "move_npc", "npc": "sato", "target": "room_mess"},
-            {"type": "set_npc_state", "npc": "sato", "value": "coffee_craving"}
-        ]
-    },
-    
-    # --- AUFGABEN FORTSCHRITT ---
-    {
-        "id": "task_vent_done",
-        "trigger": "manual", 
-        "effects": [
-            {"type": "learn", "fact": "task_vent_done"},
-            {"type": "trigger_event", "id": "check_daily_progress"}
-        ]
-    },
-    {
-        "id": "task_coffee_done",
-        "trigger": "manual",
-        "effects": [
-            {"type": "learn", "fact": "task_coffee_done"},
-            {"type": "set_npc_state", "npc": "sato", "value": "coffee_happy"},
-            {"type": "trigger_event", "id": "check_daily_progress"}
-        ]
-    },
-    {
-        "id": "task_relay_done",
-        "trigger": "manual",
-        "effects": [
-            {"type": "learn", "fact": "task_relay_done"},
-            {"type": "trigger_event", "id": "check_daily_progress"}
-        ]
-    },
-    
-    # --- PROGRESS CHECKER ---
-    {
-        "id": "check_daily_progress",
-        "trigger": "complex",
-        "repeat": True, 
-        "conditions": [
-            {"type": "knowledge", "value": "task_vent_done"},
-            {"type": "knowledge", "value": "task_coffee_done"},
-            {"type": "knowledge", "value": "task_relay_done"},
-            {"type": "knowledge", "value": "evening_started", "not": True}
-        ],
-        "operator": "AND",
-        "effects": [
-            {"type": "learn", "fact": "evening_started"},
-            {"type": "message", "message": "DURCHSAGE: 'Schichtende in 15 Minuten. Dr. Thorne, bitte zur Übergabe in den Kontrollraum.'"},
-            {"type": "set_npc_state", "npc": "sato", "value": "evening"},
-            {"type": "move_npc", "npc": "sato", "target": "room_control"},
-            {"type": "quest_update", "quest_update": {"id": "daily_routine", "stage": 3}}
+            {"type": "learn", "fact": "rusty_dead"},
+            {"type": "set_npc_state", "npc": "rusty", "value": "disabled"},
+            {"type": "update_object", "target": "rusty", "updates": {"desc": "Ein stiller Haufen Metallschrott."}},
+            {"type": "set_npc_state", "npc": "sato", "value": "grateful"},
+            {"type": "quest_update", "quest_update": {"id": "noise_pollution", "stage": 1}},
+            {"type": "message", "message": "KLACK. Der Bot sackt zusammen. Endlich Stille."}
         ]
     },
 
-    # --- CORE DURCHSAGE (Mittags) ---
+    # --- ENDE ---
     {
-        "id": "core_announcement",
-        "trigger": "time",
-        "trigger_time": 20, 
-        "origin_id": "room_corridor_main", 
-        "sound_msg": "C.O.R.E.: 'Wartungsauftrag 404. Emitter-Relais Drift. Bitte manuell nachjustieren.'",
-        "description": "Die Stimme von C.O.R.E. hallt durch die Gänge."
-    },
-
-    # --- FINALE (Der Bruch) ---
-    {
-        "id": "finale_klong",
-        "trigger": "location",
-        "location": "room_control",
-        "condition": {"type": "knowledge", "value": "evening_started"},
-        "once": True,
-        "description": "Du betrittst den Kontrollraum. Die Beleuchtung ist gedimmt. Sato wartet bereits.",
-        "effects": [
-            {"type": "message", "message": "Sato: 'Lass uns die Daten abzeichnen.'"},
-            {"type": "trigger_event", "id": "finale_sound_delayed"}
-        ]
-    },
-    {
-        "id": "finale_sound_delayed",
-        "trigger": "manual", 
-        "description": "Du tippst den Status ein. Ein Monitor flackert: 0.0004 -> 9.9999 -> 0.0004.\nSato lacht: 'Glitch. Wir brauchen neue Hardware.'",
-        "effects": [
-             {"type": "trigger_event", "id": "the_sound"}
-        ]
-    },
-    {
-        "id": "the_sound",
+        "id": "tutorial_end",
         "trigger": "manual",
-        "origin_id": "exterior_hull",
-        "sound_msg": "Ein schweres, metallisches KLONG. Als hätte etwas Gewaltiges gegen die Außenhülle geschlagen.",
-        "volume": 2.0, 
         "effects": [
-            {"type": "message", "message": "Sato hört auf zu lachen. Er wird bleich.\nSato: 'Aris... wir sind im Vakuum. Was zur Hölle erzeugt Schall an der Außenhülle?'"},
-            {"type": "game_over", "reason": "ENDE SZENE 1 - FORTSETZUNG FOLGT"}
+            {"type": "quest_update", "quest_update": {"id": "noise_pollution", "stage": 2}},
+            {"type": "message", "message": "Du hast deine Ausrüstung erhalten."},
+            {"type": "game_over", "reason": "TUTORIAL ABGESCHLOSSEN - Einleitung in Szene 2..."}
         ]
     }
 ]

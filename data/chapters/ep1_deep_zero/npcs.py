@@ -1,54 +1,62 @@
-# narratrix_engine/data/chapters/ep1_deep_zero/npcs.py
+# narratrix_engine/data/chapters/ep1_arrival/npcs.py
 from engine.constants import *
 
 NPCS = [
     {
         "id": "sato",
         ATTR_NAME: "Dr. Sato",
-        ATTR_DESC: "Der leitende Ingenieur. Er wirkt müde.",
-        "location": "room_corridor_quarters", # Startet im Gang (Murmeln)
-        "state": "mumbling",
-        "behavior_id": "guard", # Patrouille als Basis
-        "waypoints": ["room_mess", "room_control", "room_lab"],
-        "speed": 0.5, # Langsam
+        ATTR_DESC: "Der Chefingenieur. Er hat Öl im Gesicht und wirkt gestresst.",
+        "location": "room_inner_corridor_north",
+        "state": "working",
         "dialogue": {
-            "mumbling": {
-                "greeting": "(Er bemerkt dich nicht, murmelt über Messwerte)",
-                "default": "Hm? Oh, hi Aris. Gleich, ich muss das hier verstehen..."
-            },
-            "coffee_craving": {
-                "greeting": "Morgen, Aris. Die Pumpe ist hin. Ohne Kaffee arbeite ich nicht.",
-                "default": "Hast du die Dichtungen gesehen?"
-            },
-            "coffee_happy": {
-                "greeting": "Du bist ein Lebensretter! Das nenne ich Service.",
-                "mars": {
-                    "label": "Wie gehts der Familie?",
-                    "text": "Lena hat mir ein Bild vom Mars geschickt. Sie wachsen so schnell... hier draußen verpasst man alles."
+            "working": {
+                "greeting": "Ah, der Neue. Der Mann, der Neutrinos flüstern hören kann.",
+                "problem": {
+                    "label": "Was gibt es?",
+                    "text": "Wir haben einen alten Bot, 'Rusty'. Navigations-Chip durchgebrannt. Er macht einen Höllenlärm in den Schächten. Ich kriege kein Auge zu.",
+                    "effect": {"type": "trigger_event", "id": "quest_start_rusty"}
+                },
+                "solution": {
+                    "label": "Ich kümmere mich darum.",
+                    "text": "Du bist der Experte für Wellen. Finde ihn und schalte ihn ab. Hier nimm meine Zange, die liegt da irgendwo.",
+                    "condition": "quest_started" # Nur wenn Quest aktiv
                 }
             },
-            "evening": {
-                "greeting": "Sorry, hab die Zeit vergessen. War gerade so ruhig.",
-                "check": {
-                    "label": "Lass uns den Check machen.",
-                    "text": "Lass uns nur schnell die Grav-Daten abzeichnen, dann gehört die Station mir."
+            "waiting": {
+                "greeting": "Hörst du das? Immer noch Krach. Finde diesen Bot!",
+                "default": "Such in den Wartungsschächten. Folge dem Lärm."
+            },
+            "grateful": {
+                "greeting": "Himmlische Ruhe. Gute Arbeit, Thorne.",
+                "reward": {
+                    "label": "Bericht erstatten",
+                    "text": "Vielleicht bist du doch zu gebrauchen. Hier ist dein Zimmerschlüssel und ein Omni-Tool.",
+                    "effect": [
+                        {"type": "receive_item", "item": "keycard_quarters"},
+                        {"type": "receive_item", "item": "tool_omni"},
+                        {"type": "trigger_event", "id": "tutorial_end"}
+                    ]
                 }
             }
         }
     },
     {
-        "id": "core",
-        ATTR_NAME: "C.O.R.E.",
-        ATTR_DESC: "Die Stations-KI. Überall und nirgends.",
-        "location": "room_control", # Virtuell überall erreichbar via Funk?
-        "state": "active",
+        "id": "rusty",
+        ATTR_NAME: "Rusty (MK-1 Bot)",
+        ATTR_DESC: "Ein kastenförmiger Roboter. Er fährt immer wieder gegen die Wand. Sein Status-Licht blinkt rot.",
+        "location": "room_outer_waste",
+        "level": 2, # ER IST OBEN! Man muss klettern.
+        "state": "malfunction",
+        "behavior_id": "idle", # Bewegt sich nicht weg
+        "toughness": 1,
         "dialogue": {
-            "active": {
-                "greeting": "Guten Morgen, Dr. Thorne. Systeme nominal.",
-                "schach": {
-                    "label": "Eine Partie Schach?",
-                    "text": "Gerne. Ich werde meine Prozessorkapazität auf 5% drosseln, um es fair zu gestalten... Schachmatt in 4 Zügen."
-                }
+            "malfunction": {
+                "greeting": "BEEP. FEHLER. BEEP. NAVIGATION OFF-LINE.",
+                "default": "SYSTEM CRITICAL."
+            },
+            "disabled": {
+                "greeting": "(Keine Reaktion)",
+                "default": "Der Bot ist abgeschaltet."
             }
         }
     }
