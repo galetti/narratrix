@@ -36,9 +36,6 @@ NPCS = [
                     "text": "Systeme nominal. Sensoren aktiv. Ich höre alles."
                 }
             }
-        },
-        "behavior": {
-            # Veraltete Behavior-Logik (wird vom neuen System ignoriert, wenn behavior_id gesetzt ist)
         }
     }
 ]

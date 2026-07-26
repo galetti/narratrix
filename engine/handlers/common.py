@@ -21,7 +21,11 @@ class CommonHandler:
     def is_held_by_player(game, obj):
         """Prüft rekursiv, ob sich ein Objekt im Inventar des Spielers befindet."""
         current = obj
+        visited = set()
         while True:
+            current_id = current.get(ATTR_ID)
+            if current_id in visited: return False
+            visited.add(current_id)
             loc = current['location']
             if loc == LOC_INVENTORY: return True
             if loc in game.rooms: return False 
@@ -32,7 +36,7 @@ class CommonHandler:
     @staticmethod
     def format_contents_recursive(game, obj_id, depth=0):
         """Erzeugt einen String für den Inhalt, inklusive Unter-Containern."""
-        if depth > 2: return "" 
+        if depth > 5: return "" 
         
         contents = [sub for sub in game.objects.values() if sub['location'] == obj_id]
         if not contents: return ""

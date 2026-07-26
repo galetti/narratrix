@@ -1,126 +1,158 @@
-# narratrix_engine/engine/systems/effect_processor.py
-from engine.constants import *
+from engine.constants import LOC_INVENTORY
+from engine.schema import SUPPORTED_EFFECTS
+
+
+class EffectProcessingError(ValueError):
+    """Raised when content asks the engine to execute an invalid effect."""
+
 
 class EffectProcessor:
-    """
-    Zentrales System zur Verarbeitung von Spieleffekten.
-    """
+    """Central, strict processor for all state-changing content effects."""
+
     def __init__(self, game):
         self.game = game
 
     def process(self, effects_data, context_npc=None):
-        if not effects_data: return
-        
-        effect_list = effects_data if isinstance(effects_data, list) else [effects_data]
-            
-        for eff in effect_list:
-            self._execute_single_effect(eff, context_npc)
+        if not effects_data:
+            return
+        effects = effects_data if isinstance(effects_data, list) else [effects_data]
+        for effect in effects:
+            self._execute_single_effect(effect, context_npc)
 
-    def _execute_single_effect(self, eff, context_npc):
-        e_type = eff.get('type')
-        
-        # --- BEWEGUNG (Realistisch) ---
-        if e_type == 'move_npc':
-            npc_id = eff.get('npc')
-            if not npc_id and context_npc:
-                npc_id = context_npc['id']
-                
-            room_id = eff.get('room') or eff.get('target') 
-            
-            if hasattr(self.game.ai, 'move_npc'):
-                self.game.ai.move_npc(npc_id, room_id, instant=False)
-                
-                if context_npc and context_npc['id'] == npc_id and room_id != self.game.location:
-                    if self.game.dialogue_active:
-                        self.game.dialogue_active = False
-                        self.game.dialogue_partner = None
-                        self.game.log('event', "--- GESPRÄCH BEENDET (Partner geht) ---")
-            else:
-                print("[WARN] EffectProcessor: AI System fehlt oder hat keine move_npc Methode.")
+    def _execute_single_effect(self, effect, context_npc):
+        if not isinstance(effect, dict):
+            raise EffectProcessingError("Effekt muss ein Dict sein.")
+        effect_type = effect.get("type")
+        if effect_type not in SUPPORTED_EFFECTS:
+            raise EffectProcessingError(f"Unbekannter Effekttyp '{effect_type}'.")
 
-        # --- TELEPORT (Instant) ---
-        elif e_type == 'teleport_npc':
-            npc_id = eff.get('npc')
-            if not npc_id and context_npc: npc_id = context_npc['id']
-            room_id = eff.get('target')
-            
-            if hasattr(self.game.ai, 'move_npc'):
-                self.game.ai.move_npc(npc_id, room_id, instant=True)
-            else:
-                target = self._find_npc(npc_id)
-                if target: target['location'] = room_id
+        if effect_type in {"move_npc", "teleport_npc"}:
+            npc_id = effect.get("npc") or (context_npc and context_npc.get("id"))
+            room_id = effect.get("room") or effect.get("target")
+            if not npc_id or room_id not in self.game.rooms:
+                raise EffectProcessingError(
+                    f"{effect_type}: NPC '{npc_id}' oder Raum '{room_id}' ungültig."
+                )
+            self.game.ai.move_npc(npc_id, room_id, instant=effect_type == "teleport_npc")
+            if (
+                context_npc
+                and context_npc.get("id") == npc_id
+                and room_id != self.game.location
+                and self.game.dialogue_active
+            ):
+                self.game.dialogue_system.end_dialogue(reason="Partner geht")
+            return
 
-        # --- ZUSTANDSÄNDERUNGEN ---
-        elif e_type == 'set_state' or e_type == 'set_npc_state':
-            target = None
-            npc_id = eff.get('npc')
-            
-            if npc_id:
-                target = self._find_npc(npc_id)
-            elif context_npc:
-                target = context_npc
-            
-            if target:
-                new_state = eff.get('value')
-                target['state'] = new_state
-                
-                # Fix: Nur loggen, wenn Spieler den NPC sehen kann
-                if target.get('location') == self.game.location:
-                    self.game.log('info', f"({target['name']} wirkt verändert.)")
-                # Optional: Wenn nicht sichtbar, könnten wir das im Debug-Log vermerken, aber nicht für den Spieler
-            else:
-                print(f"[WARN] EffectProcessor: Kein Ziel für set_state gefunden.")
-
-        # --- WISSEN ---
-        elif e_type == 'learn':
-            fact = eff.get('fact')
-            self.game.add_knowledge(fact)
-            # Log nur für Spieler relevante Infos, "technische" Flags müssen nicht geloggt werden
-            if not fact.startswith("task_"): 
-                self.game.log('success', f"(Wissen erhalten: {fact})")
-
-        # --- ITEMS & OBJEKTE ---
-        elif e_type == 'spawn_item' or e_type == 'receive_item':
-            item_id = eff.get('item') or eff.get('item_id')
-            location = eff.get('location', LOC_INVENTORY) 
-            
-            obj = self.game.objects.get(item_id)
-            if obj:
-                obj['location'] = location
-                if location == LOC_INVENTORY:
-                    self.game.log('success', f"Erhalten: {obj['name']}")
-            else:
-                print(f"[WARN] EffectProcessor: Item '{item_id}' nicht gefunden.")
-
-        elif e_type == 'update_object':
-            target_id = eff.get('target')
-            updates = eff.get('updates', {})
-            
-            target = self.game.objects.get(target_id)
+        if effect_type in {"set_state", "set_npc_state"}:
+            npc_id = effect.get("npc") or (context_npc and context_npc.get("id"))
+            target = self._find_npc(npc_id)
             if not target:
-                target = self._find_npc(target_id)
-                
-            if target:
-                target.update(updates)
-            else:
-                print(f"[WARN] EffectProcessor: Objekt '{target_id}' für Update nicht gefunden.")
+                raise EffectProcessingError(f"NPC '{npc_id}' für Zustandswechsel fehlt.")
+            self.game.set_npc_state(target, effect.get("value"))
+            if target.get("location") == self.game.location:
+                self.game.log("info", f"({target['name']} wirkt verändert.)")
+            return
 
-        # --- SYSTEM ---
-        elif e_type == 'damage_stability':
-            amount = eff.get('value', 0)
+        if effect_type == "learn":
+            fact = effect.get("fact")
+            if not fact:
+                raise EffectProcessingError("learn benötigt 'fact'.")
+            was_new = self.game.add_knowledge(fact)
+            if was_new and not fact.startswith("task_"):
+                self.game.log("success", f"(Wissen erhalten: {fact})")
+            return
+
+        if effect_type in {"spawn_item", "receive_item"}:
+            item_id = effect.get("item") or effect.get("item_id")
+            obj = self._find_object(item_id)
+            if not obj:
+                raise EffectProcessingError(f"Item '{item_id}' nicht gefunden.")
+            location = effect.get("location", LOC_INVENTORY)
+            obj["location"] = location
+            if location == LOC_INVENTORY:
+                self.game.log("success", f"Erhalten: {obj['name']}")
+            return
+
+        if effect_type == "update_object":
+            target_id = effect.get("target")
+            target = self._find_object(target_id) or self._find_npc(target_id)
+            if not target:
+                raise EffectProcessingError(f"Objekt/NPC '{target_id}' für Update fehlt.")
+            updates = effect.get("updates")
+            if not isinstance(updates, dict):
+                raise EffectProcessingError("update_object benötigt ein 'updates'-Dict.")
+            target.update(updates)
+            return
+
+        if effect_type == "damage_stability":
+            amount = float(effect.get("value", 0))
             self.game.stability -= amount
             if amount > 0:
-                self.game.log('alarm', f"WARNUNG: Hüllenintegrität gefallen (-{amount}%)")
-                
-        elif e_type == 'game_over':
-            reason = eff.get('reason', "Game Over")
-            self.game.log('alarm', reason)
-            self.game.game_over = True
+                self.game.log("alarm", f"WARNUNG: Hüllenintegrität gefallen (-{amount:g}%)")
+            return
 
-        elif e_type == 'trigger_event':
-            next_event_id = eff.get('id')
-            if hasattr(self.game, 'events'):
-                self.game.events.trigger_event_by_id(next_event_id)
+        if effect_type == "game_over":
+            reason = effect.get("reason", "Game Over")
+            self.game.log("alarm", reason)
+            self.game.game_over = True
+            return
+
+        if effect_type == "trigger_event":
+            event_id = effect.get("id")
+            if not self.game.events.trigger_event_by_id(event_id):
+                # A one-shot event that already ran is a valid no-op.
+                if not self.game.events.has_event(event_id):
+                    raise EffectProcessingError(f"Event '{event_id}' nicht gefunden.")
+            return
+
+        if effect_type == "message":
+            message = effect.get("message")
+            if not message:
+                raise EffectProcessingError("message benötigt Text.")
+            self.game.log(effect.get("log_type", "info"), message)
+            return
+
+        if effect_type == "quest_start":
+            quest_id = effect.get("id") or effect.get("quest")
+            self.game.quests.start_quest(quest_id)
+            return
+
+        if effect_type == "quest_update":
+            payload = effect.get("quest_update", effect)
+            quest_id = payload.get("id") or payload.get("quest")
+            if "stage" not in payload:
+                raise EffectProcessingError("quest_update benötigt 'stage'.")
+            self.game.quests.update_quest(quest_id, payload["stage"])
+            return
+
+        if effect_type == "quest_complete":
+            self.game.quests.complete_quest(effect.get("id") or effect.get("quest"))
+            return
+
+        if effect_type == "quest_fail":
+            self.game.quests.fail_quest(effect.get("id") or effect.get("quest"))
+            return
+
+        if effect_type == "load_chapter":
+            target = effect.get("chapter") or effect.get("target")
+            if not target:
+                raise EffectProcessingError("load_chapter benötigt ein Ziel.")
+            self.game.pending_chapter_load = target
+
+    def _find_object(self, identifier):
+        if identifier in self.game.objects:
+            return self.game.objects[identifier]
+        return next(
+            (obj for obj in self.game.objects.values() if obj.get("id") == identifier),
+            None,
+        )
 
     def _find_npc(self, identifier):
-        return next((n for n in self.game.npcs if n.get('id') == identifier or n.get('name') == identifier), None)
+        return next(
+            (
+                npc
+                for npc in self.game.npcs
+                if npc.get("id") == identifier or npc.get("name") == identifier
+            ),
+            None,
+        )

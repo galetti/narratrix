@@ -5,13 +5,15 @@ from engine.action_dispatcher import ActionDispatcher
 class SpacyParser:
     """
     Fortschrittlicher Parser, der natürliche Sprache (NLP) nutzt, um Befehle zu verstehen.
-    Benötigt das Spacy Modell 'de_core_news_sm'.
+    Verwendet bevorzugt das Spacy Modell 'de_core_news_md' und fällt auf
+    'de_core_news_sm' oder den regelbasierten Parser zurück.
     """
     
     # Mapping von deutschen Lemmata (Grundformen) auf Engine-Befehle
     VERB_MAP = {
         # Bewegung
-        "gehen": "move", "laufen": "move", "rennen": "move", "klettern": "move",
+        "gehen": "move", "laufen": "move", "rennen": "move",
+        "klettern": "climb",
         "steigen": "move", "kriechen": "move", "wandern": "move",
         
         # Exploration
@@ -51,13 +53,16 @@ class SpacyParser:
         self.nlp = None
         
         try:
-            if not spacy.util.is_package("de_core_news_sm"):
-                print("[SYSTEM] Spacy Modell 'de_core_news_sm' nicht gefunden.")
-                print("[HINWEIS] Installiere es mit: python -m spacy download de_core_news_sm")
-            else:
-                self.nlp = spacy.load("de_core_news_sm")
-                self.available = True
-                print("[SYSTEM] Spacy NLP Engine geladen.")
+            for model_name in ("de_core_news_md", "de_core_news_sm"):
+                try:
+                    self.nlp = spacy.load(model_name)
+                    self.available = True
+                    print(f"[SYSTEM] Spacy NLP Engine geladen: {model_name}")
+                    break
+                except OSError:
+                    continue
+            if not self.available:
+                print("[SYSTEM] Kein deutsches Spacy-Modell gefunden; nutze Regelparser.")
         except Exception as e:
             print(f"[SYSTEM] Fehler beim Laden von Spacy: {e}")
             self.available = False
@@ -67,6 +72,12 @@ class SpacyParser:
             from engine.parser.rule_based import RuleBasedParser
             fallback = RuleBasedParser(self.game)
             fallback.parse(user_input)
+            return
+
+        if self.game.disambiguation or self.game.pending_interaction:
+            words = user_input.lower().strip().split()
+            if words:
+                ActionDispatcher.dispatch(self.game, words[0], words[1:])
             return
 
         doc = self.nlp(user_input.strip())
@@ -121,7 +132,14 @@ class SpacyParser:
         # 2. Argumente extrahieren
         args = []
         if main_verb_token:
-            relevant_tokens = [t for t in doc if t != main_verb_token and not t.is_punct]
+            filler = {"bitte", "schnell", "mal", "doch"}
+            relevant_tokens = [
+                t
+                for t in doc
+                if t != main_verb_token
+                and not t.is_punct
+                and t.lemma_.lower() not in filler
+            ]
             relevant_tokens.sort(key=lambda t: t.i)
             args = [t.text for t in relevant_tokens]
         else:

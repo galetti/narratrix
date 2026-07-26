@@ -10,6 +10,7 @@ import warnings
 import queue
 import json 
 import subprocess # Für den Clipboard Fallback
+import copy
 
 warnings.filterwarnings("ignore", category=UserWarning, module='pygame')
 
@@ -32,8 +33,18 @@ except ImportError:
 # NEU: Config Loader aus 'data/' Verzeichnis
 def load_system_config():
     default_conf = {
-        "game": {"start_chapter": "data.chapters.ep0_arrival.config", "title": "Narratrix"},
-        "system": {"resolution_width": 1024, "resolution_height": 768}
+        "game": {
+            "start_chapter": "data.chapters.ep1_deep_zero.config",
+            "title": "Narratrix",
+            "language": "de",
+        },
+        "system": {
+            "resolution_width": 1024,
+            "resolution_height": 768,
+            "parser_mode": "SPACY",
+            "llm_enabled": False,
+            "llm_url": "http://localhost:1234/v1/chat/completions",
+        }
     }
     
     # Pfadänderung: Config liegt jetzt in data/config.json
@@ -58,7 +69,7 @@ def load_system_config():
 SYS_CONFIG = load_system_config()
 INIT_WIDTH = SYS_CONFIG["system"].get("resolution_width", 1024)
 INIT_HEIGHT = SYS_CONFIG["system"].get("resolution_height", 768)
-PARSER_MODE = "SPACY" 
+PARSER_MODE = SYS_CONFIG["system"].get("parser_mode", "SPACY").upper()
 
 class RichTextRenderer:
     def __init__(self, font, default_color):
@@ -158,9 +169,7 @@ class AssetLoader:
     def __init__(self):
         self.cache = {}
         self.base_path = os.path.join(os.path.dirname(__file__), "data", "assets", "images")
-        if not os.path.exists(self.base_path):
-            try: os.makedirs(self.base_path)
-            except: pass
+        os.makedirs(self.base_path, exist_ok=True)
 
     def get_image(self, img_id):
         if not img_id: return None
@@ -184,8 +193,11 @@ class AssetLoader:
 class GameGUI:
     def __init__(self):
         pygame.init()
-        self.screen = pygame.display.set_mode((INIT_WIDTH, INIT_HEIGHT), pygame.RESIZABLE)
-        pygame.display.set_caption(f"{SYS_CONFIG['game'].get('title', 'Narratrix')} v5.9") 
+        display_flags = pygame.RESIZABLE
+        if SYS_CONFIG["system"].get("fullscreen", False):
+            display_flags |= pygame.FULLSCREEN
+        self.screen = pygame.display.set_mode((INIT_WIDTH, INIT_HEIGHT), display_flags)
+        pygame.display.set_caption(f"{SYS_CONFIG['game'].get('title', 'Narratrix')} v6.0")
         
         # FIX: Clipboard Init
         try: 
@@ -202,7 +214,7 @@ class GameGUI:
             self.font_header = pygame.font.SysFont("Verdana", theme.FONT_SIZE_HEADER, bold=True)
             self.font_big = pygame.font.SysFont("Verdana", theme.FONT_SIZE_GAME_OVER, bold=True)
             self.font_sensor = pygame.font.SysFont("Consolas", 14) # Kleine Schrift für Sensoren
-        except: 
+        except (pygame.error, OSError):
             print("[WARN] Systemfonts nicht gefunden, nutze Fallback.")
             self.font_log = pygame.font.SysFont("Arial", theme.FONT_SIZE_LOG)
             self.font_header = pygame.font.SysFont("Arial", theme.FONT_SIZE_HEADER)
@@ -214,7 +226,9 @@ class GameGUI:
         
         self.result_queue = queue.Queue()
         
-        self.current_chapter = SYS_CONFIG['game'].get("start_chapter", "data.chapters.ep0_arrival.config")
+        self.current_chapter = SYS_CONFIG['game'].get(
+            "start_chapter", "data.chapters.ep1_deep_zero.config"
+        )
         print(f"[SYSTEM] Starte mit Kapitel: {self.current_chapter}")
         self.load_game_chapter(self.current_chapter)
         
@@ -227,14 +241,21 @@ class GameGUI:
             print(f"[FATAL] Konnte Kapitel '{chapter_path}' nicht laden!")
             sys.exit(1)
 
+        new_config["use_llm_dialogue"] = bool(
+            SYS_CONFIG["system"].get("llm_enabled", False)
+        )
+        new_config["llm_url"] = SYS_CONFIG["system"].get("llm_url")
+        new_config["llm_model"] = SYS_CONFIG["system"].get("llm_model")
         self.game = GameState(new_config)
+        self.current_chapter = chapter_path
         
         if transfer_state:
-            self.game.knowledge = transfer_state.get('knowledge', set())
-            old_inventory_ids = transfer_state.get('inventory_ids', [])
-            for item_id in old_inventory_ids:
-                if item_id in self.game.objects:
-                    self.game.objects[item_id]['location'] = LOC_INVENTORY
+            self.game.knowledge = set(transfer_state.get('knowledge', set()))
+            self.game.time = transfer_state.get('time', self.game.time)
+            self.game.stability = transfer_state.get('stability', self.game.stability)
+            for old_item in transfer_state.get('inventory_objects', []):
+                item_id = old_item['id']
+                self.game.objects[item_id] = copy.deepcopy(old_item)
         
         self.user_text = ""
         self.cursor_pos = 0
@@ -256,7 +277,9 @@ class GameGUI:
         self.submit_command("look", echo=False)
 
     def restart_game(self):
-        self.current_chapter = SYS_CONFIG['game'].get("start_chapter", "data.chapters.ep0_arrival.config")
+        self.current_chapter = SYS_CONFIG['game'].get(
+            "start_chapter", "data.chapters.ep1_deep_zero.config"
+        )
         self.load_game_chapter(self.current_chapter)
 
     def run(self):
@@ -269,7 +292,8 @@ class GameGUI:
                 msg = self.result_queue.get_nowait()
                 if msg == "DONE":
                     self.is_processing = False
-        except queue.Empty: pass
+        except queue.Empty:
+            pass
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT: pygame.quit(); sys.exit()
@@ -412,29 +436,29 @@ class GameGUI:
     def update(self): 
         self.cursor_blink += 1
         
-        if self.game.pending_chapter_load:
+        if self.game.pending_chapter_load and not self.is_processing:
             target_chapter = self.game.pending_chapter_load
             print(f"[SYSTEM] Wechsle zu Kapitel: {target_chapter}")
             
             transfer_state = {
-                "knowledge": self.game.knowledge,
-                "inventory_ids": [o['id'] for o in self.game.objects.values() if o['location'] == LOC_INVENTORY]
+                "knowledge": set(self.game.knowledge),
+                "time": self.game.time,
+                "stability": self.game.stability,
+                "inventory_objects": self._collect_inventory_objects(),
             }
-            
-            chapter_map = {
-                "ep1_station": "data.chapters.ep1_station.config",
-                "ep0_arrival": "data.chapters.ep0_arrival.config"
-            }
-            
-            path = chapter_map.get(target_chapter)
-            if not path:
-                if "data.chapters" in target_chapter: path = target_chapter
+            self.load_game_chapter(target_chapter, transfer_state)
 
-            if path:
-                self.load_game_chapter(path, transfer_state)
-            else:
-                self.game.log('error', f"[SYSTEM] Fehler: Kapitel '{target_chapter}' nicht gefunden.")
-                self.game.pending_chapter_load = None
+    def _collect_inventory_objects(self):
+        held = []
+        for obj in self.game.objects.values():
+            location = obj.get('location')
+            visited = set()
+            while location in self.game.objects and location not in visited:
+                visited.add(location)
+                location = self.game.objects[location].get('location')
+            if location == LOC_INVENTORY:
+                held.append(copy.deepcopy(obj))
+        return held
 
     def draw(self):
         snapshot = self.game.get_snapshot()
@@ -623,10 +647,11 @@ class GameGUI:
         for log in snap['logs']: 
             if not self.show_all_logs_in_main:
                 if log['type'] in ['event', 'character']:
-                    if '---' in log['text']: pass 
-                    elif '"' in log['text']: pass 
-                    elif log['text'].startswith("Personen:"): continue 
-                    else:
+                    is_main_log = (
+                        '---' in log['text']
+                        or '"' in log['text']
+                    )
+                    if log['text'].startswith("Personen:") or not is_main_log:
                         continue 
 
             base_color = theme.COLOR_TEXT

@@ -1,100 +1,140 @@
-import importlib
 import copy
-import sys
+import importlib
+import json
 import os
+from typing import Any
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from engine.schema import ConfigurationError, validate_game_config
+
 
 class StoryLoader:
-    
+    """Load and merge common and chapter content into one validated config."""
+
     @staticmethod
-    def _load_common_config():
+    def _load_common_config() -> dict[str, Any]:
         try:
             module = importlib.import_module("data.common.config")
             importlib.reload(module)
-            return module.COMMON_CONFIG
-        except ImportError as e:
-            print(f"[WARN] StoryLoader: Konnte Common-Layer nicht laden: {e}")
-            return {"rooms": {}, "objects": {}, "npcs": [], "matrix": [], "events": [], "combinations": [], "quests": {}}
+            return copy.deepcopy(module.COMMON_CONFIG)
+        except ImportError as exc:
+            print(f"[WARN] StoryLoader: Common-Layer nicht verfügbar: {exc}")
+            return {
+                "rooms": {},
+                "objects": {},
+                "npcs": [],
+                "matrix": [],
+                "events": [],
+                "combinations": [],
+                "quests": {},
+            }
 
     @staticmethod
-    def load_chapter(chapter_module_path):
+    def _load_chapter_data(chapter_source: str) -> tuple[dict[str, Any], str]:
+        if os.path.isfile(chapter_source) or chapter_source.lower().endswith(".json"):
+            with open(chapter_source, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            module_id = os.path.abspath(chapter_source)
+            return data, module_id
+
+        module = importlib.import_module(chapter_source)
+        module = importlib.reload(module)
+        return copy.deepcopy(module.CHAPTER_CONFIG), chapter_source
+
+    @staticmethod
+    def _merge_by_id(base: list[dict], overlay: list[dict]) -> list[dict]:
+        """Merge entity lists; chapter entries replace common entries by ID."""
+
+        merged: list[dict] = []
+        positions: dict[str, int] = {}
+        for entry in copy.deepcopy(base) + copy.deepcopy(overlay):
+            entry_id = entry.get("id")
+            if entry_id and entry_id in positions:
+                merged[positions[entry_id]] = entry
+            else:
+                if entry_id:
+                    positions[entry_id] = len(merged)
+                merged.append(entry)
+        return merged
+
+    @staticmethod
+    def load_chapter(chapter_source: str, raise_on_error: bool = False):
         try:
             common_data = StoryLoader._load_common_config()
-            module = importlib.import_module(chapter_module_path)
-            importlib.reload(module)
-            
-            base_package = module.__package__
-            if base_package:
-                for sub in ['rooms', 'items', 'npcs', 'events', 'events_flavor', 'config', 'quests']:
-                    try:
-                        sub_mod = importlib.import_module(f"{base_package}.{sub}")
-                        importlib.reload(sub_mod)
-                    except ImportError: pass
-            
-            chapter_data = module.CHAPTER_CONFIG
-            
-            final_rooms = copy.deepcopy(common_data.get('rooms', {}))
-            final_rooms.update(copy.deepcopy(chapter_data.get('rooms', {})))
-            
-            final_objects = copy.deepcopy(common_data.get('objects', {}))
-            final_objects.update(copy.deepcopy(chapter_data.get('objects', {})))
-            
-            final_combinations = copy.deepcopy(common_data.get('combinations', []))
-            final_combinations.extend(copy.deepcopy(chapter_data.get('combinations', [])))
-            
-            final_matrix = copy.deepcopy(common_data.get('matrix', []))
-            final_matrix.extend(copy.deepcopy(chapter_data.get('matrix', [])))
+            chapter_data, module_id = StoryLoader._load_chapter_data(chapter_source)
 
-            final_events = copy.deepcopy(common_data.get('events', []))
-            final_events.extend(copy.deepcopy(chapter_data.get('events', [])))
+            rooms = copy.deepcopy(common_data.get("rooms", {}))
+            rooms.update(copy.deepcopy(chapter_data.get("rooms", {})))
 
-            final_npcs = copy.deepcopy(common_data.get('npcs', [])) + copy.deepcopy(chapter_data.get('npcs', []))
-            
-            final_quests = copy.deepcopy(common_data.get('quests', {}))
-            final_quests.update(copy.deepcopy(chapter_data.get('quests', {})))
+            objects = copy.deepcopy(common_data.get("objects", {}))
+            objects.update(copy.deepcopy(chapter_data.get("objects", {})))
 
-            StoryLoader._process_links(chapter_data.get('links', []), final_rooms, chapter_data.get('meta', {}))
+            combinations = copy.deepcopy(common_data.get("combinations", []))
+            combinations.extend(copy.deepcopy(chapter_data.get("combinations", [])))
+
+            common_matrix = common_data.get("narrative_matrix", common_data.get("matrix", []))
+            chapter_matrix = chapter_data.get("narrative_matrix", chapter_data.get("matrix", []))
+            matrix = StoryLoader._merge_by_id(common_matrix, chapter_matrix)
+            events = StoryLoader._merge_by_id(
+                common_data.get("events", []), chapter_data.get("events", [])
+            )
+            npcs = StoryLoader._merge_by_id(
+                common_data.get("npcs", []), chapter_data.get("npcs", [])
+            )
+
+            quests = copy.deepcopy(common_data.get("quests", {}))
+            quests.update(copy.deepcopy(chapter_data.get("quests", {})))
+
+            meta = copy.deepcopy(chapter_data.get("meta", {}))
+            meta["module"] = module_id
+            StoryLoader._process_links(chapter_data.get("links", []), rooms)
 
             full_config = {
-                "meta": chapter_data.get('meta', {}),
+                "meta": meta,
+                "settings": copy.deepcopy(chapter_data.get("settings", {})),
                 "vocabulary": StoryLoader._get_default_vocabulary(),
-                "rooms": final_rooms,
-                "objects": final_objects,
-                "combinations": final_combinations,
-                "narrative_matrix": final_matrix,
-                "events": final_events,
-                "npcs": final_npcs,
-                "quests": final_quests
+                "rooms": rooms,
+                "objects": objects,
+                "combinations": combinations,
+                "narrative_matrix": matrix,
+                "events": events,
+                "npcs": npcs,
+                "quests": quests,
             }
-            
-            return full_config
+            return validate_game_config(full_config)
 
-        except ImportError as e:
-            print(f"[ERROR] StoryLoader: Konnte Kapitel '{chapter_module_path}' nicht importieren: {e}")
+        except (ImportError, OSError, json.JSONDecodeError, AttributeError, ConfigurationError) as exc:
+            print(f"[ERROR] StoryLoader: Kapitel '{chapter_source}' ist ungültig: {exc}")
+            if raise_on_error:
+                raise
             return None
-        except Exception as e:
-            print(f"[FATAL] StoryLoader: Fehler: {e}")
-            import traceback
-            traceback.print_exc()
+        except Exception as exc:
+            print(f"[FATAL] StoryLoader: Unerwarteter Fehler: {exc}")
+            if raise_on_error:
+                raise
             return None
 
     @staticmethod
-    def _process_links(links, rooms, meta):
-        if links:
-            for link in links:
-                from_id = link.get('from_common')
-                direction = link.get('dir')
-                to_tag = link.get('to_chapter_tag')
-                if from_id and direction and to_tag:
-                    target_room_id = None
-                    for r_id, room_data in rooms.items():
-                        if to_tag in room_data.get("tags", []):
-                            target_room_id = r_id; break
-                    if target_room_id and from_id in rooms:
-                        if 'exits' not in rooms[from_id]: rooms[from_id]['exits'] = {}
-                        rooms[from_id]['exits'][direction] = target_room_id
-                        if 'exits' not in rooms[target_room_id]: rooms[target_room_id]['exits'] = {}
+    def _process_links(links: list[dict], rooms: dict[str, dict]) -> None:
+        for link in links:
+            from_id = link.get("from_common")
+            direction = link.get("dir")
+            to_tag = link.get("to_chapter_tag")
+            if not (from_id and direction and to_tag):
+                continue
+
+            target_room_id = next(
+                (room_id for room_id, room in rooms.items() if to_tag in room.get("tags", [])),
+                None,
+            )
+            if not target_room_id or from_id not in rooms:
+                raise ConfigurationError(
+                    f"Layer-Link '{from_id}:{direction}' kann Tag '{to_tag}' nicht auflösen."
+                )
+
+            rooms[from_id].setdefault("exits", {})[direction] = target_room_id
+            reverse_direction = link.get("reverse_dir")
+            if reverse_direction:
+                rooms[target_room_id].setdefault("exits", {})[reverse_direction] = from_id
 
     @staticmethod
     def _get_default_vocabulary():
@@ -102,15 +142,15 @@ class StoryLoader:
             "verbs": {
                 "inventory": ["i", "inv", "tasche", "rucksack", "ausrüstung", "inventar"],
                 "look": ["schau", "l", "x", "untersuche", "betrachte", "lies", "scan", "status", "ansehen"],
-                # WICHTIG: "klettere" hier entfernt!
                 "move": ["gehe", "go", "lauf", "schwebe", "wandere", "steig", "bewege"],
                 "take": ["nimm", "greif", "einstecken", "sammle", "aufheben", "nehmen"],
                 "drop": ["drop", "fallenlassen", "abwerfen", "hinlegen", "ablegen", "entferne", "lass"],
-                "put": ["put", "legen", "stecken", "tun", "platziere", "stell", "packe", "fülle", "stellen", "stelle"],
+                "put": ["put", "legen", "stecken", "tun", "platziere", "stell", "packe", "stellen", "stelle"],
                 "give": ["gib", "geben", "reich", "schenke", "give", "versorge"],
                 "use": ["benutze", "opfere", "anwenden", "kombiniere", "fülle", "injiziere", "nutze"],
                 "talk": ["rede", "sprich", "frag", "befrage", "kommuniziere", "funk", "sagen"],
-                "open": ["öffne", "aufmachen", "zugriff"],
+                "open": ["öffne", "aufmachen"],
+                "close": ["schließe", "zumachen", "schliess", "close"],
                 "break": ["brich", "zerstöre", "eintreten", "force", "zerschlage"],
                 "fix": ["repariere", "reinige", "patch", "löte", "fix", "flicken", "verbinde"],
                 "wait": ["warte", "bete", "z", "ruhen"],
@@ -118,12 +158,11 @@ class StoryLoader:
                 "load": ["laden", "load"],
                 "oracle": ["orakel", "vorhersage", "vision", "prognose", "sehe", "log"],
                 "map": ["map", "karte", "plan", "radar"],
-                "hack": ["hack", "hacken", "zugriff", "system", "override"],
+                "hack": ["hack", "hacken", "system", "override"],
                 "help": ["hilfe", "help", "h", "?", "commands", "befehle"],
                 "hide": ["verstecke", "hide", "krieche", "duck"],
                 "journal": ["journal", "logbuch", "aufgaben", "quests", "ziele", "j"],
-                # WICHTIG: "klettere" hier hinzugefügt!
-                "climb": ["klettere", "climb", "steige", "erklimme"]
+                "climb": ["klettere", "climb", "steige", "erklimme"],
             },
             "directions": {
                 "north": ["n", "nord", "norden"],
@@ -135,7 +174,25 @@ class StoryLoader:
                 "northeast": ["ne", "no", "nordost", "nordosten"],
                 "northwest": ["nw", "nordwest", "nordwesten"],
                 "southeast": ["se", "so", "südost", "südosten"],
-                "southwest": ["sw", "südwest", "südwesten"]
+                "southwest": ["sw", "südwest", "südwesten"],
+                "out": ["raus", "draußen", "hinaus"],
             },
-            "skip_words": ["der", "die", "das", "dem", "den", "ein", "eine", "einen", "mit", "zum", "zur", "im", "am", "auf", "in", "aus", "out"]
+            "skip_words": [
+                "der",
+                "die",
+                "das",
+                "dem",
+                "den",
+                "ein",
+                "eine",
+                "einen",
+                "mit",
+                "zum",
+                "zur",
+                "im",
+                "am",
+                "auf",
+                "in",
+                "aus",
+            ],
         }

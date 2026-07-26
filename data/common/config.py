@@ -10,5 +10,7 @@ COMMON_CONFIG = {
     "objects": COMMON_ITEMS,
     "npcs": COMMON_NPCS,
     "matrix": COMMON_MATRIX,
-    "combinations": [] # Globale Crafting Rezepte (z.B. Batterie wechseln) könnten hier hin
+    "events": [],
+    "quests": {},
+    "combinations": []
 }

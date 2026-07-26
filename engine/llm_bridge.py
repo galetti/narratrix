@@ -1,73 +1,64 @@
-# narratrix_engine/engine/llm_bridge.py
-import requests
-import json
 import os
 
+try:
+    import requests
+except ImportError:  # LLM support is optional.
+    requests = None
+
+
 class LLMBridge:
-    """
-    Verbindung zu einem lokalen LLM Server (z.B. LM Studio oder Ollama).
-    Konfiguration erfolgt über Environment Variables.
-    """
-    
-    # Defaults
     DEFAULT_URL = "http://localhost:1234/v1/chat/completions"
-    DEFAULT_MODEL = "local-model" # Viele lokale Server ignorieren das Model-Feld eh
-    TIMEOUT = 5 # Sekunden Timeout, damit das Spiel nicht hängt
+    DEFAULT_MODEL = "local-model"
+    TIMEOUT = 5
 
     @staticmethod
-    def get_api_url():
-        return os.getenv("NARRATRIX_LLM_URL", LLMBridge.DEFAULT_URL)
+    def get_api_url(configured_url=None):
+        return configured_url or os.getenv("NARRATRIX_LLM_URL", LLMBridge.DEFAULT_URL)
 
     @staticmethod
-    def call(system_prompt, user_message):
-        """
-        Sendet einen Request an das LLM.
-        Gibt None zurück, wenn der Server nicht erreichbar ist.
-        """
-        url = LLMBridge.get_api_url()
-        headers = {"Content-Type": "application/json"}
-        
+    def call(system_prompt, user_message, api_url=None, model=None):
+        if requests is None:
+            return None
+        url = LLMBridge.get_api_url(api_url)
         payload = {
-            "model": LLMBridge.DEFAULT_MODEL,
+            "model": model or os.getenv("NARRATRIX_LLM_MODEL", LLMBridge.DEFAULT_MODEL),
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message}
+                {"role": "user", "content": user_message},
             ],
             "temperature": 0.7,
-            "max_tokens": 100
+            "max_tokens": 100,
         }
-
         try:
-            # Kurzer Timeout für UX
-            response = requests.post(url, headers=headers, json=payload, timeout=LLMBridge.TIMEOUT)
-            
-            if response.status_code == 200:
-                data = response.json()
-                if 'choices' in data and len(data['choices']) > 0:
-                    content = data['choices'][0]['message']['content']
-                    return content.strip().strip('"')
-            else:
-                print(f"[LLM] Fehler Status Code: {response.status_code}")
-                
+            response = requests.post(
+                url,
+                headers={"Content-Type": "application/json"},
+                json=payload,
+                timeout=LLMBridge.TIMEOUT,
+            )
+            response.raise_for_status()
+            data = response.json()
+            choices = data.get("choices", [])
+            if choices:
+                return choices[0]["message"]["content"].strip().strip('"')
         except requests.exceptions.ConnectionError:
-            # Das ist normal, wenn kein Server läuft -> Silent Fail
             pass
         except requests.exceptions.Timeout:
             print("[LLM] Timeout - Server antwortet zu langsam.")
-        except Exception as e:
-            print(f"[LLM] Exception: {e}")
-
+        except (ValueError, KeyError, requests.RequestException) as exc:
+            print(f"[LLM] Fehler: {exc}")
         return None
 
     @staticmethod
-    def check_availability():
-        """Prüft beim Start einmalig, ob LLM da ist."""
-        url = LLMBridge.get_api_url()
+    def check_availability(api_url=None):
+        if requests is None:
+            return False
+        url = LLMBridge.get_api_url(api_url)
         try:
-            # Wir senden einen leeren Dummy-Request an den Root oder Info endpoint wäre besser,
-            # aber viele OpenAI-kompatible Server haben nur POST /v1/...
-            # Wir machen einfach einen minimalen Call.
-            requests.get(url.replace("/chat/completions", "/models"), timeout=1)
-            return True
-        except:
+            response = requests.get(
+                url.replace("/chat/completions", "/models"),
+                timeout=1,
+            )
+            return response.ok
+        except requests.RequestException:
             return False

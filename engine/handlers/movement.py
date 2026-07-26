@@ -44,6 +44,9 @@ class MovementHandler:
             else:
                 return game.log('error', "Du bist versteckt. Komm erst raus (gehe raus).")
 
+        if not args:
+            return game.log('error', "Wohin willst du gehen?")
+
         direction = args[0].lower()
         vocab_dirs = game.config.get('vocabulary', {}).get('directions', {})
         target_dir = None
@@ -76,6 +79,7 @@ class MovementHandler:
             else:
                 game.location = target_id
                 game.elevation = 0 
+                game.visit_room(target_id)
                 
                 game.log('location', game.rooms[target_id][ATTR_NAME])
                 desc = game.render_room_desc(target_id)
@@ -108,10 +112,7 @@ class MovementHandler:
         
         # Fallback: Wenn nur "klettere auf" eingegeben wurde, ist clean_args leer
         if not clean_args:
-             if args[0].lower() in ["up", "hoch", "rauf", "oben", "auf"]:
-                 # Versuch, generisch hochzuklettern
-                 pass 
-             else:
+             if args[0].lower() not in ["up", "hoch", "rauf", "oben"]:
                  return game.log('error', "Worauf willst du klettern?")
 
         # "Climb down" logic
@@ -120,6 +121,7 @@ class MovementHandler:
                 game.elevation = 0
                 game.log('success', "Du kletterst zurück auf den Boden.")
                 MovementHandler._list_room_items(game, game.location)
+                game.tick(1)
                 return
             else:
                 MovementHandler.handle(game, ["down"])
@@ -153,12 +155,14 @@ class MovementHandler:
                     game.elevation = new_level
                     game.log('success', f"Du kletterst auf {target[ATTR_NAME]}. (Ebene {new_level})")
                     MovementHandler._list_room_items(game, game.location)
+                    game.tick(1)
                 return
 
             if 'destination' in target:
                 dest = target['destination']
                 game.location = dest
                 game.elevation = 0
+                game.visit_room(dest)
                 game.log('success', f"Du kletterst auf {target[ATTR_NAME]}...")
                 game.tick(1)
                 
@@ -176,6 +180,7 @@ class MovementHandler:
                 game.log('success', f"Du kletterst auf {target[ATTR_NAME]} und erreichst den Durchgang...")
                 game.location = dest_room_id
                 game.elevation = 0
+                game.visit_room(dest_room_id)
                 game.tick(1)
                 
                 game.log('location', game.rooms[dest_room_id][ATTR_NAME])

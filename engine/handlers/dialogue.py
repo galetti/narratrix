@@ -1,6 +1,7 @@
 # narratrix_engine/engine/handlers/dialogue.py
 from engine.resolver import Resolver
 from engine.constants import *
+from engine.access import is_directly_reachable, reach_error
 
 class DialogueHandler:
     @staticmethod
@@ -14,6 +15,8 @@ class DialogueHandler:
                 target_npc = local[0]
             else: 
                 return game.log('error', "Mit wem willst du sprechen?")
+        if not is_directly_reachable(game, target_npc, upward_reach=0):
+            return game.log('error', reach_error(game, target_npc))
 
         # Delegiere Start an System
         game.dialogue_system.start_dialogue(target_npc)
@@ -59,13 +62,9 @@ class DialogueHandler:
                 chosen_topic_key, chosen_entry = visible_topics[idx]
         else:
             # Textsuche
-            # Wir holen die DB erneut (könnte ineffizient sein, aber sicher)
-            _, dialogue_db = game.dialogue_system.get_visible_topics(npc)
-            
-            for topic, entry in dialogue_db.items():
-                if topic in ['greeting', 'default']: continue
-                # Conditions wurden schon bei get_visible_topics grob geprüft, aber hier für Hidden Topics wichtig
-                if topic in text:
+            for topic, entry in visible_topics:
+                label = entry.get('label', '') if isinstance(entry, dict) else ''
+                if topic.lower() in text or (label and label.lower() in text):
                     chosen_entry = entry
                     chosen_topic_key = topic
                     break

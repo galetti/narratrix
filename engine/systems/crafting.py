@@ -1,181 +1,186 @@
-# narratrix_engine/engine/systems/crafting.py
-from engine.constants import *
+from dataclasses import dataclass
+
+from engine.access import is_directly_reachable, reach_error
+from engine.constants import ATTR_ALIASES, ATTR_ID, ATTR_NAME, LOC_INVENTORY, LOC_VOID
+
+
+@dataclass(frozen=True)
+class CraftResult:
+    success: bool
+    message: str
+    code: str = "ok"
+
+    def __str__(self):
+        return self.message
+
 
 class CraftingSystem:
     def __init__(self, game):
         self.game = game
 
+    @staticmethod
+    def _identifiers(entity):
+        return {
+            value
+            for value in (entity.get("id"), entity.get("resource_id"))
+            if value
+        }
+
     def perform_combine(self, item1_name, item2_name, verb="use"):
-        # 1. Objekte finden (Items ODER NPCs)
         item1 = self._find_obj_or_npc_by_name(item1_name)
         item2 = self._find_obj_or_npc_by_name(item2_name)
-        
         if not item1 or not item2:
-            return "Ich weiß nicht, was du kombinieren willst."
+            return CraftResult(False, "Ich weiß nicht, was du kombinieren willst.", "not_found")
 
-        # Identifiziere IDs
-        # Items haben ATTR_ID ('id'), NPCs auch ('id')
-        id1 = item1.get(ATTR_ID, item1.get('id'))
-        id2 = item2.get(ATTR_ID, item2.get('id'))
-        
-        possible_recipes = []
-        for combo in self.game.combinations:
-            if combo.get('verb') != verb: continue
-            
-            recipe_items = combo.get('items', [])
-            ingredients = combo.get('ingredients', {})
-            station = combo.get('station')
-            
-            # Fall A: Exakte ID-Übereinstimmung (z.B. [tool, npc])
-            if recipe_items:
-                if set(recipe_items) == {id1, id2}:
-                    possible_recipes.append(combo)
-                    continue
+        for entity in (item1, item2):
+            if not is_directly_reachable(self.game, entity):
+                return CraftResult(False, reach_error(self.game, entity), "not_reachable")
 
-            # Fall B: Zutaten/Station Logik
-            is_station_match = (station == id1 or station == id2)
-            is_ingredient_match = (id1 in ingredients or id2 in ingredients)
-            
-            if is_station_match or is_ingredient_match:
-                possible_recipes.append(combo)
+        possible = [
+            recipe
+            for recipe in self.game.combinations
+            if recipe.get("verb", "use") == verb
+            and self._matches_interaction(recipe, (item1, item2))
+        ]
+        if not possible:
+            return CraftResult(False, "Das scheint nicht zu funktionieren.", "no_recipe")
 
-        if not possible_recipes:
-            return "Das scheint nicht zu funktionieren."
+        failures = []
+        for recipe in possible:
+            result = self._try_craft(recipe, (item1, item2))
+            if result.success:
+                return result
+            failures.append(result)
+        return failures[0] if failures else CraftResult(False, "Das funktioniert so nicht.", "failed")
 
-        for recipe in possible_recipes:
-            success, msg = self._try_craft(recipe, [item1, item2])
-            if success:
-                return msg
-            elif msg: 
-                return msg
+    def _matches_interaction(self, recipe, entities):
+        requested = set(recipe.get("items", []))
+        identifiers = [self._identifiers(entity) for entity in entities]
+        if requested:
+            return all(any(item_id in values for values in identifiers) for item_id in requested)
 
-        return "Das funktioniert so nicht."
+        station = recipe.get("station")
+        ingredients = set(recipe.get("ingredients", {}))
+        tools = set(recipe.get("tools", []))
+        relevant = ingredients | tools | ({station} if station else set())
+        return any(identifier in relevant for values in identifiers for identifier in values)
 
     def _try_craft(self, recipe, interacting_items):
-        # 1. Prüfe Station
-        required_station = recipe.get('station')
-        if required_station:
-            station_present = False
-            # Check interaction objects
-            for item in interacting_items:
-                i_id = item.get(ATTR_ID, item.get('id'))
-                if i_id == required_station:
-                    station_present = True; break
-            
-            # Check environment
-            if not station_present:
-                # Check room items
-                if required_station in self.game.objects:
-                    if self.game.objects[required_station]['location'] == self.game.location:
-                        station_present = True
-                # Check room NPCs (falls Station ein NPC ist? Unwahrscheinlich aber möglich)
-                if not station_present:
-                    for npc in self.game.npcs:
-                        if npc['id'] == required_station and npc['location'] == self.game.location:
-                            station_present = True; break
+        if "condition" in recipe and not self.game.events.evaluate_condition(
+            recipe["condition"]
+        ):
+            return CraftResult(False, "Diese Aktion ist bereits erledigt.", "condition")
 
-            if not station_present: return False, None 
+        station_id = recipe.get("station")
+        if station_id:
+            station = self._find_entity_by_identifier(station_id)
+            if not station or not is_directly_reachable(self.game, station):
+                return CraftResult(False, f"Die benötigte Station '{station_id}' ist nicht erreichbar.", "station")
 
-        # 2. Prüfe Zutaten (Nur im Inventar zählen)
-        ingredients = recipe.get('ingredients', {})
-        if 'items' in recipe and not ingredients:
-            # Legacy: items liste ist keine Kosten-Liste, sondern Auslöser. 
-            # Wenn ingredients leer ist, verbrauchen wir nichts (Standard Interaktion).
-            ingredients = {}
+        blueprint = recipe.get("blueprint")
+        if blueprint and blueprint not in self.game.knowledge:
+            return CraftResult(False, "Dir fehlt das Wissen für dieses Rezept.", "blueprint")
 
-        inventory_ids = [o[ATTR_ID] for o in self.game.objects.values() if o['location'] == LOC_INVENTORY]
-        
+        for tool_id in recipe.get("tools", []):
+            tool = self._find_inventory_entity(tool_id)
+            if not tool:
+                return CraftResult(False, f"Dir fehlt das Werkzeug '{tool_id}'.", "tool")
+
+        result_id = recipe.get("result") or recipe.get("spawn_item")
+        if result_id:
+            result_obj = self.game.objects.get(result_id)
+            if not result_obj:
+                raise ValueError(f"Rezept-Ergebnis '{result_id}' fehlt trotz Validierung.")
+            if result_obj.get("location") != LOC_VOID:
+                return CraftResult(
+                    False,
+                    f"{result_obj[ATTR_NAME]} wurde bereits hergestellt.",
+                    "result_exists",
+                )
+
+        ingredient_plan = {}
         missing = []
-        for ing_id, count in ingredients.items():
-            available = 0
-            item = self.game.objects.get(ing_id)
-            if not item: continue
-            
-            if item['location'] == LOC_INVENTORY:
-                if item.get('is_resource'): available = item.get('count', 1)
-                else: available = 1
-            
-            # Check interacting items (falls man Ressource in Hand hält?)
-            for i_item in interacting_items:
-                i_id = i_item.get(ATTR_ID, i_item.get('id'))
-                if i_id == ing_id and i_item.get('location') != LOC_INVENTORY:
-                     if i_item.get('is_resource'): available += i_item.get('count', 1)
-                     else: available += 1
+        for ingredient_id, required_count in recipe.get("ingredients", {}).items():
+            stacks = self._inventory_entities(ingredient_id)
+            available = sum(
+                int(entity.get("count", 1)) if entity.get("is_resource") else 1
+                for entity in stacks
+            )
+            if available < required_count:
+                missing.append(f"{required_count}x {ingredient_id}")
+            ingredient_plan[ingredient_id] = (required_count, stacks)
+        if missing:
+            return CraftResult(False, f"Dir fehlt noch: {', '.join(missing)}.", "ingredients")
 
-            if available < count:
-                missing.append(f"{count}x {item[ATTR_NAME]}")
+        # Validation is complete; all following mutations form one atomic action.
+        for _, (required_count, stacks) in ingredient_plan.items():
+            remaining = required_count
+            for entity in stacks:
+                available = int(entity.get("count", 1)) if entity.get("is_resource") else 1
+                consumed = min(remaining, available)
+                remaining -= consumed
+                if entity.get("is_resource") and consumed < available:
+                    entity["count"] = available - consumed
+                else:
+                    entity["location"] = LOC_VOID
+                if remaining == 0:
+                    break
 
-        if missing: return False, f"Dir fehlt noch: {', '.join(missing)}."
+        effects = recipe.get("effects", recipe.get("effect"))
+        if effects:
+            context_npc = next(
+                (entity for entity in interacting_items if entity in self.game.npcs),
+                None,
+            )
+            self.game.effects.process(effects, context_npc)
 
-        # 3. Ausführung - Zutaten entfernen
-        for ing_id, count in ingredients.items():
-            item = self.game.objects.get(ing_id)
-            if not item: continue
-            
-            if not recipe.get('consume_tools', True) and item.get('is_tool'):
-                continue
-                
-            if item.get('is_resource'):
-                current = item.get('count', 1)
-                if current > count: item['count'] = current - count
-                else: item['location'] = LOC_VOID
-            else:
-                item['location'] = LOC_VOID
+        result_name = None
+        if result_id:
+            result_obj["location"] = LOC_INVENTORY
+            result_name = result_obj[ATTR_NAME]
 
-        return True, self._execute_combination(recipe, interacting_items)
+        message = recipe.get("message")
+        if not message and result_name:
+            message = f"Hergestellt: {result_name}"
+        return CraftResult(True, message or "Aktion ausgeführt.")
 
-    def _execute_combination(self, combo, objects):
-        # FIX: Reihenfolge geändert! Erst Effekte, dann Return.
-        
-        # 1. Effekte verarbeiten
-        if 'effect' in combo:
-            # Versuch Kontext-NPC zu finden
-            context_npc = None
-            for o in objects:
-                # NPCs haben kein 'type' Feld zwingend, aber eine ID in game.npcs
-                if o in self.game.npcs: context_npc = o; break
-            
-            self.game.effects.process(combo['effect'], context_npc)
+    def _inventory_entities(self, identifier):
+        return [
+            entity
+            for entity in self.game.objects.values()
+            if entity.get("location") == LOC_INVENTORY
+            and identifier in self._identifiers(entity)
+        ]
 
-        # 2. Spawn Result
-        spawn_msg = ""
-        if 'spawn_item' in combo:
-            new_id = combo['spawn_item']
-            if new_id in self.game.objects:
-                self.game.objects[new_id]['location'] = LOC_INVENTORY
-                spawn_msg = f"Hergestellt: {self.game.objects[new_id][ATTR_NAME]}"
-        
-        # 3. Text Feedback (Priorität: Custom Message > Spawn Message > Default)
-        if 'message' in combo:
-            return combo['message']
-        
-        if spawn_msg: return spawn_msg
-            
-        return "Aktion ausgeführt."
+    def _find_inventory_entity(self, identifier):
+        return next(iter(self._inventory_entities(identifier)), None)
+
+    def _find_entity_by_identifier(self, identifier):
+        for entity in list(self.game.objects.values()) + list(self.game.npcs):
+            if identifier in self._identifiers(entity):
+                return entity
+        return None
 
     def _find_obj_or_npc_by_name(self, name):
-        """Sucht in Objekten UND NPCs."""
-        name_clean = name.lower().strip()
-        
-        # 1. Objekte (Inventar + Raum)
-        candidates = [o for o in self.game.objects.values() 
-                      if o['location'] in [LOC_INVENTORY, self.game.location]]
-        
-        # 2. NPCs (Raum)
-        npc_candidates = [n for n in self.game.npcs if n['location'] == self.game.location]
-        
-        all_candidates = candidates + npc_candidates
-        
-        # Exakt
-        for obj in all_candidates:
-            if obj[ATTR_NAME].lower() == name_clean: return obj
-            
-        # Alias
-        for obj in all_candidates:
-            if any(a.lower() == name_clean for a in obj.get(ATTR_ALIASES, [])): return obj
-            
-        # Fuzzy
-        for obj in all_candidates:
-            if name_clean in obj[ATTR_NAME].lower(): return obj
-            
-        return None
+        normalized = name.lower().strip()
+        candidates = [
+            obj
+            for obj in self.game.objects.values()
+            if obj.get("location") in {LOC_INVENTORY, self.game.location}
+        ]
+        candidates.extend(
+            npc for npc in self.game.npcs if npc.get("location") == self.game.location
+        )
+
+        for entity in candidates:
+            if entity[ATTR_NAME].lower() == normalized:
+                return entity
+        for entity in candidates:
+            if any(alias.lower() == normalized for alias in entity.get(ATTR_ALIASES, [])):
+                return entity
+        matches = [
+            entity
+            for entity in candidates
+            if normalized and normalized in entity[ATTR_NAME].lower()
+        ]
+        return matches[0] if len(matches) == 1 else None

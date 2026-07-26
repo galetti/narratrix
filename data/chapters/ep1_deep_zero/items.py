@@ -1,8 +1,6 @@
 # narratrix_engine/data/chapters/ep1_arrival/items.py
 from engine.constants import *
 
-if 'TYPE_FIXTURE' not in globals(): TYPE_FIXTURE = "fixture"
-
 ITEMS = {
     # --- TOOLS ---
     "tool_wrench": {
@@ -17,7 +15,7 @@ ITEMS = {
     },
     
     # --- REWARDS ---
-    "item_keycard_quarters": {
+    "keycard_quarters": {
         ATTR_ID: "keycard_quarters",
         ATTR_NAME: "Quartierschlüssel",
         ATTR_DESC: "Eine ID-Karte für dein Zimmer.",
@@ -46,7 +44,7 @@ ITEMS = {
         "target_elevation": 2
     },
     "parents_photo": {
-        ATTR_ID: "photo_parents",
+        ATTR_ID: "parents_photo",
         ATTR_NAME: "Foto der Eltern",
         ATTR_DESC: "Ein altes analoges Foto.",
         "location": LOC_INVENTORY, # Start Item
@@ -60,8 +58,9 @@ COMBINATIONS = [
     {
         "verb": "use", # "Benutze Zange mit Rusty"
         "items": ["tool_wrench", "rusty"],
+        "condition": {"type": "knowledge", "value": "rusty_dead", "not": True},
         "message": "Du rammst die Zange in den Not-Aus-Schalter. Funken sprühen.",
-        "effect": [
+        "effects": [
             {"type": "trigger_event", "id": "rusty_shutdown"}
         ]
     },
@@ -69,8 +68,9 @@ COMBINATIONS = [
     {
         "verb": "break", # "Zerstöre Rusty mit Zange"
         "items": ["tool_wrench", "rusty"],
+        "condition": {"type": "knowledge", "value": "rusty_dead", "not": True},
         "message": "Mit einem lauten Scheppern triffst du das Chassis.",
-        "effect": [
+        "effects": [
             {"type": "trigger_event", "id": "rusty_shutdown"}
         ]
     }

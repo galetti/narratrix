@@ -54,6 +54,8 @@ class AISystem:
         self._init_default_behaviors()
 
     def _init_default_behaviors(self):
+        self.trees['idle'] = Action(self._act_idle)
+
         # Standard-Verhalten: "Wache"
         self.trees['guard'] = Selector([
             Sequence([
@@ -82,7 +84,7 @@ class AISystem:
         for npc in self.game.npcs:
             self._handle_movement(npc, minutes)
             
-            behavior_id = npc.get('behavior_id', 'guard') 
+            behavior_id = npc.get('behavior_id', 'idle')
             tree = self.trees.get(behavior_id)
             
             if tree:
@@ -96,7 +98,7 @@ class AISystem:
     def _cond_player_near(self, npc, sys):
         if sys.game.location == npc['location']: return True
         path = sys.game.pathfinder.find_path(npc['location'], sys.game.location)
-        return path and len(path) == 1
+        return path is not None and len(path) == 1
 
     def _cond_not_greeted(self, npc, sys):
         return not npc.get('has_greeted', False)
@@ -105,6 +107,9 @@ class AISystem:
         return npc.get('memory', {}).get('last_noise_loc') is not None
 
     # --- ACTIONS ---
+
+    def _act_idle(self, npc, sys):
+        return True
 
     def _act_greet_player(self, npc, sys):
         # Sicherheitscheck: Nur grüßen, wenn Spieler da ist
@@ -124,6 +129,8 @@ class AISystem:
         current = npc['location']
         player_loc = sys.game.location
         room = sys.game.rooms.get(current)
+        if not room:
+            return False
         best_exit = None
         for direction, target in room.get('exits', {}).items():
             if target != player_loc:
@@ -170,19 +177,20 @@ class AISystem:
 
     def move_npc(self, npc_id, target_room_id, instant=False):
         npc = self._find_npc(npc_id)
-        if not npc: return
+        if not npc or target_room_id not in self.game.rooms: return False
 
         if instant:
             npc['location'] = target_room_id
+            npc['level'] = 0
             npc['path'] = []
             npc['target_location'] = None
-            return
+            return True
 
         start_room = npc.get('location')
-        if start_room == target_room_id: return
+        if start_room == target_room_id: return True
 
         if npc.get('target_location') == target_room_id and npc.get('path'):
-            return
+            return True
 
         path = self.game.pathfinder.find_path(start_room, target_room_id)
         if path:
@@ -195,6 +203,8 @@ class AISystem:
                 direction = self._get_exit_direction(start_room, first_step)
                 dir_str = f" nach {direction}" if direction else ""
                 self.game.log('character', f"{npc[ATTR_NAME]} bricht auf{dir_str}.")
+            return True
+        return False
 
     def _handle_movement(self, npc, minutes):
         path = npc.get('path')
@@ -207,8 +217,25 @@ class AISystem:
         while current_acc >= 1.0 and path:
             next_room_id = path.pop(0)
             old_room_id = npc['location']
+            canonical_direction = next(
+                (
+                    key
+                    for key, value in self.game.rooms[old_room_id].get('exits', {}).items()
+                    if value == next_room_id
+                ),
+                None,
+            )
+            if (
+                canonical_direction is None
+                or not self.game.pathfinder._is_exit_passable(old_room_id, canonical_direction)
+            ):
+                npc['path'] = []
+                npc['target_location'] = None
+                npc['move_acc'] = 0.0
+                return
             
             npc['location'] = next_room_id
+            npc['level'] = 0
             current_acc -= 1.0
             steps_taken += 1
             
@@ -250,8 +277,11 @@ class AISystem:
         return next((n for n in self.game.npcs if n.get('id') == identifier or n.get('name') == identifier), None)
     
     def notify_noise(self, origin_id, volume):
+        source_volume = max(0.0, float(volume))
         for npc in self.game.npcs:
-            vol, _ = self.game.acoustics.get_audibility_info(origin_id, npc['location'])
-            if vol > 0.2: 
+            propagated, _ = self.game.acoustics.get_audibility_info(
+                origin_id, npc['location'], use_player_tools=False
+            )
+            if propagated * source_volume > 0.2:
                 if 'memory' not in npc: npc['memory'] = {}
                 npc['memory']['last_noise_loc'] = origin_id

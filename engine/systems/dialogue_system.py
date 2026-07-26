@@ -21,11 +21,12 @@ class DialogueSystem:
         
         self.game.log('event', f"--- GESPRÄCH MIT {npc[ATTR_NAME].upper()} ---")
         self.print_dialogue(npc, greeting)
-        self.show_topics(npc, dialogue_db)
+        self.show_topics(npc)
 
-    def end_dialogue(self):
+    def end_dialogue(self, reason=None):
         """Beendet den aktuellen Dialog."""
-        self.game.log('event', "--- GESPRÄCH BEENDET ---")
+        suffix = f" ({reason})" if reason else ""
+        self.game.log('event', f"--- GESPRÄCH BEENDET{suffix} ---")
         self.game.dialogue_active = False
         self.game.dialogue_partner = None
 
@@ -34,9 +35,7 @@ class DialogueSystem:
         npc = self.game.dialogue_partner
         if not npc: return
         
-        current_state = npc.get('state', 'default')
-        dialogue_db = self._get_dialogue_db(npc, current_state)
-        self.show_topics(npc, dialogue_db)
+        self.show_topics(npc)
 
     def handle_selection(self, entry, topic_key=None):
         """Verarbeitet eine gewählte Dialog-Option."""
@@ -76,7 +75,7 @@ class DialogueSystem:
             else:
                 self.game.log('character', f"{npc[ATTR_NAME]} schaut dich fragend an.")
         
-        self.show_topics(npc, dialogue_db)
+        self.show_topics(npc)
 
     # --- INTERNE HELPER ---
 
@@ -104,7 +103,7 @@ class DialogueSystem:
                 visible.append((topic, entry))
         return visible, dialogue_db
 
-    def show_topics(self, npc, dialogue_db):
+    def show_topics(self, npc):
         visible, _ = self.get_visible_topics(npc)
         
         if not visible:
@@ -126,21 +125,8 @@ class DialogueSystem:
         return True
 
     def _check_condition(self, condition):
-        # Einfache Bedingungsprüfung (ähnlich EventManager, aber lokal)
         if not condition: return True
-        if isinstance(condition, str): return condition in self.game.knowledge
-        if isinstance(condition, dict):
-            c_type = condition.get('type')
-            if c_type == 'knowledge': return condition.get('value') in self.game.knowledge
-            elif c_type == 'location': return self.game.location == condition.get('value')
-            elif c_type == 'item_location':
-                obj = self.game.objects.get(condition.get('item'))
-                return obj and obj['location'] == condition.get('location')
-            elif c_type == 'npc_state':
-                target_name = condition.get('npc')
-                target = next((n for n in self.game.npcs if n[ATTR_NAME] == target_name or target_name in n.get(ATTR_ALIASES, [])), None)
-                if target: return target.get('state', 'default') == condition.get('state')
-        return True
+        return self.game.events.evaluate_condition(condition)
 
     def print_dialogue(self, npc, response_entry, prompt_context=None):
         core_text = response_entry
@@ -161,7 +147,12 @@ class DialogueSystem:
                 user_msg = f"Kern-Aussage: {core_text}"
             
             self.game.log('info', f"({npc[ATTR_NAME]} denkt nach...)")
-            enhanced = LLMBridge.call(sys_prompt, user_msg)
+            enhanced = LLMBridge.call(
+                sys_prompt,
+                user_msg,
+                api_url=self.game.config.get('llm_url'),
+                model=self.game.config.get('llm_model'),
+            )
             if enhanced: final_text = enhanced
             
         self.game.log('character', f"{npc[ATTR_NAME]}: \"{final_text}\"")

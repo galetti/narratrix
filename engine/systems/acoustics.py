@@ -1,196 +1,152 @@
-from engine.constants import *
-from collections import deque
-import math
+import heapq
+
+from engine.constants import (
+    ACOUSTIC_CLOSED_DOOR,
+    ACOUSTIC_OPEN_AIR,
+    ACOUSTIC_OPEN_DOOR,
+    ATTR_NAME,
+    LOC_INVENTORY,
+)
+
 
 class AcousticsSystem:
+    """Propagate sound along the path with the highest transmission."""
+
     def __init__(self, game):
         self.game = game
-        # Konfigurierbare Reichweite für Optimierung
-        # Angenommen: Transmission ist im Schnitt 0.9 pro Raum.
-        # 0.9^x < 0.05 (Hörschwelle) -> x ≈ 28 Räume.
-        # Bei geschlossenen Türen (0.2) -> 0.2^x < 0.05 -> x ≈ 2 Räume.
-        self.max_propagation_distance = 20 # Sicherheitslimit für Pathfinder
+        self.max_propagation_distance = 30
 
-    def get_audibility_info(self, source_room_id, listener_room_id):
-        """
-        Berechnet die Hörbarkeit und die Richtung des Schalls.
-        Returns: (volume, direction_text)
-        """
+    def get_audibility_info(
+        self, source_room_id, listener_room_id, use_player_tools=True
+    ):
+        if source_room_id not in self.game.rooms or listener_room_id not in self.game.rooms:
+            return 0.0, ""
         if source_room_id == listener_room_id:
             return 1.0, "hier"
 
-        # Optimierung: Distanz-Check VOR teurer Pfadsuche
-        if not self._is_potentially_audible(source_room_id, listener_room_id):
-            return 0.0, ""
+        tool_bonus = self._player_tool_bonus() if use_player_tools else 0.0
+        best_volume = 0.0
+        best_direction = ""
+        for neighbor, transmission, direction in self._neighbors(listener_room_id):
+            if transmission <= 0.01:
+                continue
+            remote_volume = self._max_transmission(
+                source_room_id,
+                neighbor,
+                forbidden={listener_room_id},
+            )
+            effective = transmission
+            if tool_bonus and transmission < 0.5:
+                effective = min(1.0, transmission + tool_bonus)
+            total = remote_volume * effective
+            if total > best_volume:
+                best_volume = total
+                best_direction = self._direction_text(
+                    listener_room_id, neighbor, direction
+                )
 
-        return self._calculate_sound_from_listener_perspective(listener_room_id, source_room_id)
+        return (best_volume, best_direction) if best_volume >= 0.01 else (0.0, "")
 
-    def _is_potentially_audible(self, source_id, listener_id):
-        """
-        Schneller Check, ob es sich überhaupt lohnt, Pfade zu berechnen.
-        Nutzt Koordinaten (falls vorhanden) für Heuristik.
-        """
-        room_s = self.game.rooms.get(source_id)
-        room_l = self.game.rooms.get(listener_id)
-        
-        if not room_s or not room_l: return False
-        
-        # Koordinaten aus Editor-Daten nutzen (falls vorhanden)
-        ed_s = room_s.get('_editor', {})
-        ed_l = room_l.get('_editor', {})
-        
-        if 'x' in ed_s and 'x' in ed_l:
-            # Einfache Euklidische Distanz im Grid (Skalierung beachten!)
-            # Annahme: Grid Size im Editor ist ca. 100-150px pro Raum.
-            # Wir normalisieren das grob auf "Raum-Einheiten".
-            dx = (ed_s['x'] - ed_l['x']) / 100.0
-            dy = (ed_s['y'] - ed_l['y']) / 100.0
-            dz = (ed_s.get('z', 0) - ed_l.get('z', 0)) * 2 # Z zählt mehr (Decken dämpfen stark)
-            
-            dist = math.sqrt(dx*dx + dy*dy + dz*dz)
-            
-            # Wenn Distanz > Max Reichweite -> Abbruch
-            if dist > self.max_propagation_distance:
-                return False
-                
-        return True
+    def _player_tool_bonus(self):
+        return max(
+            (
+                float(obj.get("acoustic_boost", 0.0))
+                for obj in self.game.objects.values()
+                if obj.get("location") == LOC_INVENTORY
+            ),
+            default=0.0,
+        )
 
-    def _calculate_sound_from_listener_perspective(self, listener_id, source_id):
-        tool_bonus = 0.0
-        inv_items = [o for o in self.game.objects.values() if o['location'] == LOC_INVENTORY]
-        for item in inv_items:
-            boost = item.get('acoustic_boost', 0.0)
-            if boost > tool_bonus: tool_bonus = boost
-            
-        if listener_id == source_id: return 1.0, "hier"
+    def _max_transmission(self, source_id, target_id, forbidden=None):
+        if source_id == target_id:
+            return 1.0
+        forbidden = set(forbidden or ())
+        queue = [(-1.0, 0, source_id)]
+        best = {source_id: 1.0}
 
-        max_vol = 0.0
-        direction_str = "irgendwo"
-        
-        listener_room = self.game.rooms.get(listener_id)
-        if not listener_room: return 0.0, ""
+        while queue:
+            negative_volume, distance, room_id = heapq.heappop(queue)
+            volume = -negative_volume
+            if room_id == target_id:
+                return volume
+            if distance >= self.max_propagation_distance:
+                continue
+            if volume < best.get(room_id, 0):
+                continue
+            for neighbor, transmission, _ in self._neighbors(room_id):
+                if neighbor in forbidden or transmission <= 0.01:
+                    continue
+                propagated = volume * transmission
+                if propagated <= 0.01 or propagated <= best.get(neighbor, 0):
+                    continue
+                best[neighbor] = propagated
+                heapq.heappush(queue, (-propagated, distance + 1, neighbor))
+        return 0.0
 
-        trans_map = {
-            "north": ("Norden", "aus"), 
-            "south": ("Süden", "aus"), 
-            "east": ("Osten", "aus"), 
-            "west": ("Westen", "aus"), 
-            "up": ("Oben", "von"), 
-            "down": ("Unten", "von"), 
-            "out": ("Draußen", "von"),
-            "northeast": ("Nordosten", "aus"), 
-            "northwest": ("Nordwesten", "aus"),
-            "southeast": ("Südosten", "aus"), 
-            "southwest": ("Südwesten", "aus")
+    def _neighbors(self, room_id):
+        room = self.game.rooms.get(room_id, {})
+        found = {}
+        for direction, target_id in room.get("exits", {}).items():
+            found[target_id] = (
+                self._calculate_exit_transmission(room_id, direction),
+                direction,
+            )
+        for target_id, data in room.get("acoustics", {}).items():
+            transmission = (
+                float(data)
+                if isinstance(data, (int, float))
+                else float(data.get("transmission", 0.0))
+            )
+            direction = (
+                data.get("direction_text")
+                if isinstance(data, dict)
+                else None
+            )
+            if target_id not in found or transmission > found[target_id][0]:
+                found[target_id] = (transmission, direction)
+        return [
+            (target_id, transmission, direction)
+            for target_id, (transmission, direction) in found.items()
+            if target_id in self.game.rooms
+        ]
+
+    def _direction_text(self, listener_id, neighbor_id, direction):
+        translations = {
+            "north": "aus Norden",
+            "south": "aus Süden",
+            "east": "aus Osten",
+            "west": "aus Westen",
+            "up": "von Oben",
+            "down": "von Unten",
+            "out": "von Draußen",
+            "northeast": "aus Nordosten",
+            "northwest": "aus Nordwesten",
+            "southeast": "aus Südosten",
+            "southwest": "aus Südwesten",
         }
+        if direction in translations:
+            return translations[direction]
+        if direction:
+            return str(direction)
 
-        # --- A. Exits ---
-        for direction, neighbor_id in listener_room.get('exits', {}).items():
-            trans_local = self._calculate_exit_transmission(listener_id, direction)
-            
-            # WICHTIG: Wenn der Ausgang schon fast dicht ist, brechen wir diesen Zweig ab
-            if trans_local <= 0.01: continue
-
-            vol_at_neighbor = self._get_volume_at_room(source_id, neighbor_id, visited={listener_id})
-            
-            total_vol = vol_at_neighbor * trans_local
-            
-            if trans_local < 0.5 and tool_bonus > 0:
-                total_vol = vol_at_neighbor * min(1.0, trans_local + tool_bonus)
-
-            if total_vol > max_vol:
-                max_vol = total_vol
-                name, prep = trans_map.get(direction, (direction, "aus"))
-                direction_str = f"{prep} {name}"
-
-        # --- B. Wände & Acoustics ---
-        acoustics = listener_room.get('acoustics', {}).copy()
-        for neighbor_id, data in acoustics.items():
-            wall_trans = data if isinstance(data, float) else data.get('transmission', 0.0)
-            custom_dir_text = data.get('direction_text') if isinstance(data, dict) else None
-            
-            # WICHTIG: Wanddichte Check
-            if wall_trans <= 0.01: continue
-
-            if neighbor_id not in self.game.rooms: continue
-            
-            vol_at_neighbor = self._get_volume_at_room(source_id, neighbor_id, visited={listener_id})
-            effective_trans = wall_trans
-            if tool_bonus > 0: effective_trans = min(1.0, wall_trans + tool_bonus)
-            
-            total_vol = vol_at_neighbor * effective_trans
-            
-            if total_vol > max_vol:
-                max_vol = total_vol
-                if custom_dir_text: 
-                    direction_str = custom_dir_text 
-                else:
-                    n_room = self.game.rooms.get(neighbor_id)
-                    n_exits = n_room.get('exits', {})
-                    if n_exits.get('down') == listener_id: direction_str = "von Oben (durch die Decke)"
-                    elif n_exits.get('up') == listener_id: direction_str = "von Unten (durch den Boden)"
-                    else: direction_str = f"hinter der Wand zu {n_room[ATTR_NAME]}"
-
-        # Cutoff: Wenn Lautstärke mikroskopisch klein ist, betrachte es als 0
-        if max_vol < 0.01: return 0.0, ""
-        
-        return max_vol, direction_str
-
-    def _get_volume_at_room(self, source_id, current_id, visited):
-        if source_id == current_id: return 1.0
-        if current_id in visited: return 0.0
-        
-        # Performance: Nutze limitierte Pfadsuche (nicht unendlich tief)
-        # Wir modifizieren find_path aber nicht, da er BFS ist (kürzester Weg zuerst).
-        # Aber wir können prüfen, ob der Weg zu lang ist.
-        
-        path = self.game.pathfinder.find_path(source_id, current_id)
-        
-        # Optimierung: Wenn Weg zu lang für Akustik, brich ab.
-        # Annahme: Selbst bei offener Tür (0.9) ist nach 30 Räumen Stille (0.9^30 = 0.04)
-        if path and len(path) > 30: 
-            return 0.0
-
-        if not path:
-            s_room = self.game.rooms.get(source_id)
-            if s_room and current_id in s_room.get('acoustics', {}):
-                trans = self._get_transmission_between(source_id, current_id)
-                return trans
-            return 0.0
-        
-        volume = 1.0
-        trace_room = source_id
-        for step_room in path:
-            trans = self._get_transmission_between(trace_room, step_room)
-            volume *= trans
-            trace_room = step_room
-            # WICHTIG: Early Exit während der Berechnung
-            if volume <= 0.01: return 0.0
-            
-        return volume
-
-    def _get_transmission_between(self, room_a_id, room_b_id):
-        room_a = self.game.rooms.get(room_a_id)
-        if not room_a: return 0.0
-        
-        for direction, target_id in room_a.get('exits', {}).items():
-            if target_id == room_b_id:
-                return self._calculate_exit_transmission(room_a_id, direction)
-        
-        acoustics = room_a.get('acoustics', {})
-        if room_b_id in acoustics:
-            val = acoustics[room_b_id]
-            return val if isinstance(val, float) else val.get('transmission', 0.0)
-            
-        return 0.0 
+        neighbor = self.game.rooms.get(neighbor_id, {})
+        exits = neighbor.get("exits", {})
+        if exits.get("down") == listener_id:
+            return "von Oben (durch die Decke)"
+        if exits.get("up") == listener_id:
+            return "von Unten (durch den Boden)"
+        return f"hinter der Wand zu {neighbor.get(ATTR_NAME, neighbor_id)}"
 
     def _calculate_exit_transmission(self, room_id, direction):
         transmission = ACOUSTIC_OPEN_AIR
-        local_objs = [o for o in self.game.objects.values() if o['location'] == room_id]
-        
-        for obj in local_objs:
-            if obj.get('linked_exit') == direction:
-                if obj.get('is_open'): transmission = ACOUSTIC_OPEN_DOOR
-                else: transmission = obj.get('acoustic_damping', ACOUSTIC_CLOSED_DOOR)
-                break
+        for obj in self.game.objects.values():
+            if obj.get("location") != room_id or obj.get("linked_exit") != direction:
+                continue
+            if obj.get("is_open"):
+                transmission = ACOUSTIC_OPEN_DOOR
+            else:
+                transmission = float(
+                    obj.get("acoustic_damping", ACOUSTIC_CLOSED_DOOR)
+                )
+            break
         return transmission

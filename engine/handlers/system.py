@@ -1,15 +1,24 @@
 import os
 import json
-import time
+import re
 from engine.constants import *
 
 class SystemHandler:
+    @staticmethod
+    def _save_filename(args):
+        stem = args[0] if args else "savegame"
+        stem = stem[:-5] if stem.lower().endswith(".json") else stem
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", stem):
+            raise ValueError("Save-Name darf nur Buchstaben, Zahlen, '_' und '-' enthalten.")
+        return f"{stem}.json"
     
     @staticmethod
     def save(game, args):
         """Speichert den aktuellen Spielstand."""
-        filename = "savegame.json"
-        if args: filename = f"{args[0]}.json"
+        try:
+            filename = SystemHandler._save_filename(args)
+        except ValueError as exc:
+            return game.log('error', str(exc))
         
         save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "saves")
         if not os.path.exists(save_dir):
@@ -28,8 +37,10 @@ class SystemHandler:
     @staticmethod
     def load(game, args):
         """Lädt einen Spielstand."""
-        filename = "savegame.json"
-        if args: filename = f"{args[0]}.json"
+        try:
+            filename = SystemHandler._save_filename(args)
+        except ValueError as exc:
+            return game.log('error', str(exc))
         
         save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "saves")
         filepath = os.path.join(save_dir, filename)
@@ -68,6 +79,7 @@ INTERAKTION:
   nimm <objekt>
   benutze <objekt> [mit <objekt>]
   öffne <objekt>
+  schließe <objekt>
   lege <objekt> in/auf <objekt>
   zerstöre / break <objekt>
 
@@ -183,3 +195,10 @@ SYSTEM:
             for title in completed:
                 # Erledigt in Grau/Story-Farbe
                 game.log('story', f"[x] {title}")
+
+        failed = game.quests.get_failed_quests()
+        if failed:
+            game.log('info', "")
+            game.log('info', "FEHLGESCHLAGEN:")
+            for title in failed:
+                game.log('error', f"[!] {title}")

@@ -3,9 +3,8 @@ from engine.constants import *
 import difflib
 
 class ResolutionError(Exception):
-    def __init__(self, message, reason_code="unknown"):
+    def __init__(self, message):
         super().__init__(message)
-        self.reason_code = reason_code
 
 class AmbiguityError(Exception):
     """
@@ -38,9 +37,15 @@ class Resolver:
         candidates = []
         
         # Hilfsfunktion für Container-Inhalt
+        visited_containers = set()
+
         def add_contents_of(container_list, check_open=True):
             for obj in container_list:
                 if obj.get('type') in [TYPE_CONTAINER, TYPE_SURFACE]:
+                    obj_id = obj.get(ATTR_ID)
+                    if obj_id in visited_containers:
+                        continue
+                    visited_containers.add(obj_id)
                     if not check_open or obj.get('type') == TYPE_SURFACE or obj.get('is_open', True):
                         contents = [o for o in game.objects.values() if o['location'] == obj[ATTR_ID]]
                         candidates.extend(contents)
@@ -83,7 +88,8 @@ class Resolver:
         search_query = Resolver.normalize_term(" ".join(search_words))
         candidates = Resolver._collect_candidates(game, location_filter)
         
-        matches = []
+        exact_matches = []
+        substring_matches = []
         
         # 1a. Exakter Match oder Substring Match (Lokal)
         for cand in candidates:
@@ -92,12 +98,12 @@ class Resolver:
             
             # Priorität: Exakter Match
             if search_query == cand_name or search_query in cand_aliases:
-                if cand not in matches: matches.append(cand)
+                if cand not in exact_matches: exact_matches.append(cand)
             # Sekundär: Substring Match (nur wenn wir noch keine exakten Matches haben oder sammeln wollen)
             elif search_query in cand_name or any(search_query in a for a in cand_aliases):
-                if cand not in matches: matches.append(cand)
+                if cand not in substring_matches: substring_matches.append(cand)
         
-        # Wenn wir hier Treffer haben, sind wir fertig! Keine teure globale Suche nötig.
+        matches = exact_matches or substring_matches
         if matches:
             if len(matches) == 1: return matches[0]
             raise AmbiguityError(matches, search_words)
@@ -132,20 +138,16 @@ class Resolver:
         # 3. Ergebnis Auswertung
         if len(matches) == 0:
             error_msg = f"Ich sehe hier kein '{search_query}'."
-            reason = "not_here"
-            
             if not corrected_query:
                 # Es gab nicht mal einen ähnlichen Begriff im ganzen Spiel
                 error_msg = f"Ich weiß nicht, was ein '{search_query}' ist."
-                reason = "unknown_word"
             elif location_filter == FILTER_INVENTORY:
                 error_msg = f"Du hast kein '{corrected_query}' dabei."
-                reason = "not_in_inventory"
             else:
                 # Begriff existiert im Spiel, ist aber nicht hier
                 error_msg = f"Ich sehe hier kein '{corrected_query}'."
 
-            raise ResolutionError(error_msg, reason)
+            raise ResolutionError(error_msg)
         
         if len(matches) == 1: 
             return matches[0]
@@ -156,6 +158,8 @@ class Resolver:
     def find_mentioned_npc(game, words):
         """Spezifische NPC Suche für Dialoge."""
         query = Resolver.normalize_term(" ".join(words))
+        if not query:
+            return None
         local_npcs = [n for n in game.npcs if n['location'] == game.location]
         
         # 1. Schnellsuche

@@ -10,7 +10,7 @@ QUESTS = {
             1: "Der Bot ist abgeschaltet. Melde dich bei Sato.",
             2: "Abgeschlossen."
         },
-        "current_stage": 0
+        "completion_stage": 2
     }
 }
 
@@ -19,10 +19,13 @@ NARRATIVE_MATRIX = [
         "id": "intro_sequence",
         "trigger": "time",
         "trigger_time": 0,
-        "once": True,
         "description": "Die Andockklammern lösen sich mit einem metallischen Ächzen. Dein Shuttle, die 'Charon', hat dich sicher abgesetzt.",
         "effects": [
-            {"type": "message", "message": "C.O.R.E. (Headset): 'Willkommen, Dr. Thorne. Dr. Sato erwartet Sie im Inner Ring. Folgen Sie den grünen Markierungen.'"}
+            {
+                "type": "message",
+                "log_type": "character",
+                "message": "C.O.R.E. (Headset): 'Willkommen, Dr. Thorne. Dr. Sato erwartet Sie im Inner Ring. Folgen Sie den grünen Markierungen.'"
+            }
         ]
     }
 ]
@@ -70,7 +73,7 @@ EVENTS = [
         "id": "tutorial_end",
         "trigger": "manual",
         "effects": [
-            {"type": "quest_update", "quest_update": {"id": "noise_pollution", "stage": 2}},
+            {"type": "quest_complete", "id": "noise_pollution"},
             {"type": "message", "message": "Du hast deine Ausrüstung erhalten."},
             {"type": "game_over", "reason": "TUTORIAL ABGESCHLOSSEN - Einleitung in Szene 2..."}
         ]

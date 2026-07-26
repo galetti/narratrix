@@ -22,7 +22,6 @@ LOC_INVENTORY = "inventory"
 LOC_VOID = "void" # Aus dem Spiel entfernt
 
 # Attribute
-ATTR_AFFINITY = "affinity"
 ATTR_WEIGHT = "weight"
 ATTR_ALIASES = "aliases"
 ATTR_DESC = "desc"
@@ -31,10 +30,6 @@ ATTR_NAME = "name"
 ATTR_TEMP = "temp"
 ATTR_MATTER = "matter"
 ATTR_CLIMBABLE = "climbable" # NEU: Ist das Objekt bekletterbar?
-
-# Dialog & AI
-AI_CHANCE_MOVE_DEFAULT = 20
-AI_CHANCE_STAY = 80
 
 # Filter für Resolver
 FILTER_ROOM = "room"

@@ -7,7 +7,9 @@ NPCS = [
         ATTR_NAME: "Dr. Sato",
         ATTR_DESC: "Der Chefingenieur. Er hat Öl im Gesicht und wirkt gestresst.",
         "location": "room_inner_corridor_north",
+        "level": 0,
         "state": "working",
+        "behavior_id": "idle",
         "dialogue": {
             "working": {
                 "greeting": "Ah, der Neue. Der Mann, der Neutrinos flüstern hören kann.",

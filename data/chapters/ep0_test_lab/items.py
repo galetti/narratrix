@@ -1,9 +1,6 @@
 # narratrix_engine/data/chapters/ep0_test_lab/items.py
 from engine.constants import *
 
-if 'TYPE_FIXTURE' not in globals():
-    TYPE_FIXTURE = "fixture"
-
 ITEMS = {
     "red_key": {
         ATTR_ID: "red_key",
@@ -71,7 +68,8 @@ ITEMS = {
 
     # Ressourcen
     "scrap_metal_1": {
-        ATTR_ID: "scrap_metal",
+        ATTR_ID: "scrap_metal_1",
+        "resource_id": "scrap_metal",
         ATTR_NAME: "Metallschrott",
         ATTR_DESC: "Verrostete Metallteile.",
         ATTR_ALIASES: ["schrott", "metall", "scrap"],
@@ -82,7 +80,8 @@ ITEMS = {
         ATTR_WEIGHT: 0.5 
     },
     "scrap_metal_2": {
-        ATTR_ID: "scrap_metal", 
+        ATTR_ID: "scrap_metal_2",
+        "resource_id": "scrap_metal",
         ATTR_NAME: "Metallschrott",
         ATTR_DESC: "Ein einzelnes Stück Metall.",
         ATTR_ALIASES: ["schrott", "metall", "scrap"],
@@ -93,7 +92,8 @@ ITEMS = {
         ATTR_WEIGHT: 0.5
     },
     "wire_coil": {
-        ATTR_ID: "wire",
+        ATTR_ID: "wire_coil",
+        "resource_id": "wire",
         ATTR_NAME: "Kupferkabel",
         ATTR_DESC: "Eine Spule mit Draht.",
         ATTR_ALIASES: ["kabel", "draht", "wire"],
@@ -114,7 +114,7 @@ ITEMS = {
     },
     
     "improvised_shiv": {
-        ATTR_ID: "shiv",
+        ATTR_ID: "improvised_shiv",
         ATTR_NAME: "Improvisiertes Messer",
         ATTR_DESC: "Ein geschärftes Stück Metall mit Kabel umwickelt.",
         ATTR_ALIASES: ["messer", "dolch", "shiv"],
@@ -131,7 +131,7 @@ COMBINATIONS = [
         "items": ["scrap_metal", "workbench"], 
         "ingredients": {"scrap_metal": 2, "wire": 1}, 
         "station": "workbench", 
-        "spawn_item": "shiv", 
+        "result": "improvised_shiv",
         "message": "Du schleifst das Metall und wickelst den Draht als Griff darum. Fertig ist das Messer."
     }
 ]

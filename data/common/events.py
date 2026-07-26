@@ -7,7 +7,6 @@ COMMON_MATRIX = [
          "id": "evt_global_ambience",
          "trigger": "time", "trigger_time": 100,
          "title": "Subraum-Echo",
-         "description": "Das Schiff vibriert leicht, als ein Subraum-Echo die Hülle trifft.",
-         "origin_id": "ship_cockpit"
+         "description": "Ein fernes Subraum-Echo lässt die Umgebung leicht vibrieren."
      }
 ]

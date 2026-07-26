@@ -1,140 +1,166 @@
-# Narratrix Engine v5.7 - Entwickler-Dokumentation
+# Narratrix Engine 6.0
 
-Willkommen in der Narratrix Engine! Dies ist eine moderne, modulare Text-Adventure-Engine, die auf Python und Pygame basiert. Sie bietet fortschrittliche Funktionen wie Akustik-Simulation, KI-gesteuerte NPCs, ein tiefes Crafting-System und Quest-Management.
+Narratrix ist eine modulare, datengetriebene Textadventure-Engine für Python und
+Pygame. Kapitel enthalten ausschließlich Welt- und Storydaten; die Logik liegt
+in wiederverwendbaren Handlern und Systemen. Sämtliche Kapitel werden beim Laden
+gegen denselben Datenvertrag validiert.
 
-## Inhaltsverzeichnis
+## Installation und Start
 
-1. [Installation & Start](#installation--start)
-2. [Architektur-Überblick](#architektur-überblick)
-3. [Kern-Mechaniken](#kern-mechaniken)
-    * [Erkundung & Interaktion](#erkundung--interaktion)
-    * [Crafting System](#crafting-system)
-    * [Quest & Journal System](#quest--journal-system)
-    * [NPCs & Dialoge](#npcs--dialoge)
-4. [Daten-Struktur (Layer-System)](https://www.google.com/search?q=%23daten-struktur-layer-system)
-5. [Tools](#tools)
+Voraussetzung ist Python 3.9 oder neuer.
 
----
-
-## Installation & Start
-
-### Voraussetzungen
-* Python 3.9+
-* Pygame (`pip install pygame`)
-* Spacy (Optional, für NLP):
-    ```bash
-    pip install spacy
-    python -m spacy download de_core_news_sm
-    ```
-
-### Starten
-Führe die Hauptdatei aus, um das Spiel zu starten:
 ```bash
+python -m pip install -r requirements.txt
 python main_gui.py
 ```
 
----
+`requirements.txt` installiert das deutsche Spacy-Modell
+`de_core_news_md`. Ist Spacy oder das Modell nicht verfügbar, verwendet die
+Engine automatisch den regelbasierten Parser.
 
-## Architektur-Überblick
+Die Laufzeitkonfiguration liegt in `data/config.json`. Dort werden Startkapitel,
+Auflösung, Parser und die optionale Verbindung zu einem lokalen
+OpenAI-kompatiblen LLM konfiguriert.
 
-Die Engine folgt einem **Entity-Component-System (ECS)** ähnlichen Ansatz, bei dem Daten (`data/`) strikt von der Logik (`engine/`) getrennt sind.
+## Architektur
 
-* **`engine/`**: Enthält die Spiellogik.
-    * `handlers/`: Spezialisierte Module für Spieler-Aktionen (Inventory, Mechanics, Exploration).
-    * `systems/`: Hintergrund-Simulationen (AI, Acoustics, Crafting, Quests).
-    * `parser/`: Verarbeitet Texteingaben (Rule-Based oder NLP mit Spacy).
-* **`data/`**: Enthält die Spielinhalte.
-    * `common/`: Globale Assets (Items, NPCs), die überall verfügbar sind.
-    * `chapters/`: Episodische Inhalte. Jedes Kapitel überschreibt oder erweitert die Common-Daten.
+- `engine/game_state.py`: autoritativer, speicherbarer Weltzustand.
+- `engine/schema.py`: gemeinsamer Datenvertrag und Referenzprüfung.
+- `engine/handlers/`: Spieleraktionen wie Bewegung, Inventar und Mechanik.
+- `engine/systems/`: Events, Effekte, Quests, Crafting, KI und Akustik.
+- `engine/parser/`: regelbasierte und Spacy-basierte Texteingabe.
+- `data/common/`: kapitelübergreifende Inhalte.
+- `data/chapters/`: konkrete Episoden und Testszenarien.
+- `tools/`: Validator, Simulationsansicht und JSON World Editor.
+- `tests/`: Regressionstests der Kernsysteme.
 
----
+Der Common-Layer wird zuerst geladen. Kapitel überschreiben Räume, Objekte,
+NPCs und Events mit derselben ID. Doppelte oder ungültige Referenzen führen
+bereits beim Laden zu einem verständlichen Fehler.
 
-## Kern-Mechaniken
+## Verbindliche IDs
 
-### Erkundung & Interaktion
+Bei Räumen und Objekten müssen Dictionary-Schlüssel und internes `id`-Feld
+identisch sein:
 
-Der Spieler interagiert über Textbefehle mit der Welt. Dank des neuen **Spacy-Parsers** versteht die Engine auch natürliche Sätze wie *"Repariere bitte schnell die Konsole mit dem Schraubenzieher"*.
-
-* **Befehle:** `schaue`, `gehe`, `nimm`, `öffne`, `verstecke`, `warte`.
-* **Rich Text:** Die Ausgabe unterstützt Tags wie `<alert>Gefahr!</alert>` oder `<success>Erfolg</success>` für farbliche Hervorhebungen.
-
-### Crafting System
-
-Das Crafting-System (`engine/systems/crafting.py`) geht über einfaches Kombinieren hinaus. Rezepte können komplexe Bedingungen haben:
-
-1. **Zutaten:** Objekte, die verbraucht werden (z.B. "Kleber", "Scherbe").
-2. **Werkzeuge:** Objekte, die im Inventar sein müssen, aber **nicht** verbraucht werden (z.B. "Lötkolben").
-3. **Stationen:** Objekte, die sich im Raum befinden müssen (z.B. "Werkbank").
-4. **Wissen (Blueprints):** Der Spieler muss das Rezept erst gelernt haben (z.B. durch Lesen eines Datenpads).
-
-**Beispiel-Rezept (`items.py` oder `config.py`):**
 ```python
-{
-    "ingredients": ["circuit_board", "wire_coil"],
-    "result": "hacked_chip",
-    "tools": ["soldering_iron"],       # Werkzeug (bleibt erhalten)
-    "station": "tech_workbench",       # Muss im Raum stehen
-    "blueprint": "knows_circuitry",    # Wissen erforderlich
-    "message": "Mit ruhiger Hand lötest du die Brücke auf den Chip."
-}
-```
-
-### Quest & Journal System
-
-Der **QuestManager** (`engine/systems/quest_manager.py`) verwaltet Aufgaben und Ziele.
-
-* **Befehl:** `journal` (oder `j`, `aufgaben`) zeigt offene und erledigte Quests an.
-* **Struktur:** Eine Quest hat einen Titel, eine Beschreibung und mehrere **Stages** (Stufen).
-* **Trigger:** Quests werden durch Events (`events.py`) gestartet oder aktualisiert.
-
-**Beispiel-Quest (`quests.py`):**
-```python
-"q_main_survival": {
-    "title": "Überleben",
-    "stages": {
-        "1": "Verlasse das Cockpit.",
-        "2": "Finde Vorräte in der Station.",
-        "10": "Ziel erreicht."
+ITEMS = {
+    "soldering_iron": {
+        "id": "soldering_iron",
+        "name": "Lötkolben",
+        "location": "workshop",
+        "type": "item",
+        "is_tool": True,
     }
 }
 ```
 
-**Event-Trigger (`events.py`):**
+Mehrere Ressourcenstapel erhalten eindeutige Objekt-IDs und eine gemeinsame
+`resource_id`, zum Beispiel `scrap_1` und `scrap_2` mit
+`resource_id: "scrap_metal"`.
+
+## Crafting
+
+Rezepte validieren erst alle Voraussetzungen und verändern den Zustand danach
+atomar:
+
 ```python
 {
-    "trigger": "condition",
-    "condition": {"type": "location", "value": "ship_corridor"},
-    "quest_update": {"id": "q_main_survival", "stage": 2} # Setzt Quest auf Stufe 2
+    "verb": "use",
+    "items": ["scrap_metal", "workbench"],
+    "ingredients": {"scrap_metal": 2, "wire": 1},
+    "tools": ["soldering_iron"],
+    "station": "workbench",
+    "blueprint": "knows_circuitry",
+    "result": "hacked_chip",
+    "message": "Du lötest die Schaltung zusammen.",
 }
 ```
 
-### NPCs & Dialoge
+- `items`: Interaktionspartner des Befehls.
+- `ingredients`: verbrauchte Inventarressourcen.
+- `tools`: erforderliche, nicht verbrauchte Inventargegenstände.
+- `station`: erreichbares Objekt im aktuellen Raum.
+- `blueprint`: erforderlicher Wissenseintrag.
+- `result`: vorhandenes Ergebnisobjekt, das ins Inventar verschoben wird.
 
-NPCs werden durch das **AISystem** (`engine/systems/ai.py`) gesteuert.
+## Events, Effekte und Quests
 
-* **States:** NPCs haben Zustände (z.B. `idle`, `working`, `alert`). Jeder Zustand kann eigene Dialoge und Verhaltensweisen definieren.
-* **Dialog-Bäume:** Gespräche sind hierarchisch strukturiert. Antworten können **Effekte** auslösen (Items geben, Wissen vermitteln, Quest-Status ändern).
-* **Pathfinding:** NPCs können sich intelligent durch die Station bewegen, um Ziele zu erreichen.
+Events besitzen einen Trigger (`time`, `location`, `condition`, `complex` oder
+`manual`) und optionale Zusatzeffekte. Zeit- und Orts-Trigger können zusätzlich
+mit `condition` eingeschränkt werden.
 
----
+Unterstützte Effekte sind unter anderem:
 
-## Daten-Struktur (Layer-System)
+- `message`, `learn`, `receive_item`, `update_object`
+- `move_npc`, `teleport_npc`, `set_npc_state`
+- `trigger_event`, `damage_stability`, `game_over`
+- `quest_start`, `quest_update`, `quest_complete`, `quest_fail`
+- `load_chapter`
 
-Die Engine lädt Daten in Schichten:
-1. **Common Layer:** Lädt `data/common/`. Hier liegen Basis-Items (Taschenlampe) und globale NPCs.
-2. **Chapter Layer:** Lädt das aktuelle Kapitel (z.B. `data/chapters/ep0_arrival`).
-    * Räume und Objekte aus dem Kapitel werden hinzugefügt.
-    * Gleiche IDs überschreiben Common-Daten (Patching).
-    * **Links:** Definieren Übergänge zwischen Common-Räumen (z.B. "Docking Bay") und Kapitel-Räumen (z.B. "Raumschiff").
+Beispiel:
 
----
+```python
+{
+    "id": "repair_complete",
+    "trigger": "manual",
+    "effects": [
+        {"type": "quest_update", "id": "main_repair", "stage": 1},
+        {"type": "message", "message": "Die Anlage läuft wieder."},
+    ],
+}
+```
 
-## Tools
+Quest-Stages sind Ganzzahlen. Abschluss und Fehlschlag werden explizit über
+`quest_complete` beziehungsweise `quest_fail` ausgelöst.
 
-### Narratrix World Builder
-Ein grafischer Editor zum Erstellen von Räumen, Verbindungen und NPCs.
-* **Start:** `python tools/world_editor_gui.py`
-* **Funktionen:**
-    * Laden/Speichern des `data`-Ordners.
-    * Visuelles Verknüpfen von Räumen.
-    * Bearbeiten von NPC-Daten und Dialogen.
+## Befehle
+
+- `schaue [objekt]`
+- `gehe <richtung>`
+- `klettere <objekt|hoch|runter>`
+- `nimm`, `lege`, `gib`
+- `benutze <objekt> mit <objekt>`
+- `öffne`, `schließe`, `zerstöre`, `repariere`
+- `rede mit <person>`
+- `inventar`, `journal`, `karte`
+- `warte [minuten]`
+- `save [name]`, `load [name]`
+
+Höhe, Erreichbarkeit, geschlossene Türen und Inventarbesitz werden von den
+zustandsverändernden Aktionen geprüft.
+
+## Werkzeuge
+
+Aktuelles Kapitel validieren:
+
+```bash
+python tools/validator.py
+python tools/validator.py data.chapters.ep0_test_lab.config
+```
+
+JSON-Welt bearbeiten:
+
+```bash
+python tools/world-editor.py
+```
+
+Der World Editor bewahrt neben Räumen, Objekten und NPCs auch Events, Quests und
+Rezepte eines geladenen JSON-Kapitels. Solche JSON-Dateien können direkt mit
+`StoryLoader.load_chapter("/pfad/zum/kapitel.json")` geladen werden.
+
+Simulation anzeigen:
+
+```bash
+python tools/sim-viewer.py
+```
+
+## Tests
+
+```bash
+python -m unittest discover -v
+```
+
+Savegames verwenden Schema-Version 2 und enthalten die Kapitelidentität.
+Spielstände älterer oder anderer Kapitel werden bewusst nicht stillschweigend
+in einen inkompatiblen Zustand geladen.

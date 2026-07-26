@@ -3,6 +3,7 @@ from engine.resolver import Resolver, ResolutionError
 from engine.constants import *
 from engine.strings import Texts
 from engine.handlers.common import CommonHandler
+from engine.access import is_directly_reachable, reach_error
 
 class InventoryHandler:
 
@@ -16,7 +17,7 @@ class InventoryHandler:
         
         for item in items:
             if item.get('is_resource'):
-                r_id = item[ATTR_ID]
+                r_id = item.get('resource_id', item[ATTR_ID])
                 count = item.get('count', 1)
                 
                 if r_id in resources:
@@ -64,7 +65,14 @@ class InventoryHandler:
         if any(w in args for w in ["all", "alles", "alle"]):
             # Alles nehmen (nur reachable)
             candidates = Resolver._collect_candidates(game, FILTER_RECURSIVE)
-            candidates = [o for o in candidates if o['location'] != LOC_INVENTORY and o.get(ATTR_WEIGHT, float('inf')) < float('inf')]
+            object_identities = {id(obj) for obj in game.objects.values()}
+            candidates = [
+                obj for obj in candidates
+                if id(obj) in object_identities
+                and obj['location'] != LOC_INVENTORY
+                and InventoryHandler._is_takeable(obj)
+                and obj.get(ATTR_WEIGHT, float('inf')) < float('inf')
+            ]
             taken = []
             for item in candidates:
                 if item.get(ATTR_MATTER) == MATTER_LIQUID: continue
@@ -96,7 +104,11 @@ class InventoryHandler:
         try:
             target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_RECURSIVE, verb='take')
             if target:
+                if not any(target is obj for obj in game.objects.values()):
+                    return game.log('error', "Personen kannst du nicht ins Inventar stecken.")
                 if target['location'] == LOC_INVENTORY: return game.log('info', Texts.TAKE_ALREADY)
+                if not InventoryHandler._is_takeable(target):
+                    return game.log('error', Texts.TAKE_TOO_HEAVY)
                 
                 # Vertikaler Check
                 item_level = target.get('level', 0)
@@ -207,6 +219,8 @@ class InventoryHandler:
             if item:
                 npc = Resolver.find_mentioned_npc(game, npc_words)
                 if not npc: return game.log('error', Texts.GIVE_NPC_NOT_HERE)
+                if not is_directly_reachable(game, npc):
+                    return game.log('error', reach_error(game, npc))
                 
                 trigger_ids = [f"received_{item[ATTR_ID]}"]
                 if item.get('type') == TYPE_CONTAINER:
@@ -232,6 +246,9 @@ class InventoryHandler:
                 if reaction_entry:
                     game.log('success', Texts.GIVE_SUCCESS.format(item=item[ATTR_NAME], npc=npc[ATTR_NAME]))
                     item['location'] = LOC_VOID 
+                    for obj in game.objects.values():
+                        if obj.get('location') == item[ATTR_ID]:
+                            obj['location'] = LOC_VOID
                     for t_id in trigger_ids: game.add_knowledge(t_id)
                     
                     game.dialogue_active = True
@@ -242,13 +259,28 @@ class InventoryHandler:
                     
                     if 'effect' in reaction_entry:
                          game.effects.process(reaction_entry['effect'], context_npc=npc)
+                    game.tick(1)
                 else: 
                     game.log('character', Texts.GIVE_REFUSED.format(npc=npc[ATTR_NAME]))
         except ResolutionError as e: game.log('error', str(e))
 
     @staticmethod
     def _find_resource_in_inventory(game, item_id):
+        target = game.objects.get(item_id)
+        resource_id = target.get('resource_id', item_id) if target else item_id
         for obj in game.objects.values():
-            if obj['location'] == LOC_INVENTORY and obj[ATTR_ID] == item_id and obj.get('is_resource'):
+            if (
+                obj['location'] == LOC_INVENTORY
+                and obj.get('resource_id', obj[ATTR_ID]) == resource_id
+                and obj.get('is_resource')
+            ):
                 return obj
         return None
+
+    @staticmethod
+    def _is_takeable(obj):
+        if obj.get('movable') is True:
+            return True
+        if obj.get('linked_exit'):
+            return False
+        return obj.get('type') not in {TYPE_FIXTURE, TYPE_SURFACE, TYPE_SCENERY}

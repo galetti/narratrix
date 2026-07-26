@@ -19,13 +19,20 @@ TYPE_OPTIONS = [
 class WorldEditor(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Narratrix World Editor v2.2 - Smart Properties")
+        self.title("Narratrix World Editor v3.0")
         self.geometry("1500x950")
         
         self.rooms = {} # id -> {data, x, y, z}
         self.links = [] 
         self.items = {} # id -> item_data
         self.npcs = []  # list of npc_data
+        self.meta = {}
+        self.extra_data = {
+            "combinations": [],
+            "narrative_matrix": [],
+            "events": [],
+            "quests": {},
+        }
         
         self.current_file = None
         self.selected_node = None
@@ -159,6 +166,9 @@ class WorldEditor(tk.Tk):
                 
             self.rooms = {}
             raw_rooms = data.get('rooms', {})
+            self.meta = data.get('meta', {})
+            for key in self.extra_data:
+                self.extra_data[key] = data.get(key, self.extra_data[key])
             
             # Load Items & NPCs
             self.items = data.get('objects', {})
@@ -166,6 +176,7 @@ class WorldEditor(tk.Tk):
             
             idx = 0
             for rid, rdata in raw_rooms.items():
+                rdata['id'] = rid
                 meta = rdata.get('_editor', {})
                 x = meta.get('x', (idx % 5) * 150 + 100)
                 y = meta.get('y', (idx // 5) * 150 + 100)
@@ -196,10 +207,15 @@ class WorldEditor(tk.Tk):
             export_rooms[rid] = rdata
             
         final_data = {
-            "meta": {"generator": "Narratrix World Editor 2.1"},
+            "meta": {
+                **self.meta,
+                "generator": "Narratrix World Editor 3.0",
+                "start_room": self.meta.get("start_room", next(iter(export_rooms))),
+            },
             "rooms": export_rooms,
             "objects": self.items,
-            "npcs": self.npcs
+            "npcs": self.npcs,
+            **self.extra_data,
         }
         
         try:
@@ -264,7 +280,7 @@ class WorldEditor(tk.Tk):
             "desc": "Beschreibung.",
             "location": self.selected_node,
             "state": "idle",
-            "behavior_id": "guard"
+            "behavior_id": "idle"
         }
         self.npcs.append(new_npc)
         self._edit_npc_dialog(new_npc)
@@ -384,7 +400,8 @@ class WorldEditor(tk.Tk):
         
         # BEHAVIOR RADIO (Example)
         ttk.Label(dlg, text="Verhalten (KI):").pack(anchor='w', padx=5, pady=(10,0))
-        beh_var = tk.StringVar(value=npc.get('behavior_id', 'guard'))
+        beh_var = tk.StringVar(value=npc.get('behavior_id', 'idle'))
+        ttk.Radiobutton(dlg, text="Stationär", variable=beh_var, value="idle").pack(anchor='w', padx=20)
         ttk.Radiobutton(dlg, text="Wache (Patrouille)", variable=beh_var, value="guard").pack(anchor='w', padx=20)
         ttk.Radiobutton(dlg, text="Ängstlich (Flucht)", variable=beh_var, value="fearful").pack(anchor='w', padx=20)
         
@@ -437,7 +454,7 @@ class WorldEditor(tk.Tk):
         cy = (-self.offset_y + self.canvas.winfo_height() / 2) / self.scale
         
         self.rooms[new_id] = {
-            "data": {"name": "Neuer Raum", "desc": "Leer.", "exits": {}},
+            "data": {"id": new_id, "name": "Neuer Raum", "desc": "Leer.", "exits": {}},
             "x": cx, "y": cy, "z": self.current_z_level
         }
         self._redraw()
@@ -478,6 +495,25 @@ class WorldEditor(tk.Tk):
 
     def _delete_room(self):
         if not self.selected_node: return
+        if len(self.rooms) == 1:
+            messagebox.showerror("Fehler", "Die Welt benötigt mindestens einen Raum.")
+            return
+        deleted_id = self.selected_node
+        replacement_room = next(room_id for room_id in self.rooms if room_id != deleted_id)
+        for node in self.rooms.values():
+            node['data']['exits'] = {
+                direction: target
+                for direction, target in node['data'].get('exits', {}).items()
+                if target != deleted_id
+            }
+        for item in self.items.values():
+            if item.get('location') == deleted_id:
+                item['location'] = 'void'
+        for npc in self.npcs:
+            if npc.get('location') == deleted_id:
+                npc['location'] = replacement_room
+        if self.meta.get('start_room') == deleted_id:
+            self.meta['start_room'] = replacement_room
         del self.rooms[self.selected_node]
         self.selected_node = None
         self._rebuild_links()
@@ -569,11 +605,19 @@ class WorldEditor(tk.Tk):
                 messagebox.showerror("Fehler", "ID existiert bereits!")
                 return
             self.rooms[new_id] = self.rooms.pop(self.selected_node)
+            self.rooms[new_id]['data']['id'] = new_id
+            for node in self.rooms.values():
+                exits = node['data'].get('exits', {})
+                for direction, target in list(exits.items()):
+                    if target == self.selected_node:
+                        exits[direction] = new_id
             # Update location of items/npcs
             for i in self.items.values():
                 if i['location'] == self.selected_node: i['location'] = new_id
             for n in self.npcs:
                 if n['location'] == self.selected_node: n['location'] = new_id
+            if self.meta.get('start_room') == self.selected_node:
+                self.meta['start_room'] = new_id
             
             self.selected_node = new_id
             

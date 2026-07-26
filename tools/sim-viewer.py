@@ -6,7 +6,7 @@ import os
 # (Fügt das Parent-Directory 'narratrix' zum Python-Pfad hinzu)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from data.story_loader import StoryLoader
+from engine.story_loader import StoryLoader
 from engine.game_state import GameState
 from engine.analysis import generate_future_matrix
 from engine.constants import ATTR_NAME
@@ -26,7 +26,7 @@ SCREEN_W, SCREEN_H = 800, 600
 def run_viewer():
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
-    pygame.display.set_caption("Narratrix Simulation Viewer v5.0")
+    pygame.display.set_caption("Narratrix Simulation Viewer v6.0")
     try:
         font = pygame.font.SysFont("Arial", 16)
     except:
@@ -37,7 +37,7 @@ def run_viewer():
     # 1. Initiale Simulation mit neuem Loader
     print("Lade Kapiteldaten...")
     # Wir laden standardmäßig Episode 1 für die Simulation
-    config = StoryLoader.load_chapter("data.chapters.ep1_station.config")
+    config = StoryLoader.load_chapter("data.chapters.ep1_deep_zero.config")
     
     if not config:
         print("[ERROR] Konnte Config nicht laden. Abbruch.")
@@ -56,8 +56,6 @@ def run_viewer():
 
     # Map Offset berechnen (Zentrieren)
     center_x, center_y = SCREEN_W // 2, SCREEN_H // 2
-    scale = 100 # Pixel pro Map-Einheit
-
     running = True
     while running:
         # Input
@@ -90,20 +88,23 @@ def run_viewer():
         
         # Verbindungen zeichnen
         for r_id, room in rooms.items():
-            x1 = center_x + room.get('map_x', 0) * scale
-            y1 = center_y + room.get('map_y', 0) * scale
+            editor = room.get('_editor', {})
+            x1 = center_x + editor.get('x', 0)
+            y1 = center_y + editor.get('y', 0)
             
             for exit_dir, target_id in room.get('exits', {}).items():
                 target = rooms.get(target_id)
                 if target:
-                    x2 = center_x + target.get('map_x', 0) * scale
-                    y2 = center_y + target.get('map_y', 0) * scale
+                    target_editor = target.get('_editor', {})
+                    x2 = center_x + target_editor.get('x', 0)
+                    y2 = center_y + target_editor.get('y', 0)
                     pygame.draw.line(screen, COL_LINK, (x1, y1), (x2, y2), 2)
 
         # Räume & Inhalte zeichnen
         for r_id, room in rooms.items():
-            rx = center_x + room.get('map_x', 0) * scale
-            ry = center_y + room.get('map_y', 0) * scale
+            editor = room.get('_editor', {})
+            rx = center_x + editor.get('x', 0)
+            ry = center_y + editor.get('y', 0)
             
             # Raum Node
             col = COL_NODE
@@ -144,7 +145,8 @@ def run_viewer():
         # Slider Leiste
         pygame.draw.rect(screen, (50, 50, 50), (50, SCREEN_H - 40, SCREEN_W - 100, 10))
         # Slider Knopf
-        slider_x = 50 + (slider_val / (len(timeline) - 1)) * (SCREEN_W - 100)
+        slider_denominator = max(1, len(timeline) - 1)
+        slider_x = 50 + (slider_val / slider_denominator) * (SCREEN_W - 100)
         pygame.draw.circle(screen, COL_ACCENT, (int(slider_x), SCREEN_H - 35), 10)
 
         # Legende

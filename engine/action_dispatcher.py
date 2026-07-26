@@ -26,6 +26,7 @@ class ActionDispatcher:
         'put': MechanicsHandler.put,
         'use': MechanicsHandler.use, 'combine': MechanicsHandler.use,
         'open': MechanicsHandler.open,
+        'close': MechanicsHandler.close,
         'break': MechanicsHandler.break_,
         'fix': MechanicsHandler.fix,
         'wait': MechanicsHandler.wait, 'warte': MechanicsHandler.wait,
@@ -101,11 +102,11 @@ class ActionDispatcher:
         item1_name = " ".join(item1_args)
         
         if original_verb == 'use':
-            result_msg = game.perform_combine(item1_name, item2_name)
-            if "Fehler" in result_msg or "nicht" in result_msg.lower(): 
-                game.log('error', result_msg)
+            result = game.perform_combine(item1_name, item2_name)
+            if not result.success:
+                game.log('error', result.message)
             else: 
-                game.log('success', result_msg)
+                game.log('success', result.message)
                 game.tick(2)
         game.pending_interaction = None
 
@@ -117,7 +118,7 @@ class ActionDispatcher:
         # User Input verarbeiten
         filter_text = ""
         if verb == "disambiguate":
-            filter_text = args[0].strip().lower()
+            filter_text = args[0].strip().lower() if args else ""
         else:
             filter_text = f"{verb} {' '.join(args)}".strip().lower()
         
