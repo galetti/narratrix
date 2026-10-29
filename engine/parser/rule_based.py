@@ -1,11 +1,19 @@
-from engine.action_dispatcher import ActionDispatcher
+from __future__ import annotations
+
 import difflib
+from typing import TYPE_CHECKING
+
+from engine.action_dispatcher import ActionDispatcher
+
+if TYPE_CHECKING:
+    from engine.game_state import GameState
+
 
 class RuleBasedParser:
-    def __init__(self, game):
-        self.game = game
+    def __init__(self, game: GameState) -> None:
+        self.game: GameState = game
 
-    def parse(self, user_input):
+    def parse(self, user_input: str) -> None:
         text = user_input.lower().strip()
         # Einfache Bereinigung von Satzzeichen
         for char in ".,!?;:": text = text.replace(char, "")
@@ -38,7 +46,7 @@ class RuleBasedParser:
         
         ActionDispatcher.dispatch(self.game, final_verb, args)
 
-    def _get_canonical(self, word):
+    def _get_canonical(self, word: str) -> str | None:
         """Prüft auf exakte Übereinstimmung mit einem Verb oder dessen Synonymen."""
         verbs = self.game.config.get('vocabulary', {}).get('verbs', {})
         
@@ -58,10 +66,10 @@ class RuleBasedParser:
                 
         return None
 
-    def _get_fuzzy_verb(self, word):
+    def _get_fuzzy_verb(self, word: str) -> str | None:
         """Versucht, ein ähnliches Verb zu finden (Toleranz für Tippfehler)."""
         verbs = self.game.config.get('vocabulary', {}).get('verbs', {})
-        all_verbs = list(verbs.keys())
+        all_verbs: list[str] = list(verbs.keys())
         for syns in verbs.values():
             all_verbs.extend(syns)
             

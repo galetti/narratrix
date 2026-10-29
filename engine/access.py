@@ -1,7 +1,20 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from engine.constants import LOC_INVENTORY
+from engine.schema import EntityData
+
+if TYPE_CHECKING:
+    from engine.game_state import GameState
 
 
-def is_directly_reachable(game, entity, upward_reach=1, allow_below=False):
+def is_directly_reachable(
+    game: GameState,
+    entity: EntityData,
+    upward_reach: int = 1,
+    allow_below: bool = False,
+) -> bool:
     """Return whether the player can physically interact with an entity."""
 
     if entity.get("location") == LOC_INVENTORY:
@@ -14,7 +27,7 @@ def is_directly_reachable(game, entity, upward_reach=1, allow_below=False):
     return level <= game.elevation + upward_reach
 
 
-def reach_error(game, entity):
+def reach_error(game: GameState, entity: EntityData) -> str:
     level = int(entity.get("level", 0))
     if level > game.elevation:
         return (

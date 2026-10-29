@@ -1,11 +1,17 @@
+from __future__ import annotations
+
 from collections import deque
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from engine.game_state import GameState
 
 
 class Pathfinder:
-    def __init__(self, game):
-        self.game = game
+    def __init__(self, game: GameState) -> None:
+        self.game: GameState = game
 
-    def _is_exit_passable(self, room_id, direction):
+    def _is_exit_passable(self, room_id: str, direction: str) -> bool:
         blockers = [
             obj
             for obj in self.game.objects.values()
@@ -13,14 +19,21 @@ class Pathfinder:
         ]
         return all(obj.get("is_open", True) for obj in blockers)
 
-    def find_path(self, start_room_id, target_room_id, respect_blockers=True):
+    def find_path(
+        self,
+        start_room_id: str | None,
+        target_room_id: str | None,
+        respect_blockers: bool = True,
+    ) -> list[str] | None:
+        if not start_room_id or not target_room_id:
+            return None
         if start_room_id not in self.game.rooms or target_room_id not in self.game.rooms:
             return None
         if start_room_id == target_room_id:
             return []
 
-        queue = deque([[start_room_id]])
-        visited = {start_room_id}
+        queue: deque[list[str]] = deque([[start_room_id]])
+        visited: set[str] = {start_room_id}
         while queue:
             path = queue.popleft()
             current = path[-1]
@@ -37,7 +50,7 @@ class Pathfinder:
                 queue.append(new_path)
         return None
 
-    def get_direction_to(self, start_room, target_room_id):
+    def get_direction_to(self, start_room: str, target_room_id: str) -> str | None:
         if start_room == target_room_id:
             return "hier"
         path = self.find_path(start_room, target_room_id)

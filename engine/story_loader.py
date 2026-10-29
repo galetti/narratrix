@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 import copy
 import importlib
 import json
+import logging
 import os
 from typing import Any
 
-from engine.schema import ConfigurationError, validate_game_config
+from engine.schema import ConfigurationError, VocabularyData, validate_game_config
+
+logger = logging.getLogger(__name__)
 
 
 class StoryLoader:
@@ -17,7 +22,7 @@ class StoryLoader:
             importlib.reload(module)
             return copy.deepcopy(module.COMMON_CONFIG)
         except ImportError as exc:
-            print(f"[WARN] StoryLoader: Common-Layer nicht verfügbar: {exc}")
+            logger.warning("StoryLoader: Common-Layer nicht verfügbar: %s", exc)
             return {
                 "rooms": {},
                 "objects": {},
@@ -41,10 +46,10 @@ class StoryLoader:
         return copy.deepcopy(module.CHAPTER_CONFIG), chapter_source
 
     @staticmethod
-    def _merge_by_id(base: list[dict], overlay: list[dict]) -> list[dict]:
+    def _merge_by_id(base: list[dict[str, Any]], overlay: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Merge entity lists; chapter entries replace common entries by ID."""
 
-        merged: list[dict] = []
+        merged: list[dict[str, Any]] = []
         positions: dict[str, int] = {}
         for entry in copy.deepcopy(base) + copy.deepcopy(overlay):
             entry_id = entry.get("id")
@@ -57,7 +62,9 @@ class StoryLoader:
         return merged
 
     @staticmethod
-    def load_chapter(chapter_source: str, raise_on_error: bool = False):
+    def load_chapter(
+        chapter_source: str, raise_on_error: bool = False
+    ) -> dict[str, Any] | None:
         try:
             common_data = StoryLoader._load_common_config()
             chapter_data, module_id = StoryLoader._load_chapter_data(chapter_source)
@@ -102,19 +109,22 @@ class StoryLoader:
             }
             return validate_game_config(full_config)
 
-        except (ImportError, OSError, json.JSONDecodeError, AttributeError, ConfigurationError) as exc:
-            print(f"[ERROR] StoryLoader: Kapitel '{chapter_source}' ist ungültig: {exc}")
-            if raise_on_error:
-                raise
-            return None
-        except Exception as exc:
-            print(f"[FATAL] StoryLoader: Unerwarteter Fehler: {exc}")
+        except (
+            ImportError,
+            OSError,
+            json.JSONDecodeError,
+            AttributeError,
+            TypeError,
+            ValueError,
+            ConfigurationError,
+        ) as exc:
+            logger.error("StoryLoader: Kapitel '%s' ist ungültig: %s", chapter_source, exc)
             if raise_on_error:
                 raise
             return None
 
     @staticmethod
-    def _process_links(links: list[dict], rooms: dict[str, dict]) -> None:
+    def _process_links(links: list[dict[str, Any]], rooms: dict[str, dict[str, Any]]) -> None:
         for link in links:
             from_id = link.get("from_common")
             direction = link.get("dir")
@@ -137,7 +147,7 @@ class StoryLoader:
                 rooms[target_room_id].setdefault("exits", {})[reverse_direction] = from_id
 
     @staticmethod
-    def _get_default_vocabulary():
+    def _get_default_vocabulary() -> VocabularyData:
         return {
             "verbs": {
                 "inventory": ["i", "inv", "tasche", "rucksack", "ausrüstung", "inventar"],

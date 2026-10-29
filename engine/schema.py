@@ -7,23 +7,288 @@ while a chapter is loaded instead of failing much later during play.
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any, Iterable, TypedDict
 
 from engine.constants import LOC_INVENTORY, LOC_VOID
 
 
-SUPPORTED_TRIGGERS = {"time", "location", "condition", "complex", "manual"}
-SUPPORTED_CONDITIONS = {
+class ConditionDict(TypedDict, total=False):
+    type: str
+    value: Any
+    item: str
+    location: str
+    npc: str
+    state: str
+    is_open: bool
+    is_locked: bool
+    quest: str
+    status: str
+    stage: int | str
+    op: str
+    id: str
+    # "not" is a reserved keyword in class syntax, accessed via dict syntax at runtime
+
+
+ConditionSpec = str | dict[str, Any]
+
+
+class EffectData(TypedDict, total=False):
+    type: str
+    npc: str
+    room: str
+    target: str
+    value: Any
+    fact: str
+    item: str
+    item_id: str
+    location: str
+    updates: dict[str, Any]
+    reason: str
+    id: str
+    message: str
+    log_type: str
+    quest: str
+    stage: int | str
+    quest_update: dict[str, Any]
+    chapter: str
+
+
+class AcousticConnectionData(TypedDict, total=False):
+    transmission: float
+    direction_text: str
+
+
+class EditorPositionData(TypedDict, total=False):
+    x: float
+    y: float
+    z: int
+
+
+class RoomData(TypedDict, total=False):
+    id: str
+    name: str
+    desc: str
+    img: str
+    exits: dict[str, str]
+    acoustics: dict[str, float | AcousticConnectionData]
+    climb_targets: dict[str, str]
+    tags: list[str]
+    visited: bool
+    state: str
+    _editor: EditorPositionData
+
+
+class ObjectBehaviorData(TypedDict, total=False):
+    type: str
+    chance: float
+
+
+class ObjectData(TypedDict, total=False):
+    id: str
+    name: str
+    desc: str
+    aliases: list[str]
+    location: str
+    type: str
+    state: str
+    weight: float
+    temp: float
+    matter: str
+    level: int
+    climbable: bool
+    target_elevation: int
+    destination: str
+    is_open: bool
+    is_locked: bool
+    key_id: str
+    linked_exit: str
+    acoustic_damping: float
+    acoustic_boost: float
+    is_tool: bool
+    reach: int
+    damage: int
+    toughness: int
+    fragile: bool
+    hot: bool
+    usable: bool
+    movable: bool
+    is_scale: bool
+    is_resource: bool
+    resource_id: str
+    count: int
+    behavior: ObjectBehaviorData
+
+
+class DialogueOptionData(TypedDict, total=False):
+    label: str
+    text: str
+    condition: ConditionSpec
+    effect: EffectData | list[EffectData]
+    effects: EffectData | list[EffectData]
+    hidden: bool
+
+
+DialogueEntry = str | DialogueOptionData
+
+
+class NPCStateDefinition(TypedDict, total=False):
+    behavior: dict[str, Any]
+    visuals: dict[str, Any]
+    dialogue: dict[str, DialogueEntry]
+
+
+class NPCMemoryData(TypedDict, total=False):
+    last_noise_loc: str | None
+
+
+class NPCData(TypedDict, total=False):
+    id: str
+    name: str
+    desc: str
+    aliases: list[str]
+    location: str
+    level: int
+    state: str
+    initial_state: str
+    states: dict[str, NPCStateDefinition]
+    behavior_id: str
+    speed: float
+    waypoints: list[str]
+    waypoint_index: int
+    path: list[str]
+    target_location: str | None
+    move_acc: float
+    has_greeted: bool
+    memory: NPCMemoryData
+    toughness: int
+    personality: str
+    img: str
+    dialogue: dict[str, dict[str, DialogueEntry]]
+    _state_managed_keys: list[str]
+    _state_base_values: dict[str, Any]
+    _state_missing_keys: list[str]
+
+
+EntityData = ObjectData | NPCData | dict[str, Any]
+
+
+class EventData(TypedDict, total=False):
+    id: str
+    trigger: str
+    trigger_time: int
+    repeat: bool
+    triggered: bool
+    last_triggered_at: int | None
+    location: str
+    value: str
+    origin_id: str
+    title: str
+    description: str
+    sound_msg: str
+    volume: float
+    message: str
+    condition: ConditionSpec
+    conditions: list[ConditionSpec]
+    operator: str
+    quest_start: str
+    quest_update: dict[str, Any]
+    quest_complete: str
+    effects: EffectData | list[EffectData]
+
+
+class QuestDefinitionData(TypedDict, total=False):
+    title: str
+    desc: str
+    stages: dict[int, str]
+    start_stage: int
+    completion_stage: int
+
+
+class QuestStateData(TypedDict):
+    status: str
+    stage: int | None
+
+
+class ActiveQuestInfo(TypedDict):
+    id: str
+    title: str
+    stage: int | None
+    stage_desc: str
+
+
+class RecipeData(TypedDict, total=False):
+    verb: str
+    items: list[str]
+    ingredients: dict[str, int]
+    tools: list[str]
+    station: str
+    blueprint: str
+    result: str
+    spawn_item: str
+    condition: ConditionSpec
+    message: str
+    effect: EffectData | list[EffectData]
+    effects: EffectData | list[EffectData]
+
+
+class LogEntry(TypedDict):
+    type: str
+    text: str
+    turn: int
+
+
+class GameSnapshot(TypedDict):
+    time: int
+    stability: float
+    game_over: bool
+    pending_chapter_load: str | None
+    room_name: str
+    room_img: str
+    dialogue_active: bool
+    dialogue_header: str
+    dialogue_img: str
+    logs: list[LogEntry]
+    elevation: int
+
+
+class VocabularyData(TypedDict, total=False):
+    verbs: dict[str, list[str]]
+    directions: dict[str, list[str]]
+    skip_words: list[str]
+
+
+class GameConfigData(TypedDict, total=False):
+    meta: dict[str, Any]
+    settings: dict[str, Any]
+    vocabulary: VocabularyData
+    rooms: dict[str, RoomData]
+    objects: dict[str, ObjectData]
+    npcs: list[NPCData]
+    combinations: list[RecipeData]
+    narrative_matrix: list[EventData]
+    matrix: list[EventData]
+    events: list[EventData]
+    quests: dict[str, QuestDefinitionData]
+    links: list[dict[str, str]]
+    use_llm_dialogue: bool
+    llm_url: str | None
+    llm_model: str | None
+
+
+SUPPORTED_TRIGGERS: set[str] = {"time", "location", "condition", "complex", "manual"}
+SUPPORTED_CONDITIONS: set[str] = {
     "knowledge",
     "location",
     "item_location",
+    "object_state",
+    "scale_weight",
     "npc_state",
     "quest_state",
     "stability",
     "event_triggered",
     "inventory",
 }
-SUPPORTED_EFFECTS = {
+SUPPORTED_EFFECTS: set[str] = {
     "move_npc",
     "teleport_npc",
     "set_state",
@@ -204,7 +469,7 @@ def validate_game_config(config: dict[str, Any]) -> dict[str, Any]:
     start_room = meta.get("start_room")
     _require(start_room in room_ids, f"Start-Raum '{start_room}' fehlt.")
 
-    def validate_effect_references(effect, context):
+    def validate_effect_references(effect: dict[str, Any], context: str) -> None:
         effect_type = effect.get("type")
         if effect_type in {"move_npc", "teleport_npc"}:
             _require(effect.get("npc") in npc_ids, f"{context}: NPC fehlt.")
@@ -235,7 +500,7 @@ def validate_game_config(config: dict[str, Any]) -> dict[str, Any]:
                 raise ConfigurationError(f"{context}: Quest-Stage fehlt.")
             _require(stage in quests[quest_id]["stages"], f"{context}: Quest-Stage {stage} fehlt.")
 
-    def walk_content(node, context):
+    def walk_content(node: Any, context: str) -> None:
         if isinstance(node, dict):
             if "condition" in node:
                 _validate_condition(node["condition"], context)

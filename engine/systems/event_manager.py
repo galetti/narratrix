@@ -1,20 +1,28 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from engine.constants import LOC_INVENTORY
+from engine.schema import ConditionSpec, EventData
+
+if TYPE_CHECKING:
+    from engine.game_state import GameState
 
 
 class EventManager:
-    def __init__(self, game):
-        self.game = game
-        self.events = []
+    def __init__(self, game: GameState) -> None:
+        self.game: GameState = game
+        self.events: list[EventData] = []
 
-    def load_events(self, events_data):
+    def load_events(self, events_data: list[EventData]) -> None:
         self.events = events_data
         for event in self.events:
             event.setdefault("triggered", False)
 
-    def has_event(self, event_id):
+    def has_event(self, event_id: str | None) -> bool:
         return any(event.get("id") == event_id for event in self.events)
 
-    def update(self):
+    def update(self) -> None:
         for event in self.events:
             if event.get("triggered") and not event.get("repeat", False):
                 continue
@@ -26,7 +34,7 @@ class EventManager:
             if self._check_trigger(event):
                 self._execute_event(event)
 
-    def trigger_event_by_id(self, event_id):
+    def trigger_event_by_id(self, event_id: str) -> bool:
         event = next((entry for entry in self.events if entry.get("id") == event_id), None)
         if not event:
             return False
@@ -35,7 +43,7 @@ class EventManager:
         self._execute_event(event)
         return True
 
-    def _check_trigger(self, event):
+    def _check_trigger(self, event: EventData) -> bool:
         trigger_type = event.get("trigger", "manual")
 
         if trigger_type == "time":
@@ -60,7 +68,7 @@ class EventManager:
             base_result = base_result and self.evaluate_condition(event["condition"])
         return base_result
 
-    def evaluate_condition(self, condition):
+    def evaluate_condition(self, condition: ConditionSpec | Any) -> bool:
         if isinstance(condition, str):
             return condition in self.game.knowledge
         if not isinstance(condition, dict):
@@ -75,8 +83,35 @@ class EventManager:
         elif condition_type == "location":
             result = self.game.location == condition.get("value")
         elif condition_type == "item_location":
-            item = self.game.objects.get(condition.get("item"))
+            item_id = condition.get("item")
+            item = self.game.objects.get(item_id) if isinstance(item_id, str) else None
             result = bool(item and item.get("location") == condition.get("location"))
+        elif condition_type == "object_state":
+            item_id = condition.get("item") or condition.get("id")
+            item = self.game.objects.get(item_id) if isinstance(item_id, str) else None
+            if item is not None:
+                matches = True
+                if "state" in condition:
+                    matches = matches and item.get("state") == condition.get("state")
+                if "is_open" in condition:
+                    matches = matches and bool(item.get("is_open")) == bool(
+                        condition.get("is_open")
+                    )
+                if "is_locked" in condition:
+                    matches = matches and bool(item.get("is_locked")) == bool(
+                        condition.get("is_locked")
+                    )
+                result = matches
+        elif condition_type == "scale_weight":
+            scale_id = condition.get("item") or condition.get("id")
+            target_weight = float(condition.get("value", 0.0))
+            if isinstance(scale_id, str) and scale_id in self.game.objects:
+                total_weight = sum(
+                    float(obj.get("weight", 0.0))
+                    for obj in self.game.objects.values()
+                    if obj.get("location") == scale_id
+                )
+                result = abs(total_weight - target_weight) < 1e-3
         elif condition_type == "npc_state":
             npc_id = condition.get("npc")
             npc = next(
@@ -89,7 +124,8 @@ class EventManager:
             )
             result = bool(npc and npc.get("state") == condition.get("state"))
         elif condition_type == "quest_state":
-            quest = self.game.quests.states.get(condition.get("quest"), {})
+            quest_id = condition.get("quest")
+            quest = self.game.quests.states.get(quest_id, {}) if isinstance(quest_id, str) else {}
             result = quest.get("status") == condition.get("status", "active")
             if "stage" in condition:
                 result = result and quest.get("stage") == int(condition["stage"])
@@ -112,14 +148,15 @@ class EventManager:
             result = bool(target and target.get("triggered"))
         elif condition_type == "inventory":
             # Backward-compatible convenience condition.
-            item = self.game.objects.get(condition.get("item"))
+            item_id = condition.get("item")
+            item = self.game.objects.get(item_id) if isinstance(item_id, str) else None
             result = bool(item and item.get("location") == LOC_INVENTORY)
         else:
             result = False
 
         return not result if negate else result
 
-    def _execute_event(self, event):
+    def _execute_event(self, event: EventData) -> None:
         event["triggered"] = True
         event["last_triggered_at"] = self.game.time
 

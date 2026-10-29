@@ -1,14 +1,17 @@
+from __future__ import annotations
+
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 import json
 import math
+from typing import Any
 
 # Constants
-NODE_RADIUS = 30
-DEFAULT_Z = 0
+NODE_RADIUS: int = 30
+DEFAULT_Z: int = 0
 
 # Types for Radio Buttons
-TYPE_OPTIONS = [
+TYPE_OPTIONS: list[tuple[str, str]] = [
     ("Item (Tragbar)", "item"),
     ("Fixture (Fest)", "fixture"),
     ("Container", "container"),
@@ -17,36 +20,36 @@ TYPE_OPTIONS = [
 ]
 
 class WorldEditor(tk.Tk):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.title("Narratrix World Editor v3.0")
         self.geometry("1500x950")
         
-        self.rooms = {} # id -> {data, x, y, z}
-        self.links = [] 
-        self.items = {} # id -> item_data
-        self.npcs = []  # list of npc_data
-        self.meta = {}
-        self.extra_data = {
+        self.rooms: dict[str, dict[str, Any]] = {} # id -> {data, x, y, z}
+        self.links: list[tuple[str, str, str]] = [] 
+        self.items: dict[str, dict[str, Any]] = {} # id -> item_data
+        self.npcs: list[dict[str, Any]] = []  # list of npc_data
+        self.meta: dict[str, Any] = {}
+        self.extra_data: dict[str, Any] = {
             "combinations": [],
             "narrative_matrix": [],
             "events": [],
             "quests": {},
         }
         
-        self.current_file = None
-        self.selected_node = None
-        self.drag_data = {"x": 0, "y": 0, "item": None}
-        self.scale = 1.0
-        self.offset_x = 0
-        self.offset_y = 0
+        self.current_file: str | None = None
+        self.selected_node: str | None = None
+        self.drag_data: dict[str, Any] = {"x": 0.0, "y": 0.0, "item": None}
+        self.scale: float = 1.0
+        self.offset_x: float = 0.0
+        self.offset_y: float = 0.0
         
-        self.current_z_level = DEFAULT_Z
+        self.current_z_level: int = DEFAULT_Z
         
         self._init_ui()
         self._create_menu()
 
-    def _init_ui(self):
+    def _init_ui(self) -> None:
         # LEFT SIDEBAR
         left_panel = ttk.Frame(self, width=200, padding=10)
         left_panel.pack(side=tk.LEFT, fill=tk.Y)
@@ -144,7 +147,7 @@ class WorldEditor(tk.Tk):
         self.bind("<Down>", lambda e: self._change_layer_rel(-1))
         self.bind("<Delete>", lambda e: self._delete_room())
 
-    def _create_menu(self):
+    def _create_menu(self) -> None:
         menubar = tk.Menu(self)
         file_menu = tk.Menu(menubar, tearoff=0)
         file_menu.add_command(label="Öffnen (JSON)", command=self._load_file)
@@ -156,7 +159,7 @@ class WorldEditor(tk.Tk):
 
     # --- DATA & LOADING ---
 
-    def _load_file(self):
+    def _load_file(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("Narratrix Config", "*.json")])
         if not path: return
         
@@ -195,18 +198,18 @@ class WorldEditor(tk.Tk):
         except Exception as e:
             messagebox.showerror("Fehler", f"Konnte Datei nicht laden: {e}")
 
-    def _save_file(self):
+    def _save_file(self) -> None:
         if not self.rooms: return
         path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON", "*.json")])
         if not path: return
         
-        export_rooms = {}
+        export_rooms: dict[str, dict[str, Any]] = {}
         for rid, node in self.rooms.items():
             rdata = node['data'].copy()
             rdata['_editor'] = {"x": node['x'], "y": node['y'], "z": node['z']}
             export_rooms[rid] = rdata
             
-        final_data = {
+        final_data: dict[str, Any] = {
             "meta": {
                 **self.meta,
                 "generator": "Narratrix World Editor 3.0",
@@ -227,12 +230,12 @@ class WorldEditor(tk.Tk):
 
     # --- ITEM & NPC MANAGEMENT ---
 
-    def _get_room_contents(self, room_id):
+    def _get_room_contents(self, room_id: str) -> tuple[list[str], list[str | None]]:
         items = [i_id for i_id, i in self.items.items() if i.get('location') == room_id]
         npcs = [n.get('id') for n in self.npcs if n.get('location') == room_id]
         return items, npcs
 
-    def _update_content_list(self):
+    def _update_content_list(self) -> None:
         self.content_list.delete(0, tk.END)
         if not self.selected_node: return
         
@@ -246,7 +249,7 @@ class WorldEditor(tk.Tk):
             name = npc_data.get('name', '???')
             self.content_list.insert(tk.END, f"[NPC] {name} ({n_id})")
 
-    def _add_item(self):
+    def _add_item(self) -> None:
         if not self.selected_node: return
         new_id = simpledialog.askstring("Neues Item", "Item ID:")
         if not new_id: return
@@ -266,7 +269,7 @@ class WorldEditor(tk.Tk):
         self._edit_object_dialog(new_id)
         self._update_content_list()
 
-    def _add_npc(self):
+    def _add_npc(self) -> None:
         if not self.selected_node: return
         new_id = simpledialog.askstring("Neuer NPC", "NPC ID:")
         if not new_id: return
@@ -274,7 +277,7 @@ class WorldEditor(tk.Tk):
             messagebox.showerror("Fehler", "ID existiert bereits!")
             return
             
-        new_npc = {
+        new_npc: dict[str, Any] = {
             "id": new_id,
             "name": "Neuer NPC",
             "desc": "Beschreibung.",
@@ -286,7 +289,7 @@ class WorldEditor(tk.Tk):
         self._edit_npc_dialog(new_npc)
         self._update_content_list()
 
-    def _delete_content_item(self):
+    def _delete_content_item(self) -> None:
         sel = self.content_list.curselection()
         if not sel: return
         text = self.content_list.get(sel[0])
@@ -300,7 +303,7 @@ class WorldEditor(tk.Tk):
             
         self._update_content_list()
 
-    def _edit_content_item(self, event=None):
+    def _edit_content_item(self, event: tk.Event[Any] | None = None) -> None:
         sel = self.content_list.curselection()
         if not sel: return
         text = self.content_list.get(sel[0])
@@ -315,7 +318,7 @@ class WorldEditor(tk.Tk):
 
     # --- DIALOGS (Radio Buttons!) ---
 
-    def _edit_object_dialog(self, item_id):
+    def _edit_object_dialog(self, item_id: str) -> None:
         item = self.items[item_id]
         
         dlg = tk.Toplevel(self)
@@ -342,7 +345,7 @@ class WorldEditor(tk.Tk):
         ent_weight.insert(0, str(item.get('weight', 0)))
         ent_weight.pack(fill='x', padx=5)
 
-        def update_weight_state():
+        def update_weight_state() -> None:
             t = type_var.get()
             if t in ["fixture", "surface", "scenery"]:
                 ent_weight.delete(0, tk.END)
@@ -364,7 +367,7 @@ class WorldEditor(tk.Tk):
         ttk.Radiobutton(dlg, text="Nein", variable=climb_var, value=False).pack(anchor='w', padx=20)
         ttk.Radiobutton(dlg, text="Ja (Ermöglicht Klettern)", variable=climb_var, value=True).pack(anchor='w', padx=20)
 
-        def save():
+        def save() -> None:
             item['name'] = ent_name.get()
             item['desc'] = txt_desc.get("1.0", tk.END).strip()
             item['type'] = type_var.get()
@@ -376,14 +379,15 @@ class WorldEditor(tk.Tk):
             else:
                 try:
                     item['weight'] = float(ent_weight.get())
-                except: item['weight'] = 0
+                except ValueError:
+                    item['weight'] = 0
                 
             self._update_content_list()
             dlg.destroy()
             
         ttk.Button(dlg, text="Speichern", command=save).pack(pady=20)
 
-    def _edit_npc_dialog(self, npc):
+    def _edit_npc_dialog(self, npc: dict[str, Any]) -> None:
         dlg = tk.Toplevel(self)
         dlg.title(f"Edit NPC: {npc['id']}")
         dlg.geometry("400x500")
@@ -411,12 +415,14 @@ class WorldEditor(tk.Tk):
         ent_speed.insert(0, str(npc.get('speed', 1.0)))
         ent_speed.pack(fill='x', padx=5)
 
-        def save():
+        def save() -> None:
             npc['name'] = ent_name.get()
             npc['desc'] = txt_desc.get("1.0", tk.END).strip()
             npc['behavior_id'] = beh_var.get()
-            try: npc['speed'] = float(ent_speed.get())
-            except: npc['speed'] = 1.0
+            try:
+                npc['speed'] = float(ent_speed.get())
+            except ValueError:
+                npc['speed'] = 1.0
             self._update_content_list()
             dlg.destroy()
             
@@ -424,19 +430,19 @@ class WorldEditor(tk.Tk):
 
     # --- STANDARD ROOM LOGIC ---
 
-    def _on_layer_change(self):
+    def _on_layer_change(self) -> None:
         try:
             val = int(self.layer_var.get())
             self.current_z_level = val
             self._redraw()
         except ValueError: pass
             
-    def _change_layer_rel(self, delta):
+    def _change_layer_rel(self, delta: int) -> None:
         self.current_z_level += delta
         self.layer_var.set(str(self.current_z_level))
         self._redraw()
 
-    def _rebuild_links(self):
+    def _rebuild_links(self) -> None:
         self.links = []
         for rid, node in self.rooms.items():
             exits = node['data'].get('exits', {})
@@ -444,7 +450,7 @@ class WorldEditor(tk.Tk):
                 if target_id in self.rooms:
                     self.links.append((rid, target_id, direction))
 
-    def _add_room(self):
+    def _add_room(self) -> None:
         base_id = "room_"
         idx = 1
         while f"{base_id}{idx}" in self.rooms: idx += 1
@@ -460,7 +466,7 @@ class WorldEditor(tk.Tk):
         self._redraw()
         self._select_node(new_id)
 
-    def _add_link_dialog(self):
+    def _add_link_dialog(self) -> None:
         if len(self.rooms) < 2: return
         dialog = tk.Toplevel(self)
         dialog.title("Verbindung")
@@ -482,7 +488,7 @@ class WorldEditor(tk.Tk):
         dir_cb = ttk.Combobox(dialog, textvariable=dir_var, values=dirs)
         dir_cb.grid(row=2, column=1)
         
-        def create():
+        def create() -> None:
             f, t, d = from_var.get(), to_var.get(), dir_var.get()
             if f and t and d and f in self.rooms and t in self.rooms:
                 if 'exits' not in self.rooms[f]['data']: self.rooms[f]['data']['exits'] = {}
@@ -493,7 +499,7 @@ class WorldEditor(tk.Tk):
         
         ttk.Button(dialog, text="Erstellen", command=create).grid(row=3, column=0, columnspan=2)
 
-    def _delete_room(self):
+    def _delete_room(self) -> None:
         if not self.selected_node: return
         if len(self.rooms) == 1:
             messagebox.showerror("Fehler", "Die Welt benötigt mindestens einen Raum.")
@@ -519,7 +525,7 @@ class WorldEditor(tk.Tk):
         self._rebuild_links()
         self._redraw()
 
-    def _on_canvas_click(self, event):
+    def _on_canvas_click(self, event: tk.Event[Any]) -> None:
         wx = (event.x - self.offset_x) / self.scale
         wy = (event.y - self.offset_y) / self.scale
         
@@ -541,7 +547,7 @@ class WorldEditor(tk.Tk):
             self._update_prop_panel()
             self._redraw()
 
-    def _on_canvas_drag(self, event):
+    def _on_canvas_drag(self, event: tk.Event[Any]) -> None:
         if self.drag_data["item"]:
             wx = (event.x - self.offset_x) / self.scale
             wy = (event.y - self.offset_y) / self.scale
@@ -550,28 +556,28 @@ class WorldEditor(tk.Tk):
             node['y'] = wy
             self._redraw()
 
-    def _on_canvas_drop(self, event):
+    def _on_canvas_drop(self, event: tk.Event[Any]) -> None:
         self.drag_data["item"] = None
 
-    def _on_canvas_right_click(self, event):
+    def _on_canvas_right_click(self, event: tk.Event[Any]) -> None:
         self.canvas.scan_mark(event.x, event.y)
 
-    def _on_canvas_pan(self, event):
+    def _on_canvas_pan(self, event: tk.Event[Any]) -> None:
         self.canvas.scan_dragto(event.x, event.y, gain=1)
 
-    def _on_zoom(self, event):
+    def _on_zoom(self, event: tk.Event[Any]) -> None:
         scale_factor = 1.1
         if event.num == 5 or event.delta < 0: scale_factor = 0.9
         self.scale *= scale_factor
         self._redraw()
 
-    def _select_node(self, rid):
+    def _select_node(self, rid: str) -> None:
         self.selected_node = rid
         self._update_prop_panel()
         self._update_content_list() # Load items for room
         self._redraw()
 
-    def _update_prop_panel(self):
+    def _update_prop_panel(self) -> None:
         self.prop_id.delete(0, tk.END)
         self.prop_name.delete(0, tk.END)
         self.prop_z.delete(0, tk.END)
@@ -594,11 +600,13 @@ class WorldEditor(tk.Tk):
             
         self._update_content_list()
 
-    def _save_node_props(self):
+    def _save_node_props(self) -> None:
         if not self.selected_node: return
         new_id = self.prop_id.get().strip()
-        try: new_z = int(self.prop_z.get().strip())
-        except: new_z = 0
+        try:
+            new_z = int(self.prop_z.get().strip())
+        except ValueError:
+            new_z = 0
         
         if new_id != self.selected_node:
             if new_id in self.rooms:
@@ -627,7 +635,7 @@ class WorldEditor(tk.Tk):
         node['data']['desc'] = self.prop_desc.get("1.0", tk.END).strip()
         self._redraw()
 
-    def _redraw(self):
+    def _redraw(self) -> None:
         self.canvas.delete("all")
         
         for start, end, direction in self.links:
@@ -657,7 +665,7 @@ class WorldEditor(tk.Tk):
             
             col = "#555555"
             width = 2
-            dash = None
+            dash: tuple[int, int] | None = None
             if is_vertical:
                 col = "#AA55AA"
                 dash = (4, 2)
@@ -694,6 +702,10 @@ class WorldEditor(tk.Tk):
                  indicator = "▲" if z_diff > 0 else "▼"
                  self.canvas.create_text(cx, cy-r-10, text=indicator, fill="#AA55AA", font=("Arial", int(12*self.scale)))
 
-if __name__ == "__main__":
+def main() -> None:
     app = WorldEditor()
     app.mainloop()
+
+
+if __name__ == "__main__":
+    main()

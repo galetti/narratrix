@@ -1,10 +1,13 @@
 # narratrix_engine/data/chapters/ep1_arrival/config.py
+from __future__ import annotations
+
+from engine.schema import GameConfigData
 from .rooms import ROOMS
 from .items import ITEMS, COMBINATIONS
 from .npcs import NPCS
 from .events import NARRATIVE_MATRIX, EVENTS, QUESTS
 
-CHAPTER_CONFIG = {
+CHAPTER_CONFIG: GameConfigData = {
     "meta": {
         "name": "Episode 1: Die Ankunft",
         "author": "Narratrix Team",

@@ -1,10 +1,25 @@
-from engine.constants import *
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from engine.constants import (
+    ATTR_CLIMBABLE,
+    ATTR_ID,
+    ATTR_NAME,
+    FILTER_ROOM,
+    TYPE_CONTAINER,
+    TYPE_SCENERY,
+)
 from engine.resolver import Resolver, ResolutionError
+
+if TYPE_CHECKING:
+    from engine.game_state import GameState
+
 
 class MovementHandler:
     @staticmethod
-    def _list_room_items(game, room_id):
-        visible_items = []
+    def _list_room_items(game: GameState, room_id: str) -> None:
+        visible_items: list[str] = []
         for obj in game.objects.values():
             if obj['location'] == room_id:
                 if obj.get('type') == TYPE_SCENERY: continue
@@ -31,7 +46,7 @@ class MovementHandler:
             game.log('info', f"Hier siehst du: {', '.join(visible_items)}")
 
     @staticmethod
-    def handle(game, args):
+    def handle(game: GameState, args: list[str]) -> None:
         if game.hidden_in:
             if any(w in args for w in ["raus", "out", "verlasse", "exit"]):
                 game.hidden_in = None
@@ -49,7 +64,7 @@ class MovementHandler:
 
         direction = args[0].lower()
         vocab_dirs = game.config.get('vocabulary', {}).get('directions', {})
-        target_dir = None
+        target_dir: str | None = None
         
         for canonical, synonyms in vocab_dirs.items():
             if direction == canonical or direction in synonyms:
@@ -101,7 +116,7 @@ class MovementHandler:
             game.log('error', f"Nach '{target_dir}' führt kein Weg.")
 
     @staticmethod
-    def climb(game, args):
+    def climb(game: GameState, args: list[str]) -> None:
         if game.hidden_in: return game.log('error', "Nicht während du versteckt bist.")
         
         if not args:
@@ -142,6 +157,8 @@ class MovementHandler:
         try:
             # WICHTIG: Nutze die bereinigten Argumente
             target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_ROOM, verb='climb')
+            if not target:
+                return
             
             if not target.get(ATTR_CLIMBABLE, False):
                 game.log('info', f"Du kannst nicht auf {target[ATTR_NAME]} klettern.")

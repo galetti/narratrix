@@ -1,37 +1,38 @@
-import os
-import sys
+from __future__ import annotations
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+from pathlib import Path
+import sys
 
 from engine.schema import ConfigurationError, validate_game_config
 from engine.story_loader import StoryLoader
 
 
-DEFAULT_CHAPTER = "data.chapters.ep1_deep_zero.config"
+PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
+DEFAULT_CHAPTER: str = "data.chapters.ep1_deep_zero.config"
 
 
-def validate_integrity(chapter_source=DEFAULT_CHAPTER):
+def validate_integrity(chapter_source: str = DEFAULT_CHAPTER) -> int:
     print(f"--- Narratrix-Validierung: {chapter_source} ---")
     try:
         config = StoryLoader.load_chapter(chapter_source, raise_on_error=True)
+        if config is None:
+            raise ConfigurationError("Kapitel konnte nicht geladen werden.")
         validate_game_config(config)
     except (ConfigurationError, ImportError, OSError, ValueError) as exc:
         print(f"❌ DATENFEHLER: {exc}")
         return 1
 
-    warnings = []
-    asset_dir = os.path.join(PROJECT_ROOT, "data", "assets", "images")
+    warnings: list[str] = []
+    asset_dir = PROJECT_ROOT / "data" / "assets" / "images"
     for room_id, room in config["rooms"].items():
         image_id = room.get("img")
         if image_id and not any(
-            os.path.exists(os.path.join(asset_dir, image_id + extension))
+            (asset_dir / f"{image_id}{extension}").exists()
             for extension in (".png", ".jpg", ".jpeg")
         ):
             warnings.append(f"Raum '{room_id}': Bild '{image_id}' fehlt.")
     for npc in config["npcs"]:
-        image_ids = []
+        image_ids: list[str] = []
         if npc.get("img"):
             image_ids.append(npc["img"])
         for state in npc.get("states", {}).values():
@@ -40,7 +41,7 @@ def validate_integrity(chapter_source=DEFAULT_CHAPTER):
                 image_ids.append(image_id)
         for image_id in image_ids:
             if not any(
-                os.path.exists(os.path.join(asset_dir, image_id + extension))
+                (asset_dir / f"{image_id}{extension}").exists()
                 for extension in (".png", ".jpg", ".jpeg")
             ):
                 warnings.append(f"NPC '{npc['id']}': Bild '{image_id}' fehlt.")
@@ -58,6 +59,10 @@ def validate_integrity(chapter_source=DEFAULT_CHAPTER):
     return 0
 
 
-if __name__ == "__main__":
+def main() -> int:
     source = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_CHAPTER
-    raise SystemExit(validate_integrity(source))
+    return validate_integrity(source)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

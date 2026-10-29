@@ -1,12 +1,35 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from engine.resolver import Resolver, ResolutionError
-from engine.constants import *
+from engine.constants import (
+    ATTR_DESC,
+    ATTR_ID,
+    ATTR_MATTER,
+    ATTR_NAME,
+    ATTR_TEMP,
+    ATTR_WEIGHT,
+    FILTER_RECURSIVE,
+    FILTER_ROOM,
+    MATTER_LIQUID,
+    STATE_BROKEN,
+    STATE_SABOTAGED,
+    TYPE_CONTAINER,
+    TYPE_ITEM,
+    TYPE_SURFACE,
+)
 from engine.strings import Texts
 from engine.handlers.common import CommonHandler
+
+if TYPE_CHECKING:
+    from engine.game_state import GameState
+
 
 class ExplorationHandler:
     
     @staticmethod
-    def hide(game, args):
+    def hide(game: GameState, args: list[str]) -> None:
         if game.hidden_in:
             return game.log('info', Texts.HIDE_ALREADY)
             
@@ -31,7 +54,7 @@ class ExplorationHandler:
         except ResolutionError as e: game.log('error', str(e))
 
     @staticmethod
-    def look(game, args):
+    def look(game: GameState, args: list[str]) -> None:
         # Wenn versteckt, sieht man nur eingeschränkt
         if game.hidden_in:
             container = game.objects.get(game.hidden_in)
@@ -66,7 +89,7 @@ class ExplorationHandler:
                 game.log('info', Texts.LOOK_NO_EXITS)
 
             # Objekte im Raum anzeigen
-            visible_objs = []
+            visible_objs: list[str] = []
             local_objects = [o for o in game.objects.values() if o['location'] == game.location]
             
             for obj in local_objects:
@@ -102,7 +125,7 @@ class ExplorationHandler:
             target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_RECURSIVE, verb='look')
             if target:
                 desc = target.get(ATTR_DESC, Texts.LOOK_DEFAULT)
-                status = []
+                status: list[str] = []
                 
                 # Temperatur Info
                 temp = target.get(ATTR_TEMP, 20)

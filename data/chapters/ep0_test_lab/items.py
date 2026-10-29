@@ -1,37 +1,56 @@
 # narratrix_engine/data/chapters/ep0_test_lab/items.py
-from engine.constants import *
+from __future__ import annotations
 
-ITEMS = {
+from engine.constants import (
+    ATTR_ALIASES,
+    ATTR_DESC,
+    ATTR_ID,
+    ATTR_MATTER,
+    ATTR_NAME,
+    ATTR_TEMP,
+    ATTR_WEIGHT,
+    LOC_VOID,
+    MATTER_LIQUID,
+    STATE_BROKEN,
+    STATE_SABOTAGED,
+    TYPE_CONTAINER,
+    TYPE_FIXTURE,
+    TYPE_ITEM,
+    TYPE_SURFACE,
+)
+from engine.schema import ObjectData, RecipeData
+
+ITEMS: dict[str, ObjectData] = {
+    # --- BESTEHENDE BASIS-ITEMS ---
     "red_key": {
         ATTR_ID: "red_key",
         ATTR_NAME: "roter Schlüssel",
-        ATTR_DESC: "Ein kleiner Schlüssel mit rotem Griff.",
-        ATTR_ALIASES: ["schlüssel", "rot", "key"],
+        ATTR_DESC: "Ein kleiner Schlüssel mit rotem Griff (1.00 kg). Passt zum Gefahrgut-Spind.",
+        ATTR_ALIASES: ["schlüssel", "rot", "key", "roter"],
         "location": "test_chamber",
         "type": TYPE_ITEM,
-        ATTR_WEIGHT: 1,
-        "level": 0 # Am Boden
+        ATTR_WEIGHT: 1.0,
+        "level": 0,
     },
     "blue_key": {
         ATTR_ID: "blue_key",
         ATTR_NAME: "blauer Schlüssel",
-        ATTR_DESC: "Ein schwerer Schlüssel aus blauem Metall.",
-        ATTR_ALIASES: ["schlüssel", "blau", "key"],
+        ATTR_DESC: "Ein schwerer, kalibrierter Schlüssel aus blauem Kobaltstahl (exakt 1.00 kg).",
+        ATTR_ALIASES: ["schlüssel", "blau", "key", "blauer"],
         "location": "test_chamber",
         "type": TYPE_ITEM,
-        ATTR_WEIGHT: 1,
-        "level": 0
+        ATTR_WEIGHT: 1.0,
+        "level": 0,
     },
     "noisy_machine": {
         ATTR_ID: "noisy_machine",
         ATTR_NAME: "Lärmmaschine",
-        ATTR_DESC: "Eine Maschine, die Krach macht.",
+        ATTR_DESC: "Ein akustischer Signalgenerator, der bei Aktivierung lauten Krach im Maschinenraum erzeugt.",
+        ATTR_ALIASES: ["maschine", "generator"],
         "location": "lower_deck",
         "type": TYPE_FIXTURE,
-        "state": "off"
+        "state": "off",
     },
-    
-    # NEU: Hohes Regal und unerreichbares Item
     "high_shelf": {
         ATTR_ID: "high_shelf",
         ATTR_NAME: "hohes Regal",
@@ -39,34 +58,30 @@ ITEMS = {
         ATTR_ALIASES: ["regal", "shelf"],
         "location": "test_chamber",
         "type": TYPE_FIXTURE,
-        "climbable": True, # Man kann drauf klettern!
-        "target_elevation": 2 # Klettern bringt einen auf Ebene 2
+        "climbable": True,
+        "target_elevation": 2,
     },
     "access_card": {
         ATTR_ID: "access_card",
         ATTR_NAME: "Zugangskarte",
-        ATTR_DESC: "Eine weiße Plastikkarte mit Magnetstreifen.",
+        ATTR_DESC: "Eine weiße Sicherheitskarte mit Magnetstreifen für das Sicherheits-Schott.",
         ATTR_ALIASES: ["karte", "card", "zugang"],
-        "location": "test_chamber", # Im Raum...
+        "location": "test_chamber",
         "type": TYPE_ITEM,
-        "level": 2, # ...aber weit oben!
-        ATTR_WEIGHT: 0.1
+        "level": 2,
+        ATTR_WEIGHT: 0.1,
     },
-
-    # NEU: Werkzeug mit Reichweite
     "grabber": {
         ATTR_ID: "grabber",
         ATTR_NAME: "Greifzange",
-        ATTR_DESC: "Eine lange Stange mit einem Greifmechanismus am Ende.",
+        ATTR_DESC: "Eine lange Teleskopstange mit Greifmechanismus am Ende.",
         ATTR_ALIASES: ["zange", "greifer", "stange"],
         "location": "central_hub",
         "type": TYPE_ITEM,
         "is_tool": True,
-        "reach": 2, # Kann 2 Ebenen überbrücken
-        ATTR_WEIGHT: 1.5
+        "reach": 2,
+        ATTR_WEIGHT: 1.5,
     },
-
-    # Ressourcen
     "scrap_metal_1": {
         ATTR_ID: "scrap_metal_1",
         "resource_id": "scrap_metal",
@@ -77,7 +92,7 @@ ITEMS = {
         "type": TYPE_ITEM,
         "is_resource": True,
         "count": 3,
-        ATTR_WEIGHT: 0.5 
+        ATTR_WEIGHT: 0.5,
     },
     "scrap_metal_2": {
         ATTR_ID: "scrap_metal_2",
@@ -89,49 +104,254 @@ ITEMS = {
         "type": TYPE_ITEM,
         "is_resource": True,
         "count": 1,
-        ATTR_WEIGHT: 0.5
+        ATTR_WEIGHT: 0.5,
     },
     "wire_coil": {
         ATTR_ID: "wire_coil",
         "resource_id": "wire",
         ATTR_NAME: "Kupferkabel",
-        ATTR_DESC: "Eine Spule mit Draht.",
+        ATTR_DESC: "Eine Spule mit leitfähigem Kupferdraht.",
         ATTR_ALIASES: ["kabel", "draht", "wire"],
         "location": "central_hub",
         "type": TYPE_ITEM,
         "is_resource": True,
         "count": 2,
-        ATTR_WEIGHT: 0.2
+        ATTR_WEIGHT: 0.2,
     },
-    
     "workbench": {
         ATTR_ID: "workbench",
         ATTR_NAME: "Werkbank",
         ATTR_DESC: "Eine robuste Werkbank mit Schraubstock.",
         ATTR_ALIASES: ["bank", "tisch"],
         "location": "lower_deck",
-        "type": TYPE_FIXTURE
+        "type": TYPE_FIXTURE,
     },
-    
     "improvised_shiv": {
         ATTR_ID: "improvised_shiv",
         ATTR_NAME: "Improvisiertes Messer",
-        ATTR_DESC: "Ein geschärftes Stück Metall mit Kabel umwickelt.",
-        ATTR_ALIASES: ["messer", "dolch", "shiv"],
-        "location": LOC_VOID, 
+        ATTR_DESC: "Ein geschärftes Stück Metall mit Kabel umwickelt. Eignet sich auch als Feinwerkzeug.",
+        ATTR_ALIASES: ["messer", "dolch", "shiv", "werkzeug"],
+        "location": LOC_VOID,
         "type": TYPE_ITEM,
-        ATTR_WEIGHT: 1,
-        "damage": 2
-    }
+        "is_tool": True,
+        ATTR_WEIGHT: 1.0,
+        "damage": 2,
+    },
+
+    # --- NEU: SYSTEM-SHOWCASE & MEHRSTUFIGES RESONANZ-RÄTSEL ---
+    "central_terminal": {
+        ATTR_ID: "central_terminal",
+        ATTR_NAME: "Zentral-Terminal",
+        ATTR_DESC: "Das Hauptterminal des Labors. Die Fassung für den Resonanz-Kern blinkt warnend.",
+        ATTR_ALIASES: ["terminal", "konsole", "computer"],
+        "location": "central_hub",
+        "type": TYPE_FIXTURE,
+    },
+    "acoustic_scanner": {
+        ATTR_ID: "acoustic_scanner",
+        ATTR_NAME: "Akustik-Stethoskop",
+        ATTR_DESC: "Ein hochsensibles Richtmikrofon, das gedämpfte Geräusche durch geschlossene Schotts verstärkt.",
+        ATTR_ALIASES: ["stethoskop", "scanner", "mikrofon"],
+        "location": "central_hub",
+        "type": TYPE_ITEM,
+        "acoustic_boost": 0.45,
+        ATTR_WEIGHT: 0.4,
+    },
+    "faulty_hatch": {
+        ATTR_ID: "faulty_hatch",
+        ATTR_NAME: "defekte Wartungsluke",
+        ATTR_DESC: "Eine pneumatische Bodenluke mit Wackelkontakt, die sich unregelmäßig öffnet und schließt.",
+        ATTR_ALIASES: ["wartungsluke", "luke", "hatch"],
+        "location": "central_hub",
+        "type": TYPE_CONTAINER,
+        "is_open": True,
+        "behavior": {
+            "type": "random_open_close",
+            "chance": 15,
+        },
+        ATTR_WEIGHT: 200.0,
+    },
+    "security_door": {
+        ATTR_ID: "security_door",
+        ATTR_NAME: "Sicherheits-Schott",
+        ATTR_DESC: "Ein schweres, schallisoliertes Schott nach Osten zum Akustik-Tresorraum. Es hat einen Kartenleser.",
+        ATTR_ALIASES: ["schott", "tür", "sicherheitsschott"],
+        "location": "test_chamber",
+        "type": TYPE_CONTAINER,
+        "linked_exit": "east",
+        "is_open": False,
+        "is_locked": True,
+        "key_id": "access_card",
+        "acoustic_damping": 0.15,
+        ATTR_WEIGHT: 500.0,
+    },
+    "hazard_locker": {
+        ATTR_ID: "hazard_locker",
+        ATTR_NAME: "Gefahrgut-Spind",
+        ATTR_DESC: "Ein mannshoher, gepanzerter Stahlspind mit rotem Sicherheitsschloss. Groß genug, um sich darin zu verstecken.",
+        ATTR_ALIASES: ["spind", "schrank", "locker"],
+        "location": "test_chamber",
+        "type": TYPE_CONTAINER,
+        "is_open": False,
+        "is_locked": True,
+        "key_id": "red_key",
+        ATTR_WEIGHT: 150.0,
+    },
+    "cryo_capsule": {
+        ATTR_ID: "cryo_capsule",
+        ATTR_NAME: "Kryo-Kapsel",
+        ATTR_DESC: "Eine dicke Eiskapsel, in deren Innerem ein schweres Metallgewicht eingefroren ist.",
+        ATTR_ALIASES: ["kapsel", "eiskapsel", "cryo"],
+        "location": "hazard_locker",
+        "type": TYPE_ITEM,
+        ATTR_TEMP: -15.0,
+        ATTR_WEIGHT: 0.5,
+    },
+    "energy_cell": {
+        ATTR_ID: "energy_cell",
+        ATTR_NAME: "Energiezelle",
+        ATTR_DESC: "Eine geladene Mikro-Energiezelle – genau die Lieblingsspeise kleiner Wartungsdrohnen.",
+        ATTR_ALIASES: ["zelle", "batterie", "akku"],
+        "location": "hazard_locker",
+        "type": TYPE_ITEM,
+        ATTR_WEIGHT: 0.3,
+    },
+    "thermal_furnace": {
+        ATTR_ID: "thermal_furnace",
+        ATTR_NAME: "Schmelzofen",
+        ATTR_DESC: "Ein kompakter Labor-Hochtemperaturofen. Die Heizspiralen glühen hellrot.",
+        ATTR_ALIASES: ["ofen", "brenner", "furnace"],
+        "location": "test_chamber",
+        "type": TYPE_FIXTURE,
+        "state": "on",
+        "hot": True,
+        ATTR_TEMP: 95.0,
+    },
+    "calibration_weight": {
+        ATTR_ID: "calibration_weight",
+        ATTR_NAME: "Eichgewicht",
+        ATTR_DESC: "Ein massiver Wolfram-Zylinder mit der Gravur '1.50 kg'.",
+        ATTR_ALIASES: ["gewicht", "zylinder", "wolfram"],
+        "location": LOC_VOID,
+        "type": TYPE_ITEM,
+        ATTR_TEMP: 75.0,
+        ATTR_WEIGHT: 1.5,
+    },
+    "coolant_pool": {
+        ATTR_ID: "coolant_pool",
+        ATTR_NAME: "Kühlmittel-Pfütze",
+        ATTR_DESC: "Eine schimmernde Lache aus flüssigem Stickstoff-Kühlmittel am Boden.",
+        ATTR_ALIASES: ["kühlmittel", "pfütze", "flüssigkeit"],
+        "location": "test_chamber",
+        "type": TYPE_ITEM,
+        ATTR_MATTER: MATTER_LIQUID,
+        ATTR_TEMP: 2.0,
+        ATTR_WEIGHT: 1.0,
+    },
+    "glass_vial": {
+        ATTR_ID: "glass_vial",
+        ATTR_NAME: "Glasphiole",
+        ATTR_DESC: "Ein hauchdünnes Reagenzglas mit feinen Haarrissen.",
+        ATTR_ALIASES: ["phiole", "reagenzglas", "glas"],
+        "location": "test_chamber",
+        "type": TYPE_ITEM,
+        "fragile": True,
+        "toughness": 0,
+        ATTR_WEIGHT: 0.1,
+    },
+    "sabotaged_relay": {
+        ATTR_ID: "sabotaged_relay",
+        ATTR_NAME: "Sekundär-Relais",
+        ATTR_DESC: "Ein Steuerrelais an der Wand, dessen Platinen absichtlich durchtrennt wurden.",
+        ATTR_ALIASES: ["relais", "steuerrelais"],
+        "location": "lower_deck",
+        "type": TYPE_FIXTURE,
+        "state": STATE_SABOTAGED,
+    },
+    "precision_scale": {
+        ATTR_ID: "precision_scale",
+        ATTR_NAME: "Präzisionswaage",
+        ATTR_DESC: (
+            "Eine elektronische Laborwaage, die mit dem Verriegelungsmechanismus des Tresors "
+            "gekoppelt ist. Ein Schild lautet: 'Entriegelung bei exakt 2.50 kg Auflagegewicht.'"
+        ),
+        ATTR_ALIASES: ["waage", "laborwaage", "scale"],
+        "location": "vault_room",
+        "type": TYPE_SURFACE,
+        "is_scale": True,
+        ATTR_WEIGHT: 50.0,
+    },
+    "resonance_vault": {
+        ATTR_ID: "resonance_vault",
+        ATTR_NAME: "Resonanz-Tresor",
+        ATTR_DESC: "Ein gepanzerter Wandtresor ohne Schlüsselloch. Er wird ausschließlich über die Präzisionswaage gesteuert.",
+        ATTR_ALIASES: ["tresor", "safe", "vault"],
+        "location": "vault_room",
+        "type": TYPE_CONTAINER,
+        "is_open": False,
+        "is_locked": True,
+        ATTR_WEIGHT: 300.0,
+    },
+    "resonance_core": {
+        ATTR_ID: "resonance_core",
+        ATTR_NAME: "kaputte(s) Resonanz-Kern",
+        ATTR_DESC: "Ein kristalliner Quantenkern. Eine Halterung ist locker und muss erst mit einem Werkzeug repariert werden.",
+        ATTR_ALIASES: ["kern", "resonanzkern", "resonanz-kern", "quantenkern"],
+        "location": LOC_VOID,
+        "type": TYPE_ITEM,
+        "state": STATE_BROKEN,
+        ATTR_WEIGHT: 0.8,
+    },
 }
 
-COMBINATIONS = [
+COMBINATIONS: list[RecipeData] = [
+    # 1. Bestehendes Crafting-Rezept
     {
-        "verb": "use", 
-        "items": ["scrap_metal", "workbench"], 
-        "ingredients": {"scrap_metal": 2, "wire": 1}, 
-        "station": "workbench", 
+        "verb": "use",
+        "items": ["scrap_metal", "workbench"],
+        "ingredients": {"scrap_metal": 2, "wire": 1},
+        "station": "workbench",
         "result": "improvised_shiv",
-        "message": "Du schleifst das Metall und wickelst den Draht als Griff darum. Fertig ist das Messer."
-    }
+        "message": "Du schleifst das Metall und wickelst den Draht als Griff darum. Fertig ist das Messer.",
+    },
+    # 2. Kryo-Kapsel im Schmelzofen auftauen ("benutze kapsel mit ofen" oder "zerstöre kapsel in ofen")
+    {
+        "verb": "use",
+        "items": ["cryo_capsule", "thermal_furnace"],
+        "ingredients": {"cryo_capsule": 1},
+        "station": "thermal_furnace",
+        "result": "calibration_weight",
+        "message": "Die Eishülle verdampft zischend im Schmelzofen. Zurück bleibt ein heißes Eichgewicht (1.50 kg)!",
+        "effects": [
+            {"type": "trigger_event", "id": "capsule_melted"},
+        ],
+    },
+    {
+        "verb": "break",
+        "items": ["cryo_capsule", "thermal_furnace"],
+        "ingredients": {"cryo_capsule": 1},
+        "station": "thermal_furnace",
+        "result": "calibration_weight",
+        "message": "Die Eishülle verdampft zischend im Schmelzofen. Zurück bleibt ein heißes Eichgewicht (1.50 kg)!",
+        "effects": [
+            {"type": "trigger_event", "id": "capsule_melted"},
+        ],
+    },
+    # 3. Reparierten Resonanz-Kern ins Zentral-Terminal einsetzen
+    {
+        "verb": "use",
+        "items": ["resonance_core", "central_terminal"],
+        "ingredients": {"resonance_core": 1},
+        "station": "central_terminal",
+        "blueprint": "knows_resonance_tuning",
+        "condition": {
+            "type": "object_state",
+            "item": "resonance_core",
+            "state": "normal",
+        },
+        "message": "Du stimmst die Frequenz nach den Angaben der Drohne ab und setzt den Resonanz-Kern in das Zentral-Terminal ein!",
+        "effects": [
+            {"type": "trigger_event", "id": "protocol_complete"},
+        ],
+    },
 ]

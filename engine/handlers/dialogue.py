@@ -1,11 +1,20 @@
 # narratrix_engine/engine/handlers/dialogue.py
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from engine.resolver import Resolver
-from engine.constants import *
+from engine.constants import ATTR_NAME
 from engine.access import is_directly_reachable, reach_error
+from engine.schema import DialogueEntry
+
+if TYPE_CHECKING:
+    from engine.game_state import GameState
+
 
 class DialogueHandler:
     @staticmethod
-    def talk(game, args_words):
+    def talk(game: GameState, args_words: list[str]) -> None:
         clean_args = [w for w in args_words if w.lower() not in ["mit", "zu", "an"]]
         target_npc = Resolver.find_mentioned_npc(game, clean_args)
         
@@ -22,7 +31,7 @@ class DialogueHandler:
         game.dialogue_system.start_dialogue(target_npc)
 
     @staticmethod
-    def step(game, user_input):
+    def step(game: GameState, user_input: str) -> None:
         text = user_input.strip().lower()
         npc = game.dialogue_partner
         
@@ -53,8 +62,8 @@ class DialogueHandler:
         # Auswahl-Logik
         visible_topics, _ = game.dialogue_system.get_visible_topics(npc)
         
-        chosen_entry = None
-        chosen_topic_key = None
+        chosen_entry: DialogueEntry | None = None
+        chosen_topic_key: str | None = None
 
         if text.isdigit():
             idx = int(text) - 1

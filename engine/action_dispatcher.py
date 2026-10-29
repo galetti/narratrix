@@ -1,4 +1,9 @@
 # narratrix_engine/engine/action_dispatcher.py
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING, Callable
+
 from engine.handlers.movement import MovementHandler
 from engine.handlers.dialogue import DialogueHandler
 from engine.handlers.system import SystemHandler
@@ -10,8 +15,16 @@ from engine.handlers.mechanics import MechanicsHandler
 from engine.resolver import AmbiguityError
 from engine.constants import ATTR_NAME
 
+if TYPE_CHECKING:
+    from engine.game_state import GameState
+
+logger = logging.getLogger(__name__)
+
+HandlerFunc = Callable[["GameState", list[str]], None]
+
+
 class ActionDispatcher:
-    COMMAND_MAP = {
+    COMMAND_MAP: dict[str, HandlerFunc] = {
         # Exploration
         'look': ExplorationHandler.look, 'l': ExplorationHandler.look, 'x': ExplorationHandler.look,
         'hide': ExplorationHandler.hide, 'verstecke': ExplorationHandler.hide,
@@ -49,7 +62,7 @@ class ActionDispatcher:
     }
 
     @staticmethod
-    def dispatch(game, verb, args):
+    def dispatch(game: GameState, verb: str, args: list[str]) -> None:
         # 1. Check auf ausstehende Interaktionen
         if game.pending_interaction:
             ActionDispatcher._handle_pending(game, verb, args)
@@ -89,12 +102,14 @@ class ActionDispatcher:
         game.log('error', f"Ich weiß nicht, wie ich '{verb}' soll.")
 
     @staticmethod
-    def dialogue_step(game, user_input):
+    def dialogue_step(game: GameState, user_input: str) -> None:
         DialogueHandler.step(game, user_input)
 
     @staticmethod
-    def _handle_pending(game, verb, args):
+    def _handle_pending(game: GameState, verb: str, args: list[str]) -> None:
         state = game.pending_interaction
+        if not state:
+            return
         original_verb = state['verb']
         item1_args = state['args']
         
@@ -111,8 +126,10 @@ class ActionDispatcher:
         game.pending_interaction = None
 
     @staticmethod
-    def _handle_disambiguation(game, verb, args):
+    def _handle_disambiguation(game: GameState, verb: str, args: list[str]) -> None:
         state = game.disambiguation
+        if not state:
+            return
         candidates = state['candidates']
         
         # User Input verarbeiten
@@ -175,8 +192,8 @@ class ActionDispatcher:
                         end_idx = idx + len(ambiguous_part)
                         new_args[idx:end_idx] = target_tokens
                         
-                except Exception as e:
-                    print(f"[WARN] Disambiguierung Rekonstruktion fehlgeschlagen: {e}")
+                except (KeyError, IndexError, ValueError, TypeError) as e:
+                    logger.warning("Disambiguierung Rekonstruktion fehlgeschlagen: %s", e)
                     # Fallback: Einfach Namen anhängen (funktioniert nur bei simplen Verben)
                     new_args = [target['name']]
 

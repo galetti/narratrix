@@ -1,19 +1,40 @@
 # narratrix_engine/engine/resolver.py
-from engine.constants import *
+from __future__ import annotations
+
 import difflib
+from typing import TYPE_CHECKING, Any
+
+from engine.constants import (
+    ATTR_ALIASES,
+    ATTR_ID,
+    ATTR_NAME,
+    FILTER_INVENTORY,
+    FILTER_RECURSIVE,
+    FILTER_ROOM,
+    LOC_INVENTORY,
+    TYPE_CONTAINER,
+    TYPE_SURFACE,
+)
+from engine.schema import NPCData, ObjectData
+
+if TYPE_CHECKING:
+    from engine.game_state import GameState
+
 
 class ResolutionError(Exception):
-    def __init__(self, message):
+    def __init__(self, message: str) -> None:
         super().__init__(message)
+
 
 class AmbiguityError(Exception):
     """
     Wird geworfen, wenn ein Begriff nicht eindeutig ist.
     Bubbles up zum ActionDispatcher, um den Kontext zu erhalten.
     """
-    def __init__(self, candidates, query_words):
-        self.candidates = candidates
-        self.query_words = query_words 
+    def __init__(self, candidates: list[dict[str, Any]], query_words: list[str]) -> None:
+        self.candidates: list[dict[str, Any]] = candidates
+        self.query_words: list[str] = query_words 
+
 
 class Resolver:
     """
@@ -23,23 +44,23 @@ class Resolver:
     """
 
     @staticmethod
-    def clean_args(args):
+    def clean_args(args: list[str]) -> list[str]:
         ignore = ["in", "im", "an", "am", "auf", "mit", "bei", "zu", "nach", "den", "die", "das", "dem", "der", "einen", "eine", "ein"]
         return [w for w in args if w.lower() not in ignore]
 
     @staticmethod
-    def normalize_term(text):
+    def normalize_term(text: str) -> str:
         return text.lower().replace("-", " ").replace("_", " ").strip()
 
     @staticmethod
-    def _collect_candidates(game, location_filter):
+    def _collect_candidates(game: GameState, location_filter: str | None) -> list[dict[str, Any]]:
         """Sammelt Kandidaten basierend auf dem Filter."""
-        candidates = []
+        candidates: list[dict[str, Any]] = []
         
         # Hilfsfunktion für Container-Inhalt
-        visited_containers = set()
+        visited_containers: set[str | None] = set()
 
-        def add_contents_of(container_list, check_open=True):
+        def add_contents_of(container_list: list[ObjectData], check_open: bool = True) -> None:
             for obj in container_list:
                 if obj.get('type') in [TYPE_CONTAINER, TYPE_SURFACE]:
                     obj_id = obj.get(ATTR_ID)
@@ -80,7 +101,12 @@ class Resolver:
         return candidates
 
     @staticmethod
-    def resolve_target(game, search_words, location_filter=None, verb='unknown'):
+    def resolve_target(
+        game: GameState,
+        search_words: list[str],
+        location_filter: str | None = None,
+        verb: str = 'unknown',
+    ) -> dict[str, Any] | None:
         if not search_words: 
             return None 
         
@@ -88,8 +114,8 @@ class Resolver:
         search_query = Resolver.normalize_term(" ".join(search_words))
         candidates = Resolver._collect_candidates(game, location_filter)
         
-        exact_matches = []
-        substring_matches = []
+        exact_matches: list[dict[str, Any]] = []
+        substring_matches: list[dict[str, Any]] = []
         
         # 1a. Exakter Match oder Substring Match (Lokal)
         for cand in candidates:
@@ -112,7 +138,7 @@ class Resolver:
         # Wird nur ausgeführt, wenn der Spieler sich vertippt hat oder Quatsch eingibt.
         
         # Globale Begriffsliste aufbauen (Teuer!)
-        known_terms = set()
+        known_terms: set[str] = set()
         for obj in game.objects.values():
              known_terms.add(Resolver.normalize_term(obj[ATTR_NAME]))
              for a in obj.get(ATTR_ALIASES, []): known_terms.add(Resolver.normalize_term(a))
@@ -122,7 +148,7 @@ class Resolver:
              for a in npc.get(ATTR_ALIASES, []): known_terms.add(Resolver.normalize_term(a))
              
         # Difflib Fuzzy Match
-        corrected_query = None
+        corrected_query: str | None = None
         fuzzy_matches = difflib.get_close_matches(search_query, list(known_terms), n=1, cutoff=0.7)
         
         if fuzzy_matches:
@@ -155,7 +181,7 @@ class Resolver:
         raise AmbiguityError(matches, search_words)
 
     @staticmethod
-    def find_mentioned_npc(game, words):
+    def find_mentioned_npc(game: GameState, words: list[str]) -> NPCData | None:
         """Spezifische NPC Suche für Dialoge."""
         query = Resolver.normalize_term(" ".join(words))
         if not query:
@@ -169,7 +195,7 @@ class Resolver:
             if query in n_name or any(query in alias for alias in n_aliases): return npc
         
         # 2. Fuzzy Suche (nur lokal bei NPCs, Dialoge über Distanz gehen eh nicht)
-        npc_map = {}
+        npc_map: dict[str, NPCData] = {}
         for npc in local_npcs:
             npc_map[Resolver.normalize_term(npc[ATTR_NAME])] = npc
             for a in npc.get(ATTR_ALIASES, []): npc_map[Resolver.normalize_term(a)] = npc

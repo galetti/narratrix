@@ -1,7 +1,10 @@
 # narratrix_engine/data/chapters/ep1_arrival/npcs.py
-from engine.constants import *
+from __future__ import annotations
 
-NPCS = [
+from engine.constants import ATTR_DESC, ATTR_NAME
+from engine.schema import NPCData
+
+NPCS: list[NPCData] = [
     {
         "id": "sato",
         ATTR_NAME: "Dr. Sato",

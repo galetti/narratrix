@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import copy
+import logging
 import re
 import threading
-import traceback
+from typing import Any
 
 from engine.constants import (
     ATTR_DESC,
@@ -13,49 +16,59 @@ from engine.constants import (
     STATE_BROKEN,
     STATE_SABOTAGED,
 )
+from engine.schema import (
+    EventData,
+    GameSnapshot,
+    LogEntry,
+    NPCData,
+    ObjectData,
+    RecipeData,
+    RoomData,
+)
 from engine.systems.acoustics import AcousticsSystem
 from engine.systems.ai import AISystem
-from engine.systems.crafting import CraftingSystem
+from engine.systems.crafting import CraftResult, CraftingSystem
 from engine.systems.dialogue_system import DialogueSystem
-from engine.systems.effect_processor import EffectProcessor
+from engine.systems.effect_processor import EffectProcessingError, EffectProcessor
 from engine.systems.event_manager import EventManager
 from engine.systems.object_behavior import ObjectBehaviorSystem
 from engine.systems.pathfinder import Pathfinder
 from engine.systems.quest_manager import QuestManager
 
 
-SAVE_SCHEMA_VERSION = 2
+logger = logging.getLogger(__name__)
+SAVE_SCHEMA_VERSION: int = 2
 
 
 class GameState:
-    def __init__(self, config, silent=False):
-        self.config = config
-        self.silent = silent
-        self.lock = threading.RLock()
+    def __init__(self, config: dict[str, Any], silent: bool = False) -> None:
+        self.config: dict[str, Any] = config
+        self.silent: bool = silent
+        self.lock: threading.RLock = threading.RLock()
 
-        self.time = 0
-        self.logs = []
-        self.pending_chapter_load = None
-        self.hidden_in = None
-        self.elevation = 0
-        self.stability = 100
-        self.game_over = False
-        self.last_subject_id = None
-        self.disambiguation = None
-        self.pending_interaction = None
-        self.dialogue_active = False
-        self.dialogue_partner = None
-        self.knowledge = set()
+        self.time: int = 0
+        self.logs: list[LogEntry] = []
+        self.pending_chapter_load: str | None = None
+        self.hidden_in: str | None = None
+        self.elevation: int = 0
+        self.stability: float = 100
+        self.game_over: bool = False
+        self.last_subject_id: str | None = None
+        self.disambiguation: dict[str, Any] | None = None
+        self.pending_interaction: dict[str, Any] | None = None
+        self.dialogue_active: bool = False
+        self.dialogue_partner: NPCData | None = None
+        self.knowledge: set[str] = set()
 
-        self.rooms = copy.deepcopy(config["rooms"])
-        self.npcs = copy.deepcopy(config["npcs"])
-        self.matrix = copy.deepcopy(config.get("narrative_matrix", []))
-        self.dynamic_events = copy.deepcopy(config.get("events", []))
-        self.objects = copy.deepcopy(config["objects"])
-        self.combinations = copy.deepcopy(config.get("combinations", []))
+        self.rooms: dict[str, RoomData] = copy.deepcopy(config["rooms"])
+        self.npcs: list[NPCData] = copy.deepcopy(config["npcs"])
+        self.matrix: list[EventData] = copy.deepcopy(config.get("narrative_matrix", []))
+        self.dynamic_events: list[EventData] = copy.deepcopy(config.get("events", []))
+        self.objects: dict[str, ObjectData] = copy.deepcopy(config["objects"])
+        self.combinations: list[RecipeData] = copy.deepcopy(config.get("combinations", []))
 
         start_room = config.get("meta", {}).get("start_room")
-        self.location = start_room if start_room in self.rooms else LOC_VOID
+        self.location: str = start_room if start_room in self.rooms else LOC_VOID
         self.visit_room(self.location)
 
         for npc in self.npcs:
@@ -64,40 +77,40 @@ class GameState:
             obj.setdefault(ATTR_TEMP, 20)
             obj.setdefault(ATTR_MATTER, MATTER_SOLID)
 
-        self.effects = EffectProcessor(self)
-        self.dialogue_system = DialogueSystem(self)
-        self.crafting = CraftingSystem(self)
-        self.pathfinder = Pathfinder(self)
-        self.ai = AISystem(self)
-        self.object_behavior = ObjectBehaviorSystem(self)
-        self.acoustics = AcousticsSystem(self)
-        self.quests = QuestManager(self)
+        self.effects: EffectProcessor = EffectProcessor(self)
+        self.dialogue_system: DialogueSystem = DialogueSystem(self)
+        self.crafting: CraftingSystem = CraftingSystem(self)
+        self.pathfinder: Pathfinder = Pathfinder(self)
+        self.ai: AISystem = AISystem(self)
+        self.object_behavior: ObjectBehaviorSystem = ObjectBehaviorSystem(self)
+        self.acoustics: AcousticsSystem = AcousticsSystem(self)
+        self.quests: QuestManager = QuestManager(self)
         self.quests.load_definitions(config.get("quests", {}))
-        self.events = EventManager(self)
+        self.events: EventManager = EventManager(self)
         self.events.load_events(self.matrix + self.dynamic_events)
 
         if not self.silent:
             self.events.update()
 
-    def _prepare_npc_state(self, npc):
+    def _prepare_npc_state(self, npc: NPCData) -> None:
         states = npc.get("states", {})
         if not states:
             return
         if "state" not in npc:
             npc["state"] = npc.get("initial_state", next(iter(states)))
 
-        managed_keys = set()
+        managed_keys: set[str] = set()
         for state_data in states.values():
             managed_keys.update(state_data.get("behavior", {}))
             managed_keys.update(state_data.get("visuals", {}))
         npc["_state_managed_keys"] = sorted(managed_keys)
         npc["_state_base_values"] = {
-            key: copy.deepcopy(npc[key]) for key in managed_keys if key in npc
+            key: copy.deepcopy(npc[key]) for key in managed_keys if key in npc  # type: ignore[literal-required]
         }
         npc["_state_missing_keys"] = [key for key in managed_keys if key not in npc]
         self._hydrate_npc(npc)
 
-    def _hydrate_npc(self, npc):
+    def _hydrate_npc(self, npc: NPCData) -> None:
         states = npc.get("states", {})
         if not states:
             return
@@ -107,32 +120,33 @@ class GameState:
 
         for key in npc.get("_state_managed_keys", []):
             if key in npc.get("_state_base_values", {}):
-                npc[key] = copy.deepcopy(npc["_state_base_values"][key])
+                npc[key] = copy.deepcopy(npc["_state_base_values"][key])  # type: ignore[literal-required]
             else:
-                npc.pop(key, None)
+                npc.pop(key, None)  # type: ignore[misc]
         state_data = states[state]
         for section in ("behavior", "visuals"):
-            for key, value in state_data.get(section, {}).items():
-                npc[key] = copy.deepcopy(value)
+            for key, value in state_data.get(section, {}).items():  # type: ignore[literal-required]
+                npc[key] = copy.deepcopy(value)  # type: ignore[literal-required]
 
-    def set_npc_state(self, npc, new_state):
+    def set_npc_state(self, npc: NPCData, new_state: str | None) -> None:
         if npc.get("states") and new_state not in npc["states"]:
             raise ValueError(f"NPC '{npc.get('id')}': Zustand '{new_state}' fehlt.")
-        npc["state"] = new_state
+        if new_state is not None:
+            npc["state"] = new_state
         self._hydrate_npc(npc)
 
-    def clone(self):
+    def clone(self) -> GameState:
         clone = GameState(self.config, silent=True)
         if not clone.deserialize_state(self.serialize_state(), allow_chapter_mismatch=False):
             raise ValueError("GameState konnte nicht geklont werden.")
         clone.silent = True
         return clone
 
-    def visit_room(self, room_id):
+    def visit_room(self, room_id: str) -> None:
         if room_id in self.rooms:
             self.rooms[room_id]["visited"] = True
 
-    def render_room_desc(self, room_id):
+    def render_room_desc(self, room_id: str) -> str:
         if self.hidden_in:
             container = self.objects.get(self.hidden_in)
             name = container[ATTR_NAME] if container else "einem Versteck"
@@ -142,7 +156,7 @@ class GameState:
         if not room:
             return f"ERROR: Raum '{room_id}' nicht gefunden."
 
-        def replace_match(match):
+        def replace_match(match: re.Match[str]) -> str:
             key = match.group(1)
             obj = self.objects.get(key)
             if obj:
@@ -157,22 +171,22 @@ class GameState:
             target_room = self.rooms.get(key)
             return target_room[ATTR_NAME] if target_room else f"ERROR:{key}"
 
-        description = re.sub(r"\{(\w+)\}", replace_match, room[ATTR_DESC])
+        description = re.sub(r"\{(\w+)\}", replace_match, room.get(ATTR_DESC, ""))
         if self.elevation > 0:
             description += f"\n(Du befindest dich auf Ebene {self.elevation}.)"
         return description
 
-    def log(self, type_str, text):
+    def log(self, type_str: str, text: Any) -> None:
         if self.silent:
             return
         with self.lock:
             self.logs.append({"type": type_str, "text": str(text), "turn": self.time})
 
-    def get_logs(self):
+    def get_logs(self) -> list[LogEntry]:
         with self.lock:
             return list(self.logs)
 
-    def get_snapshot(self):
+    def get_snapshot(self) -> GameSnapshot:
         with self.lock:
             room = self.rooms.get(self.location)
             partner_name = None
@@ -196,25 +210,27 @@ class GameState:
                 "elevation": self.elevation,
             }
 
-    def get_room(self, room_id):
+    def get_room(self, room_id: str) -> RoomData | None:
         return self.rooms.get(room_id)
 
-    def add_knowledge(self, fact_id):
+    def add_knowledge(self, fact_id: str) -> bool:
         if fact_id in self.knowledge:
             return False
         self.knowledge.add(fact_id)
         return True
 
-    def perform_combine(self, item1_name, item2_name, verb="use"):
+    def perform_combine(
+        self, item1_name: str, item2_name: str, verb: str = "use"
+    ) -> CraftResult:
         return self.crafting.perform_combine(item1_name, item2_name, verb)
 
-    def find_path(self, start, target):
+    def find_path(self, start: str, target: str) -> list[str] | None:
         return self.pathfinder.find_path(start, target)
 
-    def get_direction_to(self, target_room_id):
+    def get_direction_to(self, target_room_id: str) -> str | None:
         return self.pathfinder.get_direction_to(self.location, target_room_id)
 
-    def tick(self, minutes):
+    def tick(self, minutes: int) -> None:
         if minutes <= 0:
             return
         with self.lock:
@@ -230,9 +246,8 @@ class GameState:
                 self.events.update()
                 self.object_behavior.update(minutes)
                 self.ai.process_all_npcs(minutes)
-            except Exception as exc:
-                print(f"[FATAL] Simulationsfehler: {exc}")
-                traceback.print_exc()
+            except (EffectProcessingError, KeyError, ValueError, TypeError, RuntimeError) as exc:
+                logger.exception("Simulationsfehler: %s", exc)
                 self.log("error", f"Systemfehler (Simulation): {exc}")
 
             if self.stability <= 0 and not self.game_over:
@@ -240,22 +255,22 @@ class GameState:
                 self.game_over = True
 
     @staticmethod
-    def _clean_npc_for_save(npc):
+    def _clean_npc_for_save(npc: NPCData) -> NPCData:
         cleaned = copy.deepcopy(npc)
         for key in cleaned.get("_state_managed_keys", []):
             if key in cleaned.get("_state_base_values", {}):
-                cleaned[key] = copy.deepcopy(cleaned["_state_base_values"][key])
+                cleaned[key] = copy.deepcopy(cleaned["_state_base_values"][key])  # type: ignore[literal-required]
             else:
-                cleaned.pop(key, None)
+                cleaned.pop(key, None)  # type: ignore[misc]
         for key in (
             "_state_managed_keys",
             "_state_base_values",
             "_state_missing_keys",
         ):
-            cleaned.pop(key, None)
+            cleaned.pop(key, None)  # type: ignore[misc]
         return cleaned
 
-    def serialize_state(self):
+    def serialize_state(self) -> dict[str, Any]:
         with self.lock:
             return {
                 "meta": {
@@ -277,7 +292,9 @@ class GameState:
                 "combinations": copy.deepcopy(self.combinations),
             }
 
-    def deserialize_state(self, data, allow_chapter_mismatch=False):
+    def deserialize_state(
+        self, data: dict[str, Any], allow_chapter_mismatch: bool = False
+    ) -> bool:
         try:
             meta = data.get("meta", {})
             if meta.get("schema_version") != SAVE_SCHEMA_VERSION:
@@ -338,6 +355,6 @@ class GameState:
                     event["last_triggered_at"] = saved.get("last_triggered_at")
             self.visit_room(self.location)
             return True
-        except Exception as exc:
-            print(f"[ERROR] Laden fehlgeschlagen: {exc}")
+        except (KeyError, ValueError, TypeError) as exc:
+            logger.error("Laden fehlgeschlagen: %s", exc)
             return False

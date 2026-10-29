@@ -1,7 +1,10 @@
 # data/common/events.py
 # Layer 1: Globale Events (z.B. Hunger, Funksprüche vom Hauptquartier)
+from __future__ import annotations
 
-COMMON_MATRIX = [
+from engine.schema import EventData
+
+COMMON_MATRIX: list[EventData] = [
     # Beispiel: Ein kosmisches Hintergrundrauschen alle 100 Ticks
      {
          "id": "evt_global_ambience",

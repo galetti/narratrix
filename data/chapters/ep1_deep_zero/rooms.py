@@ -1,7 +1,10 @@
 # narratrix_engine/data/chapters/ep1_arrival/rooms.py
-from engine.constants import *
+from __future__ import annotations
 
-ROOMS = {
+from engine.constants import ATTR_DESC, ATTR_ID, ATTR_NAME
+from engine.schema import RoomData
+
+ROOMS: dict[str, RoomData] = {
     # 1. Hangar (Start)
     "room_outer_docking": {
         ATTR_ID: "room_outer_docking",

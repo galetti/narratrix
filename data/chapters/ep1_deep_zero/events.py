@@ -1,7 +1,9 @@
 # narratrix_engine/data/chapters/ep1_arrival/events.py
-from engine.constants import *
+from __future__ import annotations
 
-QUESTS = {
+from engine.schema import EventData, QuestDefinitionData
+
+QUESTS: dict[str, QuestDefinitionData] = {
     "noise_pollution": {
         "title": "Lärmbelästigung",
         "desc": "Finde und deaktiviere den defekten Wartungsbot 'Rusty'.",
@@ -14,7 +16,7 @@ QUESTS = {
     }
 }
 
-NARRATIVE_MATRIX = [
+NARRATIVE_MATRIX: list[EventData] = [
     {
         "id": "intro_sequence",
         "trigger": "time",
@@ -30,7 +32,7 @@ NARRATIVE_MATRIX = [
     }
 ]
 
-EVENTS = [
+EVENTS: list[EventData] = [
     # --- QUEST START ---
     {
         "id": "quest_start_rusty",
@@ -59,6 +61,7 @@ EVENTS = [
         "id": "rusty_shutdown",
         "trigger": "manual", # Via Item Use
         "effects": [
+            {"type": "quest_start", "id": "noise_pollution"},
             {"type": "learn", "fact": "rusty_dead"},
             {"type": "set_npc_state", "npc": "rusty", "value": "disabled"},
             {"type": "update_object", "target": "rusty", "updates": {"desc": "Ein stiller Haufen Metallschrott."}},

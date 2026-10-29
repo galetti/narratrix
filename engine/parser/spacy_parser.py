@@ -1,6 +1,21 @@
-import spacy
+from __future__ import annotations
+
 import difflib
+import logging
+from typing import TYPE_CHECKING, Any
+
+try:
+    import spacy
+except ImportError:  # Spacy support is optional.
+    spacy = None  # type: ignore[assignment]
+
 from engine.action_dispatcher import ActionDispatcher
+
+if TYPE_CHECKING:
+    from engine.game_state import GameState
+
+logger = logging.getLogger(__name__)
+
 
 class SpacyParser:
     """
@@ -10,7 +25,7 @@ class SpacyParser:
     """
     
     # Mapping von deutschen Lemmata (Grundformen) auf Engine-Befehle
-    VERB_MAP = {
+    VERB_MAP: dict[str, str] = {
         # Bewegung
         "gehen": "move", "laufen": "move", "rennen": "move",
         "klettern": "climb",
@@ -47,28 +62,32 @@ class SpacyParser:
         "journal": "journal", "logbuch": "journal", "aufgaben": "journal"
     }
 
-    def __init__(self, game):
-        self.game = game
-        self.available = False
-        self.nlp = None
+    def __init__(self, game: GameState) -> None:
+        self.game: GameState = game
+        self.available: bool = False
+        self.nlp: Any = None
         
+        if spacy is None:
+            logger.info("Spacy ist nicht installiert; nutze Regelparser.")
+            return
+
         try:
             for model_name in ("de_core_news_md", "de_core_news_sm"):
                 try:
                     self.nlp = spacy.load(model_name)
                     self.available = True
-                    print(f"[SYSTEM] Spacy NLP Engine geladen: {model_name}")
+                    logger.info("Spacy NLP Engine geladen: %s", model_name)
                     break
                 except OSError:
                     continue
             if not self.available:
-                print("[SYSTEM] Kein deutsches Spacy-Modell gefunden; nutze Regelparser.")
-        except Exception as e:
-            print(f"[SYSTEM] Fehler beim Laden von Spacy: {e}")
+                logger.info("Kein deutsches Spacy-Modell gefunden; nutze Regelparser.")
+        except (OSError, ImportError, ValueError, RuntimeError) as e:
+            logger.warning("Fehler beim Laden von Spacy: %s", e)
             self.available = False
 
-    def parse(self, user_input):
-        if not self.available or not user_input.strip():
+    def parse(self, user_input: str) -> None:
+        if not self.available or not self.nlp or not user_input.strip():
             from engine.parser.rule_based import RuleBasedParser
             fallback = RuleBasedParser(self.game)
             fallback.parse(user_input)
@@ -83,13 +102,13 @@ class SpacyParser:
         doc = self.nlp(user_input.strip())
         
         # 1. Hauptverb finden
-        main_verb_token = None
+        main_verb_token: Any = None
         for token in doc:
             if token.pos_ == "VERB" or token.dep_ == "ROOT":
                 main_verb_token = token
                 break
         
-        engine_cmd = None
+        engine_cmd: str | None = None
         
         # Verb Analyse
         if main_verb_token:
@@ -130,7 +149,7 @@ class SpacyParser:
             engine_cmd = main_verb_token.lemma_.lower() if main_verb_token else user_input.split()[0]
 
         # 2. Argumente extrahieren
-        args = []
+        args: list[str] = []
         if main_verb_token:
             filler = {"bitte", "schnell", "mal", "doch"}
             relevant_tokens = [

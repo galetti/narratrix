@@ -1,7 +1,19 @@
 # narratrix_engine/data/chapters/ep1_arrival/items.py
-from engine.constants import *
+from __future__ import annotations
 
-ITEMS = {
+from engine.constants import (
+    ATTR_DESC,
+    ATTR_ID,
+    ATTR_NAME,
+    ATTR_WEIGHT,
+    LOC_INVENTORY,
+    LOC_VOID,
+    TYPE_FIXTURE,
+    TYPE_ITEM,
+)
+from engine.schema import ObjectData, RecipeData
+
+ITEMS: dict[str, ObjectData] = {
     # --- TOOLS ---
     "tool_wrench": {
         ATTR_ID: "tool_wrench",
@@ -53,7 +65,7 @@ ITEMS = {
     }
 }
 
-COMBINATIONS = [
+COMBINATIONS: list[RecipeData] = [
     # Den Bot ausschalten
     {
         "verb": "use", # "Benutze Zange mit Rusty"

@@ -135,14 +135,14 @@ zustandsverändernden Aktionen geprüft.
 Aktuelles Kapitel validieren:
 
 ```bash
-python tools/validator.py
-python tools/validator.py data.chapters.ep0_test_lab.config
+python -m tools.validator
+python -m tools.validator data.chapters.ep0_test_lab.config
 ```
 
 JSON-Welt bearbeiten:
 
 ```bash
-python tools/world-editor.py
+python -m tools.world_editor
 ```
 
 Der World Editor bewahrt neben Räumen, Objekten und NPCs auch Events, Quests und
@@ -152,7 +152,7 @@ Rezepte eines geladenen JSON-Kapitels. Solche JSON-Dateien können direkt mit
 Simulation anzeigen:
 
 ```bash
-python tools/sim-viewer.py
+python -m tools.sim_viewer
 ```
 
 ## Tests

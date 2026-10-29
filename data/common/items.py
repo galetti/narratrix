@@ -1,5 +1,7 @@
 # data/common/items.py
-from engine.constants import *
+from __future__ import annotations
 
-COMMON_ITEMS = {
+from engine.schema import ObjectData
+
+COMMON_ITEMS: dict[str, ObjectData] = {
 }

@@ -1,5 +1,19 @@
 # engine/handlers/common.py
-from engine.constants import *
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+from engine.constants import (
+    ATTR_ID,
+    ATTR_NAME,
+    LOC_INVENTORY,
+    TYPE_CONTAINER,
+    TYPE_SURFACE,
+)
+
+if TYPE_CHECKING:
+    from engine.game_state import GameState
+
 
 class CommonHandler:
     """
@@ -8,7 +22,7 @@ class CommonHandler:
     """
 
     @staticmethod
-    def is_open_container(obj):
+    def is_open_container(obj: dict[str, Any]) -> bool:
         """Prüft ob ein Objekt ein zugänglicher Container ist."""
         # Türen (linked_exit) werden nicht als Container zum "Reinschauen" behandelt
         if obj.get('linked_exit'): return False
@@ -18,10 +32,10 @@ class CommonHandler:
         return False
 
     @staticmethod
-    def is_held_by_player(game, obj):
+    def is_held_by_player(game: GameState, obj: dict[str, Any]) -> bool:
         """Prüft rekursiv, ob sich ein Objekt im Inventar des Spielers befindet."""
-        current = obj
-        visited = set()
+        current: dict[str, Any] = obj
+        visited: set[str | None] = set()
         while True:
             current_id = current.get(ATTR_ID)
             if current_id in visited: return False
@@ -34,14 +48,14 @@ class CommonHandler:
             current = parent
 
     @staticmethod
-    def format_contents_recursive(game, obj_id, depth=0):
+    def format_contents_recursive(game: GameState, obj_id: str, depth: int = 0) -> str:
         """Erzeugt einen String für den Inhalt, inklusive Unter-Containern."""
         if depth > 5: return "" 
         
         contents = [sub for sub in game.objects.values() if sub['location'] == obj_id]
         if not contents: return ""
         
-        names = []
+        names: list[str] = []
         for item in contents:
             name = item[ATTR_NAME]
             if CommonHandler.is_open_container(item):

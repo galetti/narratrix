@@ -1,18 +1,39 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, TypedDict
+
 from engine.constants import ATTR_NAME
 
+if TYPE_CHECKING:
+    from engine.game_state import GameState
 
-def generate_future_matrix(initial_state, minutes_to_simulate=60, step_size=5):
+
+class RoomSimulationSnapshot(TypedDict):
+    npcs: list[str]
+    events: list[str]
+
+
+class TimelineSnapshot(TypedDict):
+    time: int
+    rooms: dict[str, RoomSimulationSnapshot]
+
+
+def generate_future_matrix(
+    initial_state: GameState,
+    minutes_to_simulate: int = 60,
+    step_size: int = 5,
+) -> list[TimelineSnapshot]:
     """Simulate a cloned state without mutating the live game."""
 
     if minutes_to_simulate <= 0 or step_size <= 0:
         return []
     simulation = initial_state.clone()
-    timeline = []
+    timeline: list[TimelineSnapshot] = []
 
     for _ in range(0, minutes_to_simulate, step_size):
         previous_time = simulation.time
         simulation.tick(step_size)
-        snapshot = {
+        snapshot: TimelineSnapshot = {
             "time": simulation.time,
             "rooms": {
                 room_id: {"npcs": [], "events": []}

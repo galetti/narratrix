@@ -1,19 +1,42 @@
 # narratrix_engine/engine/handlers/inventory.py
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from engine.resolver import Resolver, ResolutionError
-from engine.constants import *
+from engine.constants import (
+    ATTR_ID,
+    ATTR_MATTER,
+    ATTR_NAME,
+    ATTR_WEIGHT,
+    FILTER_INVENTORY,
+    FILTER_RECURSIVE,
+    LOC_INVENTORY,
+    LOC_VOID,
+    MATTER_LIQUID,
+    TYPE_CONTAINER,
+    TYPE_FIXTURE,
+    TYPE_SCENERY,
+    TYPE_SURFACE,
+)
 from engine.strings import Texts
 from engine.handlers.common import CommonHandler
 from engine.access import is_directly_reachable, reach_error
+from engine.schema import DialogueOptionData, ObjectData
+
+if TYPE_CHECKING:
+    from engine.game_state import GameState
+
 
 class InventoryHandler:
 
     @staticmethod
-    def inventory(game, args):
+    def inventory(game: GameState, args: list[str]) -> None:
         items = [o for o in game.objects.values() if o['location'] == LOC_INVENTORY]
         
-        display_list = []
-        normal_items = []
-        resources = {}
+        display_list: list[str] = []
+        normal_items: list[ObjectData] = []
+        resources: dict[str, dict[str, Any]] = {}
         
         for item in items:
             if item.get('is_resource'):
@@ -47,7 +70,7 @@ class InventoryHandler:
         else: game.log('info', Texts.INV_LIST.format(', '.join(display_list)))
 
     @staticmethod
-    def take(game, args):
+    def take(game: GameState, args: list[str]) -> None:
         if game.hidden_in: return game.log('error', Texts.ERR_HIDDEN)
         
         # Check "take X with Y"
@@ -55,7 +78,7 @@ class InventoryHandler:
         sep_indices = [i for i, w in enumerate(args) if w.lower() in separators]
         
         item_words = args
-        tool_words = []
+        tool_words: list[str] = []
         
         if sep_indices:
             idx = sep_indices[0]
@@ -73,7 +96,7 @@ class InventoryHandler:
                 and InventoryHandler._is_takeable(obj)
                 and obj.get(ATTR_WEIGHT, float('inf')) < float('inf')
             ]
-            taken = []
+            taken: list[str] = []
             for item in candidates:
                 if item.get(ATTR_MATTER) == MATTER_LIQUID: continue
                 
@@ -125,6 +148,9 @@ class InventoryHandler:
                     if tool_words:
                         try:
                             tool = Resolver.resolve_target(game, tool_words, location_filter=FILTER_INVENTORY, verb='tool')
+                            if not tool:
+                                game.log('error', "Du hast dieses Werkzeug nicht.")
+                                return
                             reach = tool.get('reach', 0)
                             # Wenn wir das Tool nutzen, addieren wir die Reichweite
                             # Ein Tool mit reach 1 macht item_level+1 erreichbar von item_level-1?
@@ -172,7 +198,7 @@ class InventoryHandler:
                 # Items IN target auch mitnehmen?
                 if target.get('type') == TYPE_SURFACE:
                     contents = [o for o in game.objects.values() if o['location'] == target[ATTR_ID]]
-                    names = []
+                    names: list[str] = []
                     for item in contents:
                         item['location'] = LOC_INVENTORY
                         names.append(item[ATTR_NAME])
@@ -182,7 +208,7 @@ class InventoryHandler:
         except ResolutionError as e: game.log('error', str(e))
 
     @staticmethod
-    def drop(game, args):
+    def drop(game: GameState, args: list[str]) -> None:
         if game.hidden_in: return game.log('error', Texts.ERR_HIDDEN)
         
         clean_args = Resolver.clean_args(args)
@@ -198,7 +224,7 @@ class InventoryHandler:
         except ResolutionError as e: game.log('error', str(e))
 
     @staticmethod
-    def give(game, args):
+    def give(game: GameState, args: list[str]) -> None:
         if game.hidden_in: return game.log('error', Texts.ERR_HIDDEN)
         
         if not args: return game.log('error', Texts.GIVE_MISSING_ARGS)
@@ -234,7 +260,7 @@ class InventoryHandler:
                 else:
                     dialogue_db = npc.get('dialogue', {}).get(current_state, {})
 
-                reaction_entry = None
+                reaction_entry: DialogueOptionData | None = None
                 for topic, entry in dialogue_db.items():
                     if isinstance(entry, dict) and 'condition' in entry:
                         cond = entry['condition']
@@ -265,7 +291,7 @@ class InventoryHandler:
         except ResolutionError as e: game.log('error', str(e))
 
     @staticmethod
-    def _find_resource_in_inventory(game, item_id):
+    def _find_resource_in_inventory(game: GameState, item_id: str) -> ObjectData | None:
         target = game.objects.get(item_id)
         resource_id = target.get('resource_id', item_id) if target else item_id
         for obj in game.objects.values():
@@ -278,7 +304,7 @@ class InventoryHandler:
         return None
 
     @staticmethod
-    def _is_takeable(obj):
+    def _is_takeable(obj: dict[str, Any]) -> bool:
         if obj.get('movable') is True:
             return True
         if obj.get('linked_exit'):

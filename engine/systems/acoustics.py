@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import heapq
+from typing import TYPE_CHECKING, Iterable
 
 from engine.constants import (
     ACOUSTIC_CLOSED_DOOR,
@@ -8,17 +11,23 @@ from engine.constants import (
     LOC_INVENTORY,
 )
 
+if TYPE_CHECKING:
+    from engine.game_state import GameState
+
 
 class AcousticsSystem:
     """Propagate sound along the path with the highest transmission."""
 
-    def __init__(self, game):
-        self.game = game
-        self.max_propagation_distance = 30
+    def __init__(self, game: GameState) -> None:
+        self.game: GameState = game
+        self.max_propagation_distance: int = 30
 
     def get_audibility_info(
-        self, source_room_id, listener_room_id, use_player_tools=True
-    ):
+        self,
+        source_room_id: str,
+        listener_room_id: str,
+        use_player_tools: bool = True,
+    ) -> tuple[float, str]:
         if source_room_id not in self.game.rooms or listener_room_id not in self.game.rooms:
             return 0.0, ""
         if source_room_id == listener_room_id:
@@ -47,7 +56,7 @@ class AcousticsSystem:
 
         return (best_volume, best_direction) if best_volume >= 0.01 else (0.0, "")
 
-    def _player_tool_bonus(self):
+    def _player_tool_bonus(self) -> float:
         return max(
             (
                 float(obj.get("acoustic_boost", 0.0))
@@ -57,12 +66,17 @@ class AcousticsSystem:
             default=0.0,
         )
 
-    def _max_transmission(self, source_id, target_id, forbidden=None):
+    def _max_transmission(
+        self,
+        source_id: str,
+        target_id: str,
+        forbidden: Iterable[str] | None = None,
+    ) -> float:
         if source_id == target_id:
             return 1.0
-        forbidden = set(forbidden or ())
-        queue = [(-1.0, 0, source_id)]
-        best = {source_id: 1.0}
+        forbidden_set = set(forbidden or ())
+        queue: list[tuple[float, int, str]] = [(-1.0, 0, source_id)]
+        best: dict[str, float] = {source_id: 1.0}
 
         while queue:
             negative_volume, distance, room_id = heapq.heappop(queue)
@@ -74,7 +88,7 @@ class AcousticsSystem:
             if volume < best.get(room_id, 0):
                 continue
             for neighbor, transmission, _ in self._neighbors(room_id):
-                if neighbor in forbidden or transmission <= 0.01:
+                if neighbor in forbidden_set or transmission <= 0.01:
                     continue
                 propagated = volume * transmission
                 if propagated <= 0.01 or propagated <= best.get(neighbor, 0):
@@ -83,9 +97,9 @@ class AcousticsSystem:
                 heapq.heappush(queue, (-propagated, distance + 1, neighbor))
         return 0.0
 
-    def _neighbors(self, room_id):
+    def _neighbors(self, room_id: str) -> list[tuple[str, float, str | None]]:
         room = self.game.rooms.get(room_id, {})
-        found = {}
+        found: dict[str, tuple[float, str | None]] = {}
         for direction, target_id in room.get("exits", {}).items():
             found[target_id] = (
                 self._calculate_exit_transmission(room_id, direction),
@@ -110,7 +124,9 @@ class AcousticsSystem:
             if target_id in self.game.rooms
         ]
 
-    def _direction_text(self, listener_id, neighbor_id, direction):
+    def _direction_text(
+        self, listener_id: str, neighbor_id: str, direction: str | None
+    ) -> str:
         translations = {
             "north": "aus Norden",
             "south": "aus Süden",
@@ -137,7 +153,7 @@ class AcousticsSystem:
             return "von Unten (durch den Boden)"
         return f"hinter der Wand zu {neighbor.get(ATTR_NAME, neighbor_id)}"
 
-    def _calculate_exit_transmission(self, room_id, direction):
+    def _calculate_exit_transmission(self, room_id: str, direction: str) -> float:
         transmission = ACOUSTIC_OPEN_AIR
         for obj in self.game.objects.values():
             if obj.get("location") != room_id or obj.get("linked_exit") != direction:

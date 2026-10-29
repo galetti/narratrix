@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from engine.access import is_directly_reachable, reach_error
 from engine.constants import (
     ATTR_ID,
@@ -17,10 +21,13 @@ from engine.handlers.common import CommonHandler
 from engine.resolver import ResolutionError, Resolver
 from engine.strings import Texts
 
+if TYPE_CHECKING:
+    from engine.game_state import GameState
+
 
 class MechanicsHandler:
     @staticmethod
-    def put(game, args):
+    def put(game: GameState, args: list[str]) -> None:
         if game.hidden_in:
             return game.log("error", Texts.ERR_HIDDEN)
         separators = {"in", "into", "auf", "on", "an"}
@@ -35,6 +42,8 @@ class MechanicsHandler:
             target = Resolver.resolve_target(
                 game, args[index + 1 :], location_filter=FILTER_ROOM, verb="put_container"
             )
+            if not item or not target:
+                return
             if item not in game.objects.values():
                 return game.log("error", "Nur Gegenstände lassen sich ablegen.")
             if item[ATTR_ID] == target[ATTR_ID]:
@@ -54,7 +63,7 @@ class MechanicsHandler:
             game.log("error", str(exc))
 
     @staticmethod
-    def use(game, args):
+    def use(game: GameState, args: list[str]) -> None:
         if game.hidden_in:
             return game.log("error", Texts.ERR_HIDDEN)
         separators = {"mit", "with", "an", "on", "in"}
@@ -85,6 +94,8 @@ class MechanicsHandler:
             target = Resolver.resolve_target(
                 game, args, location_filter=FILTER_RECURSIVE, verb="use"
             )
+            if not target:
+                return
             if not is_directly_reachable(game, target):
                 return game.log("error", reach_error(game, target))
             if target.get("type") == TYPE_FIXTURE or target.get("usable", False):
@@ -104,13 +115,15 @@ class MechanicsHandler:
             game.log("error", str(exc))
 
     @staticmethod
-    def open(game, args):
+    def open(game: GameState, args: list[str]) -> None:
         if game.hidden_in:
             return game.log("error", Texts.ERR_HIDDEN)
         try:
             target = Resolver.resolve_target(
                 game, args, location_filter=FILTER_RECURSIVE, verb="open"
             )
+            if not target:
+                return
             if target.get("type") != TYPE_CONTAINER:
                 return game.log("error", "Das kann man nicht öffnen.")
             if not is_directly_reachable(game, target):
@@ -119,7 +132,7 @@ class MechanicsHandler:
                 return game.log("info", f"{target[ATTR_NAME]} ist bereits offen.")
             if target.get("is_locked", False):
                 key_id = target.get("key_id")
-                key = game.objects.get(key_id)
+                key = game.objects.get(key_id) if isinstance(key_id, str) else None
                 if not key or not CommonHandler.is_held_by_player(game, key):
                     return game.log("error", f"{target[ATTR_NAME]} ist verschlossen.")
                 target["is_locked"] = False
@@ -139,13 +152,15 @@ class MechanicsHandler:
             game.log("error", str(exc))
 
     @staticmethod
-    def close(game, args):
+    def close(game: GameState, args: list[str]) -> None:
         if game.hidden_in:
             return game.log("error", Texts.ERR_HIDDEN)
         try:
             target = Resolver.resolve_target(
                 game, args, location_filter=FILTER_RECURSIVE, verb="close"
             )
+            if not target:
+                return
             if target.get("type") != TYPE_CONTAINER:
                 return game.log("error", "Das kann man nicht schließen.")
             if not is_directly_reachable(game, target):
@@ -159,7 +174,7 @@ class MechanicsHandler:
             game.log("error", str(exc))
 
     @staticmethod
-    def break_(game, args):
+    def break_(game: GameState, args: list[str]) -> None:
         if game.hidden_in:
             return game.log("error", Texts.ERR_HIDDEN)
         separators = {"mit", "with", "in", "using", "an", "gegen"}
@@ -172,6 +187,8 @@ class MechanicsHandler:
             target = Resolver.resolve_target(
                 game, target_words, location_filter=FILTER_RECURSIVE, verb="break_target"
             )
+            if not target:
+                return
             if not is_directly_reachable(game, target):
                 return game.log("error", reach_error(game, target))
             if target.get("state") == STATE_BROKEN:
@@ -182,6 +199,8 @@ class MechanicsHandler:
                 tool = Resolver.resolve_target(
                     game, tool_words, location_filter=tool_filter, verb="break_tool"
                 )
+                if not tool:
+                    return
                 if not is_directly_reachable(game, tool):
                     return game.log("error", reach_error(game, tool))
 
@@ -230,7 +249,7 @@ class MechanicsHandler:
             game.log("error", str(exc))
 
     @staticmethod
-    def fix(game, args):
+    def fix(game: GameState, args: list[str]) -> None:
         if game.hidden_in:
             return game.log("error", Texts.ERR_HIDDEN)
         separators = {"mit", "with", "using"}
@@ -241,6 +260,8 @@ class MechanicsHandler:
             target = Resolver.resolve_target(
                 game, target_words, location_filter=FILTER_RECURSIVE, verb="fix"
             )
+            if not target:
+                return
             if not is_directly_reachable(game, target):
                 return game.log("error", reach_error(game, target))
             if target.get("state") == STATE_SABOTAGED:
@@ -252,7 +273,7 @@ class MechanicsHandler:
                 tool = Resolver.resolve_target(
                     game, tool_words, location_filter=FILTER_INVENTORY, verb="fix_tool"
                 )
-                has_tool = bool(tool.get("is_tool"))
+                has_tool = bool(tool and tool.get("is_tool"))
             else:
                 has_tool = any(
                     obj.get("is_tool") and CommonHandler.is_held_by_player(game, obj)
@@ -269,7 +290,7 @@ class MechanicsHandler:
             game.log("error", str(exc))
 
     @staticmethod
-    def wait(game, args):
+    def wait(game: GameState, args: list[str]) -> None:
         minutes = 10
         if args and args[0].isdigit():
             minutes = max(1, min(60, int(args[0])))
@@ -277,11 +298,15 @@ class MechanicsHandler:
         game.tick(minutes)
 
     @staticmethod
-    def _try_reach_tool(game, first_words, second_words):
+    def _try_reach_tool(
+        game: GameState, first_words: list[str], second_words: list[str]
+    ) -> bool:
         try:
             first = Resolver.resolve_target(game, first_words, location_filter=FILTER_RECURSIVE)
             second = Resolver.resolve_target(game, second_words, location_filter=FILTER_RECURSIVE)
         except ResolutionError:
+            return False
+        if not first or not second:
             return False
         if first.get("is_tool") and first.get("reach", 0) > 0:
             tool, target, target_words, tool_words = first, second, second_words, first_words
@@ -298,16 +323,18 @@ class MechanicsHandler:
         return True
 
     @staticmethod
-    def _mark_broken(target):
+    def _mark_broken(target: dict[str, Any]) -> None:
         target["state"] = STATE_BROKEN
         if not target["name"].startswith("kaputte(s) "):
             target["name"] = f"kaputte(s) {target['name']}"
         target["desc"] = "Völlig zerstört."
 
     @staticmethod
-    def _is_descendant(game, candidate, ancestor_id):
-        current = candidate
-        seen = set()
+    def _is_descendant(
+        game: GameState, candidate: dict[str, Any], ancestor_id: str
+    ) -> bool:
+        current: dict[str, Any] = candidate
+        seen: set[str] = set()
         while current.get("location") in game.objects:
             location = current["location"]
             if location == ancestor_id:

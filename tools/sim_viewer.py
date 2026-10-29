@@ -1,35 +1,34 @@
-import pygame
-import sys
-import os
+from __future__ import annotations
 
-# Pfad-Hack, damit wir engine und data importieren können
-# (Fügt das Parent-Directory 'narratrix' zum Python-Pfad hinzu)
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import pygame
 
 from engine.story_loader import StoryLoader
 from engine.game_state import GameState
 from engine.analysis import generate_future_matrix
 from engine.constants import ATTR_NAME
+from engine.theme import ColorTuple
 
 # Farben
-COL_BG = (20, 20, 30)
-COL_NODE = (50, 50, 80)
-COL_NODE_ACTIVE = (100, 100, 150)
-COL_LINK = (100, 100, 100)
-COL_NPC = (255, 200, 0)
-COL_EVENT = (255, 50, 50)
-COL_TEXT = (200, 200, 200)
-COL_ACCENT = (0, 255, 136) 
+COL_BG: ColorTuple = (20, 20, 30)
+COL_NODE: ColorTuple = (50, 50, 80)
+COL_NODE_ACTIVE: ColorTuple = (100, 100, 150)
+COL_LINK: ColorTuple = (100, 100, 100)
+COL_NPC: ColorTuple = (255, 200, 0)
+COL_EVENT: ColorTuple = (255, 50, 50)
+COL_TEXT: ColorTuple = (200, 200, 200)
+COL_ACCENT: ColorTuple = (0, 255, 136) 
 
-SCREEN_W, SCREEN_H = 800, 600
+SCREEN_W: int = 800
+SCREEN_H: int = 600
 
-def run_viewer():
+
+def run_viewer() -> None:
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
     pygame.display.set_caption("Narratrix Simulation Viewer v6.0")
     try:
         font = pygame.font.SysFont("Arial", 16)
-    except:
+    except (pygame.error, OSError):
         font = pygame.font.Font(None, 24)
         
     clock = pygame.time.Clock()

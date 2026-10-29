@@ -1,11 +1,22 @@
-import os
+from __future__ import annotations
+
 import json
+import logging
+import os
 import re
-from engine.constants import *
+from typing import TYPE_CHECKING
+
+from engine.constants import ATTR_NAME, STATE_SABOTAGED
+
+if TYPE_CHECKING:
+    from engine.game_state import GameState
+
+logger = logging.getLogger(__name__)
+
 
 class SystemHandler:
     @staticmethod
-    def _save_filename(args):
+    def _save_filename(args: list[str]) -> str:
         stem = args[0] if args else "savegame"
         stem = stem[:-5] if stem.lower().endswith(".json") else stem
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", stem):
@@ -13,7 +24,7 @@ class SystemHandler:
         return f"{stem}.json"
     
     @staticmethod
-    def save(game, args):
+    def save(game: GameState, args: list[str]) -> None:
         """Speichert den aktuellen Spielstand."""
         try:
             filename = SystemHandler._save_filename(args)
@@ -31,11 +42,12 @@ class SystemHandler:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=4)
             game.log('success', f"Spiel gespeichert unter: {filename}")
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
+            logger.error("Fehler beim Speichern von '%s': %s", filename, e)
             game.log('error', f"Fehler beim Speichern: {e}")
 
     @staticmethod
-    def load(game, args):
+    def load(game: GameState, args: list[str]) -> None:
         """Lädt einen Spielstand."""
         try:
             filename = SystemHandler._save_filename(args)
@@ -60,11 +72,12 @@ class SystemHandler:
             else:
                 game.log('error', "Fehler beim Verarbeiten des Spielstands.")
                 
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
+            logger.error("Kritischer Fehler beim Laden von '%s': %s", filename, e)
             game.log('error', f"Kritischer Fehler beim Laden: {e}")
 
     @staticmethod
-    def help(game, args):
+    def help(game: GameState, args: list[str]) -> None:
         """Zeigt verfügbare Befehle."""
         help_text = """
 VERFÜGBARE BEFEHLE
@@ -93,7 +106,7 @@ SYSTEM:
         game.log('info', help_text.strip())
 
     @staticmethod
-    def oracle(game, args):
+    def oracle(game: GameState, args: list[str]) -> None:
         """Debug / Story Helper Tool: Zeigt interne Zustände an."""
         game.log('info', "--- ORACLE SYSTEM STATUS ---")
         game.log('info', f"Zeit: T+{game.time}m | Stabilität: {game.stability}%")
@@ -113,7 +126,7 @@ SYSTEM:
         
         game.log('info', f"Ausstehende Zeit-Events: {pending_count}")
         
-        npc_info = []
+        npc_info: list[str] = []
         for npc in game.npcs:
             state = npc.get('state', 'default')
             loc = npc.get('location', 'unknown')
@@ -125,7 +138,7 @@ SYSTEM:
         if npc_info:
             game.log('info', "NPCs:\n  " + "\n  ".join(npc_info))
 
-        warnings = []
+        warnings: list[str] = []
         if game.stability < 50: warnings.append("KRITISCH: Stations-Integrität gefährdet!")
         sabotaged_rooms = [r.get('name', r_id) for r_id, r in game.rooms.items() if r.get('state') == STATE_SABOTAGED]
         if sabotaged_rooms:
@@ -137,7 +150,7 @@ SYSTEM:
             game.log('success', "Systemdiagnose: Nominal.")
 
     @staticmethod
-    def map(game, args):
+    def map(game: GameState, args: list[str]) -> None:
         """Zeigt eine dynamisch generierte Karte der besuchten Räume."""
         game.log('info', "--- TAKTISCHE KARTE (Bekannte Sektoren) ---")
         visited_ids = [r_id for r_id, r in game.rooms.items() if r.get('visited')]
@@ -152,7 +165,7 @@ SYSTEM:
             marker = " [HIER]" if r_id == game.location else ""
             
             exits = room.get('exits', {})
-            exit_strs = []
+            exit_strs: list[str] = []
             for direction, target_id in exits.items():
                 target_name = "???"
                 if target_id in visited_ids:
@@ -167,7 +180,7 @@ SYSTEM:
             game.log(log_type, f"> {name}{marker}\n  Verbindungen: {exits_display}")
 
     @staticmethod
-    def journal(game, args):
+    def journal(game: GameState, args: list[str]) -> None:
         """Zeigt aktive und erledigte Quests an."""
         # Wir nutzen 'header' oder 'system' als Typ, je nachdem was im Renderer definiert ist.
         # 'event' ist meist Orange/Gelb und gut sichtbar.

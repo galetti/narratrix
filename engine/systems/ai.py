@@ -1,18 +1,27 @@
 # narratrix_engine/engine/systems/ai.py
-from engine.constants import *
+from __future__ import annotations
+
 import random
+from typing import TYPE_CHECKING, Any, Callable
+
+from engine.constants import ATTR_NAME
+from engine.schema import NPCData
+
+if TYPE_CHECKING:
+    from engine.game_state import GameState
+
 
 class BTNode:
     """Basisklasse für Behavior Tree Nodes."""
-    def execute(self, npc, ai_system):
+    def execute(self, npc: NPCData, ai_system: AISystem) -> bool:
         return False # Fail
 
 class Selector(BTNode):
     """Führt Kinder aus, bis eines SUCCESS (True) zurückgibt."""
-    def __init__(self, children):
-        self.children = children
+    def __init__(self, children: list[BTNode]) -> None:
+        self.children: list[BTNode] = children
     
-    def execute(self, npc, ai_system):
+    def execute(self, npc: NPCData, ai_system: AISystem) -> bool:
         for child in self.children:
             if child.execute(npc, ai_system):
                 return True
@@ -20,10 +29,10 @@ class Selector(BTNode):
 
 class Sequence(BTNode):
     """Führt Kinder aus, solange sie SUCCESS zurückgeben."""
-    def __init__(self, children):
-        self.children = children
+    def __init__(self, children: list[BTNode]) -> None:
+        self.children: list[BTNode] = children
         
-    def execute(self, npc, ai_system):
+    def execute(self, npc: NPCData, ai_system: AISystem) -> bool:
         for child in self.children:
             if not child.execute(npc, ai_system):
                 return False
@@ -31,29 +40,29 @@ class Sequence(BTNode):
 
 class Action(BTNode):
     """Führt eine konkrete Aktion aus."""
-    def __init__(self, action_func, *args):
-        self.func = action_func
-        self.args = args
+    def __init__(self, action_func: Callable[..., bool], *args: Any) -> None:
+        self.func: Callable[..., bool] = action_func
+        self.args: tuple[Any, ...] = args
         
-    def execute(self, npc, ai_system):
+    def execute(self, npc: NPCData, ai_system: AISystem) -> bool:
         return self.func(npc, ai_system, *self.args)
 
 class Condition(BTNode):
     """Prüft eine Bedingung."""
-    def __init__(self, condition_func, *args):
-        self.func = condition_func
-        self.args = args
+    def __init__(self, condition_func: Callable[..., bool], *args: Any) -> None:
+        self.func: Callable[..., bool] = condition_func
+        self.args: tuple[Any, ...] = args
         
-    def execute(self, npc, ai_system):
+    def execute(self, npc: NPCData, ai_system: AISystem) -> bool:
         return self.func(npc, ai_system, *self.args)
 
 class AISystem:
-    def __init__(self, game):
-        self.game = game
-        self.trees = {} # Cache für Behavior Trees
+    def __init__(self, game: GameState) -> None:
+        self.game: GameState = game
+        self.trees: dict[str, BTNode] = {} # Cache für Behavior Trees
         self._init_default_behaviors()
 
-    def _init_default_behaviors(self):
+    def _init_default_behaviors(self) -> None:
         self.trees['idle'] = Action(self._act_idle)
 
         # Standard-Verhalten: "Wache"
@@ -79,7 +88,7 @@ class AISystem:
             Action(self._act_idle_nervous)
         ])
 
-    def process_all_npcs(self, minutes=1):
+    def process_all_npcs(self, minutes: int = 1) -> None:
         """Wird jeden Tick aufgerufen."""
         for npc in self.game.npcs:
             self._handle_movement(npc, minutes)
@@ -92,40 +101,40 @@ class AISystem:
 
     # --- CONDITIONS ---
 
-    def _cond_player_visible(self, npc, sys):
+    def _cond_player_visible(self, npc: NPCData, sys: AISystem) -> bool:
         return sys.game.location == npc['location']
 
-    def _cond_player_near(self, npc, sys):
+    def _cond_player_near(self, npc: NPCData, sys: AISystem) -> bool:
         if sys.game.location == npc['location']: return True
         path = sys.game.pathfinder.find_path(npc['location'], sys.game.location)
         return path is not None and len(path) == 1
 
-    def _cond_not_greeted(self, npc, sys):
+    def _cond_not_greeted(self, npc: NPCData, sys: AISystem) -> bool:
         return not npc.get('has_greeted', False)
 
-    def _cond_hear_noise(self, npc, sys):
+    def _cond_hear_noise(self, npc: NPCData, sys: AISystem) -> bool:
         return npc.get('memory', {}).get('last_noise_loc') is not None
 
     # --- ACTIONS ---
 
-    def _act_idle(self, npc, sys):
+    def _act_idle(self, npc: NPCData, sys: AISystem) -> bool:
         return True
 
-    def _act_greet_player(self, npc, sys):
+    def _act_greet_player(self, npc: NPCData, sys: AISystem) -> bool:
         # Sicherheitscheck: Nur grüßen, wenn Spieler da ist
         if sys.game.location == npc['location']:
             sys.game.log('character', f"{npc[ATTR_NAME]} nickt dir zu.")
             npc['has_greeted'] = True
         return True
 
-    def _act_idle_nervous(self, npc, sys):
+    def _act_idle_nervous(self, npc: NPCData, sys: AISystem) -> bool:
         if random.random() < 0.1:
             # FIX: Nur loggen, wenn Spieler anwesend ist
             if sys.game.location == npc['location']:
                 sys.game.log('character', f"{npc[ATTR_NAME]} schaut sich nervös um.")
         return True
 
-    def _act_flee(self, npc, sys):
+    def _act_flee(self, npc: NPCData, sys: AISystem) -> bool:
         current = npc['location']
         player_loc = sys.game.location
         room = sys.game.rooms.get(current)
@@ -141,7 +150,7 @@ class AISystem:
             return True
         return False 
 
-    def _act_patrol(self, npc, sys):
+    def _act_patrol(self, npc: NPCData, sys: AISystem) -> bool:
         waypoints = npc.get('waypoints', [])
         if not waypoints: return False
         if npc.get('target_location'): return True
@@ -157,7 +166,7 @@ class AISystem:
         sys.move_npc(npc['id'], target)
         return True
 
-    def _act_investigate_noise(self, npc, sys):
+    def _act_investigate_noise(self, npc: NPCData, sys: AISystem) -> bool:
         target = npc.get('memory', {}).get('last_noise_loc')
         if not target: return False
         
@@ -175,7 +184,7 @@ class AISystem:
 
     # --- MOVEMENT LOGIC ---
 
-    def move_npc(self, npc_id, target_room_id, instant=False):
+    def move_npc(self, npc_id: str, target_room_id: str, instant: bool = False) -> bool:
         npc = self._find_npc(npc_id)
         if not npc or target_room_id not in self.game.rooms: return False
 
@@ -206,7 +215,7 @@ class AISystem:
             return True
         return False
 
-    def _handle_movement(self, npc, minutes):
+    def _handle_movement(self, npc: NPCData, minutes: int) -> None:
         path = npc.get('path')
         if not path: return
 
@@ -247,7 +256,7 @@ class AISystem:
             npc['target_location'] = None
             npc['move_acc'] = 0.0
 
-    def _broadcast_movement(self, npc, old_room, new_room):
+    def _broadcast_movement(self, npc: NPCData, old_room: str, new_room: str) -> None:
         player_loc = self.game.location
         npc_name = npc[ATTR_NAME]
 
@@ -260,7 +269,7 @@ class AISystem:
             dir_text = f" aus {direction}" if direction else ""
             self.game.log('character', f"{npc_name} betritt den Bereich{dir_text}.")
 
-    def _get_exit_direction(self, source_id, target_id):
+    def _get_exit_direction(self, source_id: str, target_id: str) -> str | None:
         room = self.game.rooms.get(source_id)
         if not room: return None
         trans_map = {
@@ -273,10 +282,10 @@ class AISystem:
             if dest == target_id: return trans_map.get(direction, direction)
         return None
 
-    def _find_npc(self, identifier):
+    def _find_npc(self, identifier: str) -> NPCData | None:
         return next((n for n in self.game.npcs if n.get('id') == identifier or n.get('name') == identifier), None)
     
-    def notify_noise(self, origin_id, volume):
+    def notify_noise(self, origin_id: str, volume: float) -> None:
         source_volume = max(0.0, float(volume))
         for npc in self.game.npcs:
             propagated, _ = self.game.acoustics.get_audibility_info(

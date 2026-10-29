@@ -1,5 +1,12 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from engine.constants import LOC_INVENTORY
-from engine.schema import SUPPORTED_EFFECTS
+from engine.schema import SUPPORTED_EFFECTS, EffectData, NPCData, ObjectData
+
+if TYPE_CHECKING:
+    from engine.game_state import GameState
 
 
 class EffectProcessingError(ValueError):
@@ -9,17 +16,23 @@ class EffectProcessingError(ValueError):
 class EffectProcessor:
     """Central, strict processor for all state-changing content effects."""
 
-    def __init__(self, game):
-        self.game = game
+    def __init__(self, game: GameState) -> None:
+        self.game: GameState = game
 
-    def process(self, effects_data, context_npc=None):
+    def process(
+        self,
+        effects_data: EffectData | list[EffectData] | None,
+        context_npc: NPCData | None = None,
+    ) -> None:
         if not effects_data:
             return
         effects = effects_data if isinstance(effects_data, list) else [effects_data]
         for effect in effects:
             self._execute_single_effect(effect, context_npc)
 
-    def _execute_single_effect(self, effect, context_npc):
+    def _execute_single_effect(
+        self, effect: EffectData | Any, context_npc: NPCData | None
+    ) -> None:
         if not isinstance(effect, dict):
             raise EffectProcessingError("Effekt muss ein Dict sein.")
         effect_type = effect.get("type")
@@ -75,13 +88,13 @@ class EffectProcessor:
 
         if effect_type == "update_object":
             target_id = effect.get("target")
-            target = self._find_object(target_id) or self._find_npc(target_id)
-            if not target:
+            target_entity: dict[str, Any] | None = self._find_object(target_id) or self._find_npc(target_id)  # type: ignore[assignment]
+            if not target_entity:
                 raise EffectProcessingError(f"Objekt/NPC '{target_id}' für Update fehlt.")
             updates = effect.get("updates")
             if not isinstance(updates, dict):
                 raise EffectProcessingError("update_object benötigt ein 'updates'-Dict.")
-            target.update(updates)
+            target_entity.update(updates)
             return
 
         if effect_type == "damage_stability":
@@ -99,9 +112,9 @@ class EffectProcessor:
 
         if effect_type == "trigger_event":
             event_id = effect.get("id")
-            if not self.game.events.trigger_event_by_id(event_id):
+            if not event_id or not self.game.events.trigger_event_by_id(event_id):
                 # A one-shot event that already ran is a valid no-op.
-                if not self.game.events.has_event(event_id):
+                if not event_id or not self.game.events.has_event(event_id):
                     raise EffectProcessingError(f"Event '{event_id}' nicht gefunden.")
             return
 
@@ -114,23 +127,28 @@ class EffectProcessor:
 
         if effect_type == "quest_start":
             quest_id = effect.get("id") or effect.get("quest")
-            self.game.quests.start_quest(quest_id)
+            if quest_id:
+                self.game.quests.start_quest(quest_id)
             return
 
         if effect_type == "quest_update":
             payload = effect.get("quest_update", effect)
             quest_id = payload.get("id") or payload.get("quest")
-            if "stage" not in payload:
+            if "stage" not in payload or not quest_id:
                 raise EffectProcessingError("quest_update benötigt 'stage'.")
             self.game.quests.update_quest(quest_id, payload["stage"])
             return
 
         if effect_type == "quest_complete":
-            self.game.quests.complete_quest(effect.get("id") or effect.get("quest"))
+            quest_id = effect.get("id") or effect.get("quest")
+            if quest_id:
+                self.game.quests.complete_quest(quest_id)
             return
 
         if effect_type == "quest_fail":
-            self.game.quests.fail_quest(effect.get("id") or effect.get("quest"))
+            quest_id = effect.get("id") or effect.get("quest")
+            if quest_id:
+                self.game.quests.fail_quest(quest_id)
             return
 
         if effect_type == "load_chapter":
@@ -139,7 +157,9 @@ class EffectProcessor:
                 raise EffectProcessingError("load_chapter benötigt ein Ziel.")
             self.game.pending_chapter_load = target
 
-    def _find_object(self, identifier):
+    def _find_object(self, identifier: str | None) -> ObjectData | None:
+        if not identifier:
+            return None
         if identifier in self.game.objects:
             return self.game.objects[identifier]
         return next(
@@ -147,7 +167,9 @@ class EffectProcessor:
             None,
         )
 
-    def _find_npc(self, identifier):
+    def _find_npc(self, identifier: str | None) -> NPCData | None:
+        if not identifier:
+            return None
         return next(
             (
                 npc

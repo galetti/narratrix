@@ -1,7 +1,14 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Sequence
 
 from engine.access import is_directly_reachable, reach_error
 from engine.constants import ATTR_ALIASES, ATTR_ID, ATTR_NAME, LOC_INVENTORY, LOC_VOID
+from engine.schema import EntityData, ObjectData, RecipeData
+
+if TYPE_CHECKING:
+    from engine.game_state import GameState
 
 
 @dataclass(frozen=True)
@@ -10,23 +17,25 @@ class CraftResult:
     message: str
     code: str = "ok"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.message
 
 
 class CraftingSystem:
-    def __init__(self, game):
-        self.game = game
+    def __init__(self, game: GameState) -> None:
+        self.game: GameState = game
 
     @staticmethod
-    def _identifiers(entity):
+    def _identifiers(entity: EntityData) -> set[str]:
         return {
             value
             for value in (entity.get("id"), entity.get("resource_id"))
-            if value
+            if isinstance(value, str) and value
         }
 
-    def perform_combine(self, item1_name, item2_name, verb="use"):
+    def perform_combine(
+        self, item1_name: str, item2_name: str, verb: str = "use"
+    ) -> CraftResult:
         item1 = self._find_obj_or_npc_by_name(item1_name)
         item2 = self._find_obj_or_npc_by_name(item2_name)
         if not item1 or not item2:
@@ -45,7 +54,7 @@ class CraftingSystem:
         if not possible:
             return CraftResult(False, "Das scheint nicht zu funktionieren.", "no_recipe")
 
-        failures = []
+        failures: list[CraftResult] = []
         for recipe in possible:
             result = self._try_craft(recipe, (item1, item2))
             if result.success:
@@ -53,7 +62,9 @@ class CraftingSystem:
             failures.append(result)
         return failures[0] if failures else CraftResult(False, "Das funktioniert so nicht.", "failed")
 
-    def _matches_interaction(self, recipe, entities):
+    def _matches_interaction(
+        self, recipe: RecipeData, entities: Sequence[EntityData]
+    ) -> bool:
         requested = set(recipe.get("items", []))
         identifiers = [self._identifiers(entity) for entity in entities]
         if requested:
@@ -65,7 +76,9 @@ class CraftingSystem:
         relevant = ingredients | tools | ({station} if station else set())
         return any(identifier in relevant for values in identifiers for identifier in values)
 
-    def _try_craft(self, recipe, interacting_items):
+    def _try_craft(
+        self, recipe: RecipeData, interacting_items: Sequence[EntityData]
+    ) -> CraftResult:
         if "condition" in recipe and not self.game.events.evaluate_condition(
             recipe["condition"]
         ):
@@ -87,6 +100,7 @@ class CraftingSystem:
                 return CraftResult(False, f"Dir fehlt das Werkzeug '{tool_id}'.", "tool")
 
         result_id = recipe.get("result") or recipe.get("spawn_item")
+        result_obj: ObjectData | None = None
         if result_id:
             result_obj = self.game.objects.get(result_id)
             if not result_obj:
@@ -98,8 +112,8 @@ class CraftingSystem:
                     "result_exists",
                 )
 
-        ingredient_plan = {}
-        missing = []
+        ingredient_plan: dict[str, tuple[int, list[ObjectData]]] = {}
+        missing: list[str] = []
         for ingredient_id, required_count in recipe.get("ingredients", {}).items():
             stacks = self._inventory_entities(ingredient_id)
             available = sum(
@@ -132,10 +146,10 @@ class CraftingSystem:
                 (entity for entity in interacting_items if entity in self.game.npcs),
                 None,
             )
-            self.game.effects.process(effects, context_npc)
+            self.game.effects.process(effects, context_npc)  # type: ignore[arg-type]
 
         result_name = None
-        if result_id:
+        if result_id and result_obj:
             result_obj["location"] = LOC_INVENTORY
             result_name = result_obj[ATTR_NAME]
 
@@ -144,7 +158,7 @@ class CraftingSystem:
             message = f"Hergestellt: {result_name}"
         return CraftResult(True, message or "Aktion ausgeführt.")
 
-    def _inventory_entities(self, identifier):
+    def _inventory_entities(self, identifier: str) -> list[ObjectData]:
         return [
             entity
             for entity in self.game.objects.values()
@@ -152,18 +166,18 @@ class CraftingSystem:
             and identifier in self._identifiers(entity)
         ]
 
-    def _find_inventory_entity(self, identifier):
+    def _find_inventory_entity(self, identifier: str) -> ObjectData | None:
         return next(iter(self._inventory_entities(identifier)), None)
 
-    def _find_entity_by_identifier(self, identifier):
+    def _find_entity_by_identifier(self, identifier: str) -> dict[str, Any] | None:
         for entity in list(self.game.objects.values()) + list(self.game.npcs):
             if identifier in self._identifiers(entity):
-                return entity
+                return entity  # type: ignore[return-value]
         return None
 
-    def _find_obj_or_npc_by_name(self, name):
+    def _find_obj_or_npc_by_name(self, name: str) -> dict[str, Any] | None:
         normalized = name.lower().strip()
-        candidates = [
+        candidates: list[dict[str, Any]] = [
             obj
             for obj in self.game.objects.values()
             if obj.get("location") in {LOC_INVENTORY, self.game.location}
