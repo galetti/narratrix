@@ -152,7 +152,7 @@ class StoryLoader:
             "verbs": {
                 "inventory": ["i", "inv", "tasche", "rucksack", "ausrüstung", "inventar"],
                 "look": ["schau", "l", "x", "untersuche", "betrachte", "lies", "scan", "status", "ansehen"],
-                "move": ["gehe", "go", "lauf", "schwebe", "wandere", "steig", "bewege"],
+                "move": ["gehe", "go", "lauf", "schwebe", "wandere", "steig", "bewege", "betrete", "betreten"],
                 "take": ["nimm", "greif", "einstecken", "sammle", "aufheben", "nehmen"],
                 "drop": ["drop", "fallenlassen", "abwerfen", "hinlegen", "ablegen", "entferne", "lass"],
                 "put": ["put", "legen", "stecken", "tun", "platziere", "stell", "packe", "stellen", "stelle"],
@@ -179,7 +179,7 @@ class StoryLoader:
                 "south": ["s", "süd", "süden"],
                 "east": ["e", "ost", "osten"],
                 "west": ["w", "west", "westen"],
-                "up": ["u", "up", "oben", "rauf"],
+                "up": ["u", "up", "oben", "rauf", "hoch"],
                 "down": ["d", "down", "unten", "runter"],
                 "northeast": ["ne", "no", "nordost", "nordosten"],
                 "northwest": ["nw", "nordwest", "nordwesten"],

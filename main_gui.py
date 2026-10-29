@@ -489,18 +489,13 @@ class GameGUI:
             if len(hud_logs) >= 5:
                 break
 
-        last_people_log = None
-        for entry in reversed(snap["logs"]):
-            if entry["type"] == "character" and entry["text"].startswith("Personen:"):
-                last_people_log = entry["text"].replace("Personen: ", "")
-                break
-
-        if last_people_log:
+        present_npcs = snap.get("present_npcs", [])
+        if present_npcs:
             lbl = self.font_sensor.render("SCAN: LEBENSFORMEN", True, (100, 255, 100))
             self.screen.blit(lbl, (sensor_x, sensor_y))
             sensor_y += 20
 
-            for person in last_people_log.split(", "):
+            for person in present_npcs:
                 surf = self.font_sensor.render(f" [!] {person}", True, (150, 255, 150))
                 self.screen.blit(surf, (sensor_x, sensor_y))
                 sensor_y += 18
@@ -559,11 +554,6 @@ class GameGUI:
         }
 
         for log in snap["logs"]:
-            if not self.show_all_logs_in_main and log["type"] in ("event", "character"):
-                is_main_log = "---" in log["text"] or '"' in log["text"]
-                if log["text"].startswith("Personen:") or not is_main_log:
-                    continue
-
             base_color = log_colors.get(log["type"], theme.COLOR_TEXT)
             wrapped_lines = self.renderer.parse_and_wrap(
                 str(log["text"]), max_text_width, base_color

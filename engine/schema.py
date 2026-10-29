@@ -249,6 +249,7 @@ class GameSnapshot(TypedDict):
     dialogue_img: str
     logs: list[LogEntry]
     elevation: int
+    present_npcs: list[str]
 
 
 class VocabularyData(TypedDict, total=False):

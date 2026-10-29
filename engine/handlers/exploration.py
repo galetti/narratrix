@@ -16,6 +16,7 @@ from engine.constants import (
     STATE_BROKEN,
     STATE_SABOTAGED,
     TYPE_CONTAINER,
+    TYPE_FIXTURE,
     TYPE_ITEM,
     TYPE_SURFACE,
 )
@@ -106,15 +107,34 @@ class ExplorationHandler:
                     state = Texts.LOOK_OPEN if obj.get('is_open') else Texts.LOOK_CLOSED
                     game.log('info', f"{obj[ATTR_NAME]} ({state})")
                     
-                # Normale Items
-                elif obj.get('type') == TYPE_ITEM or (not obj.get('type') and obj.get(ATTR_WEIGHT, float('inf')) < float('inf')):
-                     visible_objs.append(obj[ATTR_NAME])
+                # Normale Items & Fixtures
+                elif (
+                    obj.get('type') in (TYPE_ITEM, TYPE_FIXTURE)
+                    or (not obj.get('type') and obj.get(ATTR_WEIGHT, float('inf')) < float('inf'))
+                ):
+                    obj_level = int(obj.get('level', 0))
+                    label = obj[ATTR_NAME]
+                    if obj_level > game.elevation:
+                        label += f" (oben auf Ebene {obj_level})"
+                    elif obj_level < game.elevation:
+                        label += f" (unten auf Ebene {obj_level})"
+                    visible_objs.append(label)
             
             if visible_objs: 
                 game.log('info', Texts.LOOK_GROUND.format(', '.join(visible_objs)))
             
-            # NPCs anzeigen
-            visible_npcs = [n[ATTR_NAME] for n in game.npcs if n['location'] == game.location]
+            # NPCs anzeigen (inkl. Höhen-Info)
+            visible_npcs: list[str] = []
+            for n in game.npcs:
+                if n['location'] != game.location:
+                    continue
+                npc_level = int(n.get('level', 0))
+                npc_label = n[ATTR_NAME]
+                if npc_level > game.elevation:
+                    npc_label += f" (oben auf Ebene {npc_level})"
+                elif npc_level < game.elevation:
+                    npc_label += f" (unten auf Ebene {npc_level})"
+                visible_npcs.append(npc_label)
             if visible_npcs: 
                 game.log('character', Texts.LOOK_PERSONS.format(', '.join(visible_npcs)))
             return

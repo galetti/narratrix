@@ -16,6 +16,7 @@ from engine.handlers.inventory import InventoryHandler
 from engine.handlers.mechanics import MechanicsHandler
 from engine.handlers.movement import MovementHandler
 from engine.handlers.system import SystemHandler
+from engine.parser.spacy_parser import SpacyParser
 from engine.schema import ConfigurationError, validate_game_config
 from engine.story_loader import StoryLoader
 from engine.ui import RichTextRenderer, load_system_config
@@ -286,6 +287,47 @@ class NarratrixEngineTests(unittest.TestCase):
             game.quests.states["core_calibration"]["status"], "completed"
         )
         self.assertIn("lab_stabilized", game.knowledge)
+
+    def test_parser_handles_short_direction_and_hyphenated_commands(self) -> None:
+        game = GameState(self.ep0, silent=True)
+        parser = SpacyParser(game)
+        parser.parse("n")
+        self.assertEqual(game.location, "test_chamber")
+        parser.parse("s")
+        self.assertEqual(game.location, "central_hub")
+        parser.parse("gehe nach norden")
+        self.assertEqual(game.location, "test_chamber")
+        parser.parse("gehe nach süden")
+        self.assertEqual(game.location, "central_hub")
+        self.assertFalse(any("--" in entry["text"] for entry in game.logs))
+
+    def test_ep1_npcs_and_maintenance_shaft_visible_and_interactive(self) -> None:
+        game = GameState(self.ep1)
+        parser = SpacyParser(game)
+
+        parser.parse("e")
+        self.assertEqual(game.location, "room_inner_corridor_north")
+        self.assertIn("Dr. Sato", game.get_snapshot()["present_npcs"])
+        self.assertTrue(any("Personen: Dr. Sato" in e["text"] for e in game.logs))
+
+        parser.parse("nimm rohrzange")
+        parser.parse("e")
+        parser.parse("e")
+        self.assertEqual(game.location, "room_outer_waste")
+        self.assertIn(
+            "Rusty (MK-1 Bot) (oben auf Ebene 2)",
+            game.get_snapshot()["present_npcs"],
+        )
+
+        parser.parse("klettere wartungsleiter")
+        self.assertEqual(game.elevation, 2)
+        self.assertIn("Rusty (MK-1 Bot)", game.get_snapshot()["present_npcs"])
+        parser.parse("untersuche wartungsschacht")
+        self.assertTrue(
+            any("Wartungsbot 'Rusty'" in e["text"] for e in game.logs[-3:])
+        )
+        parser.parse("betrete schacht")
+        self.assertEqual(game.elevation, 2)
 
     def test_ui_helpers_work_headless(self) -> None:
         class _DummyFont:

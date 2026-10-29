@@ -194,6 +194,17 @@ class GameState:
             if self.dialogue_active and self.dialogue_partner:
                 partner_name = self.dialogue_partner[ATTR_NAME]
                 partner_img = self.dialogue_partner.get("img")
+            present_npcs: list[str] = []
+            for npc in self.npcs:
+                if npc.get("location") != self.location:
+                    continue
+                npc_level = int(npc.get("level", 0))
+                label = npc[ATTR_NAME]
+                if npc_level > self.elevation:
+                    label += f" (oben auf Ebene {npc_level})"
+                elif npc_level < self.elevation:
+                    label += f" (unten auf Ebene {npc_level})"
+                present_npcs.append(label)
             return {
                 "time": self.time,
                 "stability": self.stability,
@@ -208,6 +219,7 @@ class GameState:
                 "dialogue_img": partner_img or partner_name or "???",
                 "logs": list(self.logs),
                 "elevation": self.elevation,
+                "present_npcs": present_npcs,
             }
 
     def get_room(self, room_id: str) -> RoomData | None:

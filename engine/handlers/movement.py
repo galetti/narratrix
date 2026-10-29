@@ -11,6 +11,7 @@ from engine.constants import (
     TYPE_SCENERY,
 )
 from engine.resolver import Resolver, ResolutionError
+from engine.strings import Texts
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
@@ -45,6 +46,21 @@ class MovementHandler:
         if visible_items:
             game.log('info', f"Hier siehst du: {', '.join(visible_items)}")
 
+        visible_npcs: list[str] = []
+        for npc in game.npcs:
+            if npc.get('location') != room_id:
+                continue
+            npc_level = int(npc.get('level', 0))
+            npc_label = npc[ATTR_NAME]
+            if npc_level > game.elevation:
+                npc_label += f" (oben auf Ebene {npc_level})"
+            elif npc_level < game.elevation:
+                npc_label += f" (unten auf Ebene {npc_level})"
+            visible_npcs.append(npc_label)
+
+        if visible_npcs:
+            game.log('character', Texts.LOOK_PERSONS.format(', '.join(visible_npcs)))
+
     @staticmethod
     def handle(game: GameState, args: list[str]) -> None:
         if game.hidden_in:
@@ -62,16 +78,22 @@ class MovementHandler:
         if not args:
             return game.log('error', "Wohin willst du gehen?")
 
-        direction = args[0].lower()
         vocab_dirs = game.config.get('vocabulary', {}).get('directions', {})
         target_dir: str | None = None
-        
-        for canonical, synonyms in vocab_dirs.items():
-            if direction == canonical or direction in synonyms:
-                target_dir = canonical
+        filler_preps = {"nach", "in", "gen", "richtung", "zum", "zur", "den", "dem", "der", "die", "das"}
+        filtered_args = [w.lower() for w in args if w.lower() not in filler_preps]
+        candidate_words = filtered_args if filtered_args else [args[0].lower()]
+
+        for word in candidate_words:
+            for canonical, synonyms in vocab_dirs.items():
+                if word == canonical or word in synonyms:
+                    target_dir = canonical
+                    break
+            if target_dir:
                 break
-        
-        if not target_dir: target_dir = direction 
+
+        if not target_dir:
+            target_dir = candidate_words[0] 
         
         room = game.rooms[game.location]
         exits = room.get('exits', {})
@@ -112,8 +134,29 @@ class MovementHandler:
                 
                 MovementHandler._list_room_items(game, target_id)
                 game.tick(1) 
+        elif target_dir == "down" and game.elevation > 0:
+            MovementHandler.climb(game, ["down"])
+        elif target_dir == "up" and game.elevation == 0:
+            climbables = [
+                obj
+                for obj in game.objects.values()
+                if obj.get("location") == game.location and obj.get(ATTR_CLIMBABLE, False)
+            ]
+            if climbables:
+                MovementHandler.climb(game, [climbables[0][ATTR_NAME]])
+            else:
+                game.log('error', f"Nach '{target_dir}' führt kein Weg.")
         else:
-            game.log('error', f"Nach '{target_dir}' führt kein Weg.")
+            try:
+                climb_candidate = Resolver.resolve_target(
+                    game, candidate_words, location_filter=FILTER_ROOM, verb="climb"
+                )
+            except ResolutionError:
+                climb_candidate = None
+            if climb_candidate and climb_candidate.get(ATTR_CLIMBABLE, False):
+                MovementHandler.climb(game, candidate_words)
+            else:
+                game.log('error', f"Nach '{target_dir}' führt kein Weg.")
 
     @staticmethod
     def climb(game: GameState, args: list[str]) -> None:
@@ -122,8 +165,12 @@ class MovementHandler:
         if not args:
             return game.log('error', "Worauf willst du klettern?")
 
-        # Filter "auf", "on" aus den Argumenten für sauberes Resolver-Matching
-        clean_args = [w for w in args if w.lower() not in ["auf", "on", "up", "hoch"]]
+        # Filter Präpositionen aus den Argumenten für sauberes Resolver-Matching
+        clean_args = [
+            w
+            for w in args
+            if w.lower() not in ["auf", "on", "up", "hoch", "in", "im", "an", "den", "die", "das"]
+        ]
         
         # Fallback: Wenn nur "klettere auf" eingegeben wurde, ist clean_args leer
         if not clean_args:
@@ -167,7 +214,11 @@ class MovementHandler:
             if 'target_elevation' in target:
                 new_level = target['target_elevation']
                 if new_level == game.elevation:
-                    game.log('info', f"Du bist bereits auf dieser Höhe.")
+                    game.log(
+                        'info',
+                        f"Du bist bereits oben bei {target[ATTR_NAME]} (Ebene {new_level}).",
+                    )
+                    MovementHandler._list_room_items(game, game.location)
                 else:
                     game.elevation = new_level
                     game.log('success', f"Du kletterst auf {target[ATTR_NAME]}. (Ebene {new_level})")

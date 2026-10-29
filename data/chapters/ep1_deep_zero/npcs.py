@@ -1,7 +1,7 @@
 # narratrix_engine/data/chapters/ep1_arrival/npcs.py
 from __future__ import annotations
 
-from engine.constants import ATTR_DESC, ATTR_NAME
+from engine.constants import ATTR_ALIASES, ATTR_DESC, ATTR_NAME
 from engine.schema import NPCData
 
 NPCS: list[NPCData] = [
@@ -9,6 +9,7 @@ NPCS: list[NPCData] = [
         "id": "sato",
         ATTR_NAME: "Dr. Sato",
         ATTR_DESC: "Der Chefingenieur. Er hat Öl im Gesicht und wirkt gestresst.",
+        ATTR_ALIASES: ["sato", "dr", "doktor", "chefingenieur", "ingenieur"],
         "location": "room_inner_corridor_north",
         "level": 0,
         "state": "working",
@@ -48,7 +49,8 @@ NPCS: list[NPCData] = [
     {
         "id": "rusty",
         ATTR_NAME: "Rusty (MK-1 Bot)",
-        ATTR_DESC: "Ein kastenförmiger Roboter. Er fährt immer wieder gegen die Wand. Sein Status-Licht blinkt rot.",
+        ATTR_DESC: "Ein kastenförmiger Roboter im Eingang des Wartungsschachts. Er fährt immer wieder gegen die Wand. Sein Status-Licht blinkt rot.",
+        ATTR_ALIASES: ["rusty", "bot", "roboter", "mk-1", "wartungsbot"],
         "location": "room_outer_waste",
         "level": 2, # ER IST OBEN! Man muss klettern.
         "state": "malfunction",

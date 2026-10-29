@@ -1,7 +1,7 @@
 # narratrix_engine/data/chapters/ep0_test_lab/npcs.py
 from __future__ import annotations
 
-from engine.constants import ATTR_DESC, ATTR_NAME
+from engine.constants import ATTR_ALIASES, ATTR_DESC, ATTR_NAME
 from engine.schema import NPCData
 
 NPCS: list[NPCData] = [
@@ -9,6 +9,7 @@ NPCS: list[NPCData] = [
         "id": "runner_bot",
         ATTR_NAME: "Läufer-Bot",
         ATTR_DESC: "Ein kleiner Sicherheitsroboter auf Rädern mit blinkenden akustischen Sensoren.",
+        ATTR_ALIASES: ["bot", "roboter", "läufer", "läufer-bot", "wache"],
         "location": "upper_deck",
         "state": "idle",
         "behavior_id": "guard",
@@ -41,6 +42,7 @@ NPCS: list[NPCData] = [
         "id": "shy_drone",
         ATTR_NAME: "Scheue Wartungsdrohne",
         ATTR_DESC: "Eine schwebende Diagnose-Drohne mit flackerndem Akku. Sie weicht hektisch zurück, wenn man ihr zu nahe kommt.",
+        ATTR_ALIASES: ["drohne", "wartungsdrohne", "diagnose-drohne", "scheue"],
         "location": "upper_deck",
         "state": "skittish",
         "behavior_id": "fearful",
