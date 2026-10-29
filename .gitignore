@@ -1,3 +1,19 @@
-*/_pycache/*
-*.png
-*.pnc
+# Python-Bytecode & Caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtuelle Umgebungen
+.venv/
+venv/
+env/
+
+# Linter, Type-Checker & Test-Caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+
+# Lokale Spielstände (Ordnerstruktur bleibt via .gitkeep erhalten)
+saves/*.json
+!saves/.gitkeep

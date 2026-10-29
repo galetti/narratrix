@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "narratrix"
+version = "6.0.0"
+description = "Modulare, datengetriebene Textadventure-Engine mit Akustik- und Eventsimulation"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "pygame==2.6.1",
+    "requests==2.32.5",
+    "spacy==3.8.11",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.10",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+narratrix = "main_gui:main"
+narratrix-validate = "tools.validator:main"
+narratrix-sim = "tools.sim_viewer:run_viewer"
+narratrix-editor = "tools.world_editor:main"
+
+[tool.setuptools]
+py-modules = ["main_gui"]
+
+[tool.setuptools.packages.find]
+include = ["engine*", "data*", "tools*", "utils*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+check_untyped_defs = true
+disallow_untyped_defs = true

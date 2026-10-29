@@ -1,0 +1,15 @@
+{
+    "game": {
+        "title": "NARRATRIX",
+        "start_chapter": "data.chapters.ep1_deep_zero.config",
+        "language": "de"
+    },
+    "system": {
+        "llm_enabled": false,
+        "llm_url": "http://localhost:1234/v1/chat/completions",
+        "parser_mode": "SPACY",
+        "resolution_width": 1024,
+        "resolution_height": 768,
+        "fullscreen": false
+    }
+}

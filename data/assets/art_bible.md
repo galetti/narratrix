@@ -14,6 +14,7 @@ Auflösung: 400x300 (4:3) für Räume, 300x300 (1:1) für Portraits empfohlen.
 | scifi_tunnel.png | ❌ Offen | Wartungstunnel, eng, Röhren, Dampf tritt aus, klaustrophobisch, Metallgitterboden. |
 | scifi_bridge.png | ❌ Offen | Raumschiffbrücke, Blick in den Weltraum (Sterne), zerstörte Konsolen, ein umgestürzter Kommandosessel. |
 | scifi_medbay.png | ❌ Offen | Krankenstation, steril weiß aber verwüstet, offene Schränke, Scherben am Boden, kaltes Licht. |
+scifi_airlock.png | ❌ Offen | Luftschleuse, massives Stahlschott, kaltes steriles Licht, Warntafeln, kleines Fenster mit Blick auf Sterne, sauber, klaustrophobisch. |
 
 ## 2. Charaktere (Portraits)
 

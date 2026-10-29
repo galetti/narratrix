@@ -1,85 +1,217 @@
-import os
+from __future__ import annotations
+
 import json
-from engine.handlers.interaction import InteractionHandler
-from engine.analysis import generate_future_matrix
-from engine.constants import *
+import logging
+import os
+import re
+from typing import TYPE_CHECKING
+
+from engine.constants import ATTR_NAME, STATE_SABOTAGED
+
+if TYPE_CHECKING:
+    from engine.game_state import GameState
+
+logger = logging.getLogger(__name__)
+
 
 class SystemHandler:
     @staticmethod
-    def save(game, args):
-        save_dir = "saves"
-        if not os.path.exists(save_dir): os.makedirs(save_dir)
-        filename = f"{''.join(x for x in args[0] if x.isalnum())}.json" if args else "savegame.json"
+    def _save_filename(args: list[str]) -> str:
+        stem = args[0] if args else "savegame"
+        stem = stem[:-5] if stem.lower().endswith(".json") else stem
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", stem):
+            raise ValueError("Save-Name darf nur Buchstaben, Zahlen, '_' und '-' enthalten.")
+        return f"{stem}.json"
+    
+    @staticmethod
+    def save(game: GameState, args: list[str]) -> None:
+        """Speichert den aktuellen Spielstand."""
+        try:
+            filename = SystemHandler._save_filename(args)
+        except ValueError as exc:
+            return game.log('error', str(exc))
+        
+        save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "saves")
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+            
         filepath = os.path.join(save_dir, filename)
-        state = {
-            "time": game.time, "location": game.location, "stability": game.stability, "game_over": game.game_over,
-            "knowledge": list(game.knowledge), "objects": game.objects, "npcs": game.npcs, "matrix": game.matrix, "logs": game.logs[-50:]
-        }
-        with open(filepath, 'w', encoding='utf-8') as f: json.dump(state, f, indent=2, ensure_ascii=False)
-        game.log('success', f"Gespeichert: {filename}")
+        
+        try:
+            data = game.serialize_state()
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4)
+            game.log('success', f"Spiel gespeichert unter: {filename}")
+        except (OSError, TypeError, ValueError) as e:
+            logger.error("Fehler beim Speichern von '%s': %s", filename, e)
+            game.log('error', f"Fehler beim Speichern: {e}")
 
     @staticmethod
-    def load(game, args):
-        save_dir = "saves"
-        filename = f"{''.join(x for x in args[0] if x.isalnum())}.json" if args else "savegame.json"
+    def load(game: GameState, args: list[str]) -> None:
+        """Lädt einen Spielstand."""
+        try:
+            filename = SystemHandler._save_filename(args)
+        except ValueError as exc:
+            return game.log('error', str(exc))
+        
+        save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "saves")
         filepath = os.path.join(save_dir, filename)
-        if not os.path.exists(filepath): return game.log('error', "Spielstand nicht gefunden.")
-        with open(filepath, 'r', encoding='utf-8') as f: state = json.load(f)
-        game.time = state.get("time"); game.location = state.get("location"); game.stability = state.get("stability")
-        game.game_over = state.get("game_over"); game.knowledge = set(state.get("knowledge"))
-        game.objects = state.get("objects"); game.npcs = state.get("npcs"); game.matrix = state.get("matrix"); game.logs = state.get("logs")
-        game.disambiguation = None; game.dialogue_active = False 
-        game.log('success', f"Geladen: {filename}")
-        InteractionHandler.look(game, [])
+        
+        if not os.path.exists(filepath):
+            return game.log('error', f"Spielstand '{filename}' nicht gefunden.")
+            
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            success = game.deserialize_state(data)
+            if success:
+                game.log('success', "Spielstand geladen.")
+                from engine.handlers.exploration import ExplorationHandler
+                ExplorationHandler.look(game, [])
+            else:
+                game.log('error', "Fehler beim Verarbeiten des Spielstands.")
+                
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
+            logger.error("Kritischer Fehler beim Laden von '%s': %s", filename, e)
+            game.log('error', f"Kritischer Fehler beim Laden: {e}")
 
     @staticmethod
-    def oracle(game, args):
-        game.log('event', "Zugriff auf interne Sensoren... Berechne Prognosen...")
-        timeline = generate_future_matrix(game, minutes_to_simulate=60, step_size=5)
-        found_vision = False
-        for snap in timeline:
-            time_offset = snap['time'] - game.time
-            if time_offset <= 0: continue
-            for r_id, r_data in snap['rooms'].items():
-                room_name = game.rooms[r_id][ATTR_NAME]
-                if r_data['events']:
-                    events = ", ".join(r_data['events'])
-                    game.log('story', f"[ALERT T+{time_offset}m] Sektor '{room_name}': {events}")
-                    found_vision = True
-                if r_data['events'] and r_data['npcs']:
-                    names = ", ".join(r_data['npcs'])
-                    game.log('alarm', f"WARNUNG: Lebenszeichen ({names}) im Gefahrenbereich!")
-                    found_vision = True
-        if not found_vision: game.log('info', "Sensoren: Keine Anomalien in den nächsten 60 Minuten.")
+    def help(game: GameState, args: list[str]) -> None:
+        """Zeigt verfügbare Befehle."""
+        help_text = """
+VERFÜGBARE BEFEHLE
+
+BEWEGUNG:
+  gehe <richtung> (n, s, e, w, u, d, out)
+  klettere <objekt> (climb)
+  verstecke <objekt> (hide in)
+
+INTERAKTION:
+  schaue / l [objekt]
+  nimm <objekt>
+  benutze <objekt> [mit <objekt>]
+  öffne <objekt>
+  schließe <objekt>
+  lege <objekt> in/auf <objekt>
+  zerstöre / break <objekt>
+
+SYSTEM:
+  inv / i       - Inventar zeigen
+  journal / j   - Aufgaben ansehen
+  save [name]   - Speichern
+  load [name]   - Laden
+  map           - Karte anzeigen
+"""
+        game.log('info', help_text.strip())
 
     @staticmethod
-    def map(game, args):
-        game.log('info', "--- SYSTEM ÜBERSICHT ---")
-        min_x, max_x = 0, 0; min_y, max_y = 0, 0
-        grid = {} 
-        for r_id, room in game.rooms.items():
-            x = room.get('map_x', 0); y = room.get('map_y', 0)
-            grid[(x,y)] = r_id
-            min_x = min(min_x, x); max_x = max(max_x, x); min_y = min(min_y, y); max_y = max(max_y, y)
+    def oracle(game: GameState, args: list[str]) -> None:
+        """Debug / Story Helper Tool: Zeigt interne Zustände an."""
+        game.log('info', "--- ORACLE SYSTEM STATUS ---")
+        game.log('info', f"Zeit: T+{game.time}m | Stabilität: {game.stability}%")
+        
+        # Quest Status
+        active_quests = game.quests.get_active_quests()
+        if active_quests:
+            game.log('info', f"Aktive Quests: {len(active_quests)}")
+        else:
+            game.log('info', "Keine aktiven Quests.")
 
-        for y in range(min_y, max_y + 1):
-            line1 = ""; line2 = "" 
-            for x in range(min_x, max_x + 1):
-                r_id = grid.get((x, y))
-                if r_id:
-                    symbol = "[ ]" 
-                    if r_id == game.location: symbol = "[@]" 
-                    npcs_here = [n for n in game.npcs if n['location'] == r_id]
-                    if npcs_here: symbol = "[N]" if r_id != game.location else "[@N]"
-                    cell = f"{symbol}".center(12)
-                    exits = game.rooms[r_id]['exits']
-                    has_east = 'east' in exits or (grid.get((x+1, y)) and 'west' in game.rooms[grid.get((x+1, y))]['exits'])
-                    conn = "--" if has_east else "  "
-                    line1 += cell + conn
-                    has_south = 'south' in exits or (grid.get((x, y+1)) and 'north' in game.rooms[grid.get((x, y+1))]['exits'])
-                    v_conn = "  |  " if has_south else "     "
-                    line2 += v_conn.center(12) + "  "
-                else: line1 += " " * 14; line2 += " " * 14
-            game.log('info', line1)
-            if y < max_y: game.log('info', line2)
-        game.log('info', "Legende: [@] Pos, [N] Bio-Signatur")
+        pending_count = 0
+        if hasattr(game, 'events'):
+            for e in game.events.events:
+                if not e.get('triggered', False) and e.get('trigger') == 'time' and e.get('trigger_time', 0) > game.time:
+                    pending_count += 1
+        
+        game.log('info', f"Ausstehende Zeit-Events: {pending_count}")
+        
+        npc_info: list[str] = []
+        for npc in game.npcs:
+            state = npc.get('state', 'default')
+            loc = npc.get('location', 'unknown')
+            room_name = loc
+            if loc in game.rooms:
+                room_name = game.rooms[loc].get('name', loc)
+            npc_info.append(f"{npc[ATTR_NAME]} ({state}) @ {room_name}")
+        
+        if npc_info:
+            game.log('info', "NPCs:\n  " + "\n  ".join(npc_info))
+
+        warnings: list[str] = []
+        if game.stability < 50: warnings.append("KRITISCH: Stations-Integrität gefährdet!")
+        sabotaged_rooms = [r.get('name', r_id) for r_id, r in game.rooms.items() if r.get('state') == STATE_SABOTAGED]
+        if sabotaged_rooms:
+            warnings.append(f"Sabotage entdeckt in: {', '.join(sabotaged_rooms)}")
+            
+        if warnings:
+            game.log('alarm', "\n".join(warnings))
+        else:
+            game.log('success', "Systemdiagnose: Nominal.")
+
+    @staticmethod
+    def map(game: GameState, args: list[str]) -> None:
+        """Zeigt eine dynamisch generierte Karte der besuchten Räume."""
+        game.log('info', "--- TAKTISCHE KARTE (Bekannte Sektoren) ---")
+        visited_ids = [r_id for r_id, r in game.rooms.items() if r.get('visited')]
+        
+        if not visited_ids:
+            game.log('info', "Keine Kartendaten verfügbar.")
+            return
+
+        for r_id in visited_ids:
+            room = game.rooms[r_id]
+            name = room.get(ATTR_NAME, "Unbekannt")
+            marker = " [HIER]" if r_id == game.location else ""
+            
+            exits = room.get('exits', {})
+            exit_strs: list[str] = []
+            for direction, target_id in exits.items():
+                target_name = "???"
+                if target_id in visited_ids:
+                    target_room = game.rooms[target_id]
+                    target_name = target_room.get(ATTR_NAME, "Unbekannt")
+                
+                short_dir = direction[0].upper() if len(direction) > 2 else direction.upper()
+                exit_strs.append(f"{short_dir} -> {target_name}")
+            
+            exits_display = ", ".join(exit_strs) if exit_strs else "Sackgasse"
+            log_type = 'location' if r_id == game.location else 'info'
+            game.log(log_type, f"> {name}{marker}\n  Verbindungen: {exits_display}")
+
+    @staticmethod
+    def journal(game: GameState, args: list[str]) -> None:
+        """Zeigt aktive und erledigte Quests an."""
+        # Wir nutzen 'header' oder 'system' als Typ, je nachdem was im Renderer definiert ist.
+        # 'event' ist meist Orange/Gelb und gut sichtbar.
+        game.log('event', "--- PERSÖNLICHES LOGBUCH ---")
+        
+        # Aktive Quests
+        active = game.quests.get_active_quests()
+        if active:
+            game.log('info', "AKTUELLE ZIELE:")
+            for q in active:
+                # Titel hervorheben
+                game.log('success', f"[*] {q['title']}")
+                # Beschreibung einrücken
+                stage_desc = q.get('stage_desc', "")
+                if stage_desc:
+                    game.log('story', f"    > {stage_desc}")
+        else:
+            game.log('info', "Keine aktiven Aufgaben.")
+            
+        # Erledigte Quests (Optional: Nur wenn Argument 'all' oder so, aber hier immer gut)
+        completed = game.quests.get_completed_quests()
+        if completed:
+            game.log('info', "")
+            game.log('info', "ERLEDIGT:")
+            for title in completed:
+                # Erledigt in Grau/Story-Farbe
+                game.log('story', f"[x] {title}")
+
+        failed = game.quests.get_failed_quests()
+        if failed:
+            game.log('info', "")
+            game.log('info', "FEHLGESCHLAGEN:")
+            for title in failed:
+                game.log('error', f"[!] {title}")

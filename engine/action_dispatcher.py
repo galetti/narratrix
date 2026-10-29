@@ -1,32 +1,53 @@
+# narratrix_engine/engine/action_dispatcher.py
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING, Callable
+
 from engine.handlers.movement import MovementHandler
-from engine.handlers.interaction import InteractionHandler
 from engine.handlers.dialogue import DialogueHandler
 from engine.handlers.system import SystemHandler
-from engine.resolver import Resolver
+from engine.handlers.exploration import ExplorationHandler
+from engine.handlers.inventory import InventoryHandler
+from engine.handlers.mechanics import MechanicsHandler
+
+# NEU: Wir müssen AmbiguityError importieren
+from engine.resolver import AmbiguityError
+from engine.constants import ATTR_NAME
+
+if TYPE_CHECKING:
+    from engine.game_state import GameState
+
+logger = logging.getLogger(__name__)
+
+HandlerFunc = Callable[["GameState", list[str]], None]
+
 
 class ActionDispatcher:
-    """
-    DER ROUTER.
-    Nutzt jetzt ein Mapping-Dict statt riesiger If-Ketten.
-    """
-
-    # Mapping: Verb -> (Handler-Klasse, Methoden-Name)
-    COMMAND_MAP = {
-        # Interaction
-        'look': InteractionHandler.look, 'l': InteractionHandler.look, 'x': InteractionHandler.look,
-        'take': InteractionHandler.take, 'get': InteractionHandler.take, 'nimm': InteractionHandler.take,
-        'drop': InteractionHandler.drop_item,
-        'put': InteractionHandler.put,
-        'inv': InteractionHandler.inventory, 'i': InteractionHandler.inventory, 'inventory': InteractionHandler.inventory,
-        'use': InteractionHandler.use, 'combine': InteractionHandler.use,
-        'open': InteractionHandler.open,
-        'break': InteractionHandler.break_,
-        'fix': InteractionHandler.fix,
-        'give': InteractionHandler.give, 'gib': InteractionHandler.give,
-        'wait': InteractionHandler.wait, 'warte': InteractionHandler.wait, # NEU
+    COMMAND_MAP: dict[str, HandlerFunc] = {
+        # Exploration
+        'look': ExplorationHandler.look, 'l': ExplorationHandler.look, 'x': ExplorationHandler.look,
+        'hide': ExplorationHandler.hide, 'verstecke': ExplorationHandler.hide,
+        
+        # Inventory
+        'take': InventoryHandler.take, 'get': InventoryHandler.take, 'nimm': InventoryHandler.take,
+        'drop': InventoryHandler.drop,
+        'give': InventoryHandler.give, 'gib': InventoryHandler.give,
+        'inv': InventoryHandler.inventory, 'i': InventoryHandler.inventory, 'inventory': InventoryHandler.inventory,
+        
+        # Mechanics
+        'put': MechanicsHandler.put,
+        'use': MechanicsHandler.use, 'combine': MechanicsHandler.use,
+        'open': MechanicsHandler.open,
+        'close': MechanicsHandler.close,
+        'break': MechanicsHandler.break_,
+        'fix': MechanicsHandler.fix,
+        'wait': MechanicsHandler.wait, 'warte': MechanicsHandler.wait,
 
         # Movement
         'move': MovementHandler.handle, 'gehe': MovementHandler.handle, 'lauf': MovementHandler.handle,
+        # NEU: Klettern
+        'climb': MovementHandler.climb, 'klettere': MovementHandler.climb,
 
         # Dialogue
         'talk': DialogueHandler.talk, 'rede': DialogueHandler.talk, 'sprich': DialogueHandler.talk,
@@ -35,26 +56,43 @@ class ActionDispatcher:
         'save': SystemHandler.save,
         'load': SystemHandler.load,
         'oracle': SystemHandler.oracle, 'orakel': SystemHandler.oracle, 'hack': SystemHandler.oracle,
-        'map': SystemHandler.map, 'karte': SystemHandler.map
+        'map': SystemHandler.map, 'karte': SystemHandler.map,
+        'help': SystemHandler.help,
+        'journal': SystemHandler.journal, 'logbuch': SystemHandler.journal, 'aufgaben': SystemHandler.journal 
     }
 
     @staticmethod
-    def dispatch(game, verb, args):
-        # 1. PENDING & DISAMBIGUIERUNG
+    def dispatch(game: GameState, verb: str, args: list[str]) -> None:
+        # 1. Check auf ausstehende Interaktionen
         if game.pending_interaction:
             ActionDispatcher._handle_pending(game, verb, args)
             return
+
+        # 2. Check auf Disambiguierung
         if game.disambiguation:
             ActionDispatcher._handle_disambiguation(game, verb, args)
             return
 
-        # 2. ROUTING (Via Map)
+        # 3. Normales Dispatching mit Ambiguity Handling
         handler_func = ActionDispatcher.COMMAND_MAP.get(verb)
         if handler_func:
-            handler_func(game, args)
+            try:
+                handler_func(game, args)
+            except AmbiguityError as e:
+                # Hier fangen wir den Fehler vom Resolver
+                names = [m[ATTR_NAME] for m in e.candidates]
+                game.log('info', f"Meinst du: {', '.join(names)}?")
+                
+                # Wir speichern den Kontext, um den Befehl später neu bauen zu können
+                game.disambiguation = {
+                    'verb': verb,
+                    'full_args': args,             # Die vollen Argumente (z.B. ["key", "with", "door"])
+                    'ambiguous_words': e.query_words, # Der Teil, der mehrdeutig war (z.B. ["key"])
+                    'candidates': e.candidates
+                }
             return
 
-        # 3. FALLBACK: RICHTUNGEN
+        # 4. Fallback: Richtung?
         vocab_dirs = game.config.get('vocabulary', {}).get('directions', {})
         for canonical, synonyms in vocab_dirs.items():
             if verb == canonical or verb in synonyms:
@@ -64,12 +102,14 @@ class ActionDispatcher:
         game.log('error', f"Ich weiß nicht, wie ich '{verb}' soll.")
 
     @staticmethod
-    def dialogue_step(game, user_input):
+    def dialogue_step(game: GameState, user_input: str) -> None:
         DialogueHandler.step(game, user_input)
 
     @staticmethod
-    def _handle_pending(game, verb, args):
+    def _handle_pending(game: GameState, verb: str, args: list[str]) -> None:
         state = game.pending_interaction
+        if not state:
+            return
         original_verb = state['verb']
         item1_args = state['args']
         
@@ -77,20 +117,27 @@ class ActionDispatcher:
         item1_name = " ".join(item1_args)
         
         if original_verb == 'use':
-            result_msg = game.perform_combine(item1_name, item2_name)
-            if "Fehler" in result_msg or "nicht" in result_msg.lower(): 
-                game.log('error', result_msg)
+            result = game.perform_combine(item1_name, item2_name)
+            if not result.success:
+                game.log('error', result.message)
             else: 
-                game.log('success', result_msg)
+                game.log('success', result.message)
                 game.tick(2)
         game.pending_interaction = None
 
     @staticmethod
-    def _handle_disambiguation(game, verb, args):
+    def _handle_disambiguation(game: GameState, verb: str, args: list[str]) -> None:
         state = game.disambiguation
-        original_verb = state['verb']
+        if not state:
+            return
         candidates = state['candidates']
-        filter_text = f"{verb} {' '.join(args)}".strip().lower()
+        
+        # User Input verarbeiten
+        filter_text = ""
+        if verb == "disambiguate":
+            filter_text = args[0].strip().lower() if args else ""
+        else:
+            filter_text = f"{verb} {' '.join(args)}".strip().lower()
         
         # NEU: Hole Abbruch-Wörter aus Config
         cancel_words = game.config.get('vocabulary', {}).get('system_commands', {}).get('cancel', ["stop"])
@@ -100,18 +147,66 @@ class ActionDispatcher:
             game.disambiguation = None
             return
 
+        # Filtern der Kandidaten
         matches = []
         for cand in candidates:
-            # Suche im Namen oder Alias
-            if filter_text in cand['name'].lower() or any(filter_text in a for a in cand.get('aliases', [])):
+            c_name = cand['name'].lower()
+            if filter_text in c_name or any(filter_text in a.lower() for a in cand.get('aliases', [])):
                 matches.append(cand)
         
         if len(matches) == 1:
             target = matches[0]
-            game.disambiguation = None 
             game.log('user', f"(Ausgewählt: {target['name']})")
-            # Rekursiver Aufruf mit dem eindeutigen Namen als Argument
-            ActionDispatcher.dispatch(game, original_verb, [target['name']])
+            
+            # --- REKONSTRUKTION DES BEFEHLS ---
+            original_verb = state['verb']
+            full_args = state['full_args'] # Liste von Strings
+            ambiguous_part = state['ambiguous_words'] # Liste von Strings (z.B. ["key"])
+            
+            # Wir müssen die ambiguous_part Sequenz in full_args finden und durch den vollen Namen ersetzen
+            new_args = list(full_args)
+            
+            # Einfacher Ansatz: Wir suchen das erste Vorkommen des ersten Worts der Ambiguität
+            # und ersetzen die Länge der Ambiguität.
+            if ambiguous_part:
+                start_word = ambiguous_part[0]
+                try:
+                    # Finde Startindex
+                    idx = -1
+                    # Wir suchen manuell, um sicher zu sein (case sensitive check in args)
+                    for i, w in enumerate(new_args):
+                        if w == start_word: # Strenger Match, da Resolver clean_args nutzt, könnte unscharf sein
+                            idx = i
+                            break
+                    
+                    if idx == -1:
+                        # Fallback: Versuche case-insensitive
+                        for i, w in enumerate(new_args):
+                            if w.lower() == start_word.lower():
+                                idx = i
+                                break
+
+                    if idx != -1:
+                        # Wir entfernen die mehrdeutigen Worte
+                        # Wir ersetzen sie durch den präzisen Namen des Ziels (als Token-Liste)
+                        target_tokens = target['name'].split()
+                        
+                        # Slice replacement
+                        end_idx = idx + len(ambiguous_part)
+                        new_args[idx:end_idx] = target_tokens
+                        
+                except (KeyError, IndexError, ValueError, TypeError) as e:
+                    logger.warning("Disambiguierung Rekonstruktion fehlgeschlagen: %s", e)
+                    # Fallback: Einfach Namen anhängen (funktioniert nur bei simplen Verben)
+                    new_args = [target['name']]
+
+            # Reset State
+            game.disambiguation = None 
+            
+            # Erneuter Dispatch mit präzisiertem Befehl
+            # game.log('info', f"DEBUG: Executing '{original_verb} {new_args}'")
+            ActionDispatcher.dispatch(game, original_verb, new_args)
+
         elif len(matches) > 1:
             names = [m['name'] for m in matches]
             game.log('info', f"Das grenzt es nicht genug ein. Meinst du: {', '.join(names)}?")

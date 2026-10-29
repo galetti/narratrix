@@ -1,38 +1,46 @@
-# engine/constants.py
+# narratrix_engine/engine/constants.py
+from __future__ import annotations
 
-# Attribute Keys
-ATTR_ID = "id"
-ATTR_NAME = "name"
-ATTR_DESC = "desc"
-ATTR_ALIASES = "aliases"
-ATTR_MOVABLE = "movable"
-ATTR_MATTER = "matter" # solid, liquid, gas
-ATTR_TEMP = "temp"
-ATTR_WEIGHT = "weight" 
-ATTR_CAPACITY = "capacity" 
-ATTR_AFFINITY = "affinity" 
+# Objekt-Zustände
+STATE_NORMAL: str = "normal"
+STATE_SABOTAGED: str = "sabotaged"
+STATE_BROKEN: str = "broken"
 
-# Types
-TYPE_CONTAINER = "container"
-TYPE_SURFACE = "surface"
-TYPE_ITEM = "item"
-TYPE_SCENERY = "scenery" 
+# Objekt-Typen
+TYPE_CONTAINER: str = "container"
+TYPE_SURFACE: str = "surface"
+TYPE_ITEM: str = "item"
+TYPE_SCENERY: str = "scenery"
+TYPE_FIXTURE: str = "fixture" # Fest installierte, interaktive Objekte (Maschinen etc.)
 
-# States
-STATE_NORMAL = "normal"
-STATE_BROKEN = "broken"
-STATE_SABOTAGED = "sabotaged"
+# Aggregatzustände
+MATTER_SOLID: str = "solid"
+MATTER_LIQUID: str = "liquid"
+MATTER_GAS: str = "gas"
 
-# Locations
-LOC_INVENTORY = "inventory"
-LOC_VOID = "void"
+# Orte
+LOC_INVENTORY: str = "inventory"
+LOC_VOID: str = "void" # Aus dem Spiel entfernt
 
-# Matters
-MATTER_SOLID = "solid"
-MATTER_LIQUID = "liquid"
-MATTER_GAS = "gas"
+# Attribute
+ATTR_WEIGHT: str = "weight"
+ATTR_ALIASES: str = "aliases"
+ATTR_DESC: str = "desc"
+ATTR_ID: str = "id"
+ATTR_NAME: str = "name"
+ATTR_TEMP: str = "temp"
+ATTR_MATTER: str = "matter"
+ATTR_CLIMBABLE: str = "climbable" # NEU: Ist das Objekt bekletterbar?
 
-# Filter flags
-FILTER_INVENTORY = "inventory"
-FILTER_RECURSIVE = "recursive"
-FILTER_ROOM = "room" # NEU: Hat gefehlt!
+# Filter für Resolver
+FILTER_ROOM: str = "room"
+FILTER_INVENTORY: str = "inventory"
+FILTER_RECURSIVE: str = "recursive_room"
+
+# Akustik (Durchlässigkeit 0.0 bis 1.0)
+ACOUSTIC_OPEN_AIR: float = 0.9      # Durchlässigkeit offener Durchgang (Luft dämpft etwas)
+ACOUSTIC_OPEN_DOOR: float = 0.9     # Offene Tür
+ACOUSTIC_CLOSED_DOOR: float = 0.2   # Geschlossene Standard-Tür
+ACOUSTIC_THIN_WALL: float = 0.1     # Dünne Wand
+ACOUSTIC_SOLID_WALL: float = 0.0    # Massive Wand
+ACOUSTIC_SOUNDPROOF: float = 0.0    # Schallschutz

@@ -1,92 +1,166 @@
-NARRATRIX Engine v1.0
+# Narratrix Engine 6.0
 
-Modulares, datengetriebenes Textadventure Framework
+Narratrix ist eine modulare, datengetriebene Textadventure-Engine für Python und
+Pygame. Kapitel enthalten ausschließlich Welt- und Storydaten; die Logik liegt
+in wiederverwendbaren Handlern und Systemen. Sämtliche Kapitel werden beim Laden
+gegen denselben Datenvertrag validiert.
 
-Über das Projekt
+## Installation und Start
 
-NARRATRIX ist eine moderne Engine für Interactive Fiction, geschrieben in Python. Sie unterscheidet sich von klassischen Parsern durch eine 4D-Simulations-Matrix, die Zeit und Ereignisse im Hintergrund steuert.
+Voraussetzung ist Python 3.9 oder neuer.
 
-Aktuelles Szenario: Echo der Station Omega-9
-Ein Cosmic-Horror-Mystery, bei dem ein zufälliger NPC zum Saboteur wird, während die Station langsam von einer Anomalie verschlungen wird.
-
-Features
-
-Narrative Matrix: Ereignisse finden zu festen Zeitpunkten statt, sofern der Spieler sie nicht verhindert.
-
-Hydration System: Objekte werden direkt aus den Beschreibungen generiert (z.B. {locker:Spind|Verschlossen}).
-
-Wissens-Datenbank: Dialoge und Optionen schalten sich frei, basierend auf dem, was der Spieler gesehen hat (knowledge-Tagging).
-
-Container-Physik: Unterstützung für verschachtelte, verschlossene und offene Behälter.
-
-Moderner Parser: Versteht Synonyme, ignoriert Füllwörter und nutzt Kontext.
-
-Installation & Start
-
-Voraussetzungen: Python 3.10+ installiert.
-
-Abhängigkeiten:
-
-pip install pygame
-
-
-Starten:
-
+```bash
+python -m pip install -r requirements.txt
 python main_gui.py
+```
 
+`requirements.txt` installiert das deutsche Spacy-Modell
+`de_core_news_md`. Ist Spacy oder das Modell nicht verfügbar, verwendet die
+Engine automatisch den regelbasierten Parser.
 
-Projektstruktur
+Die Laufzeitkonfiguration liegt in `data/config.json`. Dort werden Startkapitel,
+Auflösung, Parser und die optionale Verbindung zu einem lokalen
+OpenAI-kompatiblen LLM konfiguriert.
 
-main_gui.py: Grafisches Interface (Pygame) und Entry Point.
+## Architektur
 
-data/story_config.py: Alle Inhalte (Räume, Items, NPCs, Zeitlinie) befinden sich hier.
+- `engine/game_state.py`: autoritativer, speicherbarer Weltzustand.
+- `engine/schema.py`: gemeinsamer Datenvertrag und Referenzprüfung.
+- `engine/handlers/`: Spieleraktionen wie Bewegung, Inventar und Mechanik.
+- `engine/systems/`: Events, Effekte, Quests, Crafting, KI und Akustik.
+- `engine/parser/`: regelbasierte und Spacy-basierte Texteingabe.
+- `data/common/`: kapitelübergreifende Inhalte.
+- `data/chapters/`: konkrete Episoden und Testszenarien.
+- `tools/`: Validator, Simulationsansicht und JSON World Editor.
+- `tests/`: Regressionstests der Kernsysteme.
 
-engine/game_state.py: Die Logik-Schicht (Zustandsverwaltung, KI, Zeit).
+Der Common-Layer wird zuerst geladen. Kapitel überschreiben Räume, Objekte,
+NPCs und Events mit derselben ID. Doppelte oder ungültige Referenzen führen
+bereits beim Laden zu einem verständlichen Fehler.
 
-engine/command_parser.py: Die Input-Verarbeitung.
+## Verbindliche IDs
 
-utils/rng.py: Zufallsgeneratoren.
+Bei Räumen und Objekten müssen Dictionary-Schlüssel und internes `id`-Feld
+identisch sein:
 
-Guide: Die Narrative Matrix designen
-
-Die Matrix ist das Herzstück der Spannung. Sie definiert, was passiert, wenn der Spieler nichts tut.
-
-1. Struktur eines Events
-
-Ein Eintrag in der narrative_matrix Liste benötigt folgende Felder:
-
-{
-    "id": "evt_unique_name",      # Eindeutige ID
-    "title": "Titel des Events",  # Wird im UI Log angezeigt
-    "description": "Flavor Text", # Was der Spieler "spürt/hört"
-    "trigger_time": 50,           # Wann passiert es (in Ticks)?
-    "target_obj_id": "core",      # Welches Objekt wird geprüft?
-    "penalty": 20,                # Schaden an der Station (Stability) bei Fehlschlag
-    "fail_text": "...",           # Nachricht bei Sabotage/Defekt
-    "success_text": "..."         # Nachricht bei intaktem System
+```python
+ITEMS = {
+    "soldering_iron": {
+        "id": "soldering_iron",
+        "name": "Lötkolben",
+        "location": "workshop",
+        "type": "item",
+        "is_tool": True,
+    }
 }
+```
 
+Mehrere Ressourcenstapel erhalten eindeutige Objekt-IDs und eine gemeinsame
+`resource_id`, zum Beispiel `scrap_1` und `scrap_2` mit
+`resource_id: "scrap_metal"`.
 
-2. Design-Philosophie
+## Crafting
 
-Kausalität: Ein Event prüft immer den Zustand eines Objekts (target_obj_id).
+Rezepte validieren erst alle Voraussetzungen und verändern den Zustand danach
+atomar:
 
-Ist das Objekt state: 'normal', ist das Event erfolgreich.
+```python
+{
+    "verb": "use",
+    "items": ["scrap_metal", "workbench"],
+    "ingredients": {"scrap_metal": 2, "wire": 1},
+    "tools": ["soldering_iron"],
+    "station": "workbench",
+    "blueprint": "knows_circuitry",
+    "result": "hacked_chip",
+    "message": "Du lötest die Schaltung zusammen.",
+}
+```
 
-Ist das Objekt state: 'sabotaged', schlägt das Event fehl und die Station nimmt Schaden.
+- `items`: Interaktionspartner des Befehls.
+- `ingredients`: verbrauchte Inventarressourcen.
+- `tools`: erforderliche, nicht verbrauchte Inventargegenstände.
+- `station`: erreichbares Objekt im aktuellen Raum.
+- `blueprint`: erforderlicher Wissenseintrag.
+- `result`: vorhandenes Ergebnisobjekt, das ins Inventar verschoben wird.
 
-Timing: Lege Events so, dass der Saboteur (NPC) theoretisch Zeit hat, das Objekt vorher zu erreichen.
+## Events, Effekte und Quests
 
-Beispiel: Wenn der Saboteur bei Tick 0 im Labor startet und zum Reaktor (3 Räume weiter) muss, sollte das Reaktor-Event frühestens bei Tick 20 stattfinden.
+Events besitzen einen Trigger (`time`, `location`, `condition`, `complex` oder
+`manual`) und optionale Zusatzeffekte. Zeit- und Orts-Trigger können zusätzlich
+mit `condition` eingeschränkt werden.
 
-Eskalation: Starte mit kleinen Events (niedrige penalty) und steigere die Gefahr gegen Ende der Timeline.
+Unterstützte Effekte sind unter anderem:
 
-3. Workflow für Autoren
+- `message`, `learn`, `receive_item`, `update_object`
+- `move_npc`, `teleport_npc`, `set_npc_state`
+- `trigger_event`, `damage_stability`, `game_over`
+- `quest_start`, `quest_update`, `quest_complete`, `quest_fail`
+- `load_chapter`
 
-Objekte definieren: Erstelle zuerst die kritischen Systeme (Generatoren, Lüftungen, Computer) in objects.
+Beispiel:
 
-Timeline skizzieren: Zeichne einen Zeitstrahl (0 bis 100 Ticks). Setze 3-4 Knotenpunkte.
+```python
+{
+    "id": "repair_complete",
+    "trigger": "manual",
+    "effects": [
+        {"type": "quest_update", "id": "main_repair", "stage": 1},
+        {"type": "message", "message": "Die Anlage läuft wieder."},
+    ],
+}
+```
 
-Saboteur-Pfad: Überlege, welchen Weg der Saboteur gehen muss, um diese Knotenpunkte anzugreifen. Passe die trigger_time an die Laufwege an.
+Quest-Stages sind Ganzzahlen. Abschluss und Fehlschlag werden explizit über
+`quest_complete` beziehungsweise `quest_fail` ausgelöst.
 
-Powered by NARRATRIX
+## Befehle
+
+- `schaue [objekt]`
+- `gehe <richtung>`
+- `klettere <objekt|hoch|runter>`
+- `nimm`, `lege`, `gib`
+- `benutze <objekt> mit <objekt>`
+- `öffne`, `schließe`, `zerstöre`, `repariere`
+- `rede mit <person>`
+- `inventar`, `journal`, `karte`
+- `warte [minuten]`
+- `save [name]`, `load [name]`
+
+Höhe, Erreichbarkeit, geschlossene Türen und Inventarbesitz werden von den
+zustandsverändernden Aktionen geprüft.
+
+## Werkzeuge
+
+Aktuelles Kapitel validieren:
+
+```bash
+python -m tools.validator
+python -m tools.validator data.chapters.ep0_test_lab.config
+```
+
+JSON-Welt bearbeiten:
+
+```bash
+python -m tools.world_editor
+```
+
+Der World Editor bewahrt neben Räumen, Objekten und NPCs auch Events, Quests und
+Rezepte eines geladenen JSON-Kapitels. Solche JSON-Dateien können direkt mit
+`StoryLoader.load_chapter("/pfad/zum/kapitel.json")` geladen werden.
+
+Simulation anzeigen:
+
+```bash
+python -m tools.sim_viewer
+```
+
+## Tests
+
+```bash
+python -m unittest discover -v
+```
+
+Savegames verwenden Schema-Version 2 und enthalten die Kapitelidentität.
+Spielstände älterer oder anderer Kapitel werden bewusst nicht stillschweigend
+in einen inkompatiblen Zustand geladen.

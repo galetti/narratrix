@@ -1,77 +1,184 @@
-from engine.constants import *
+# narratrix_engine/engine/resolver.py
+from __future__ import annotations
+
+import difflib
+from typing import TYPE_CHECKING, Any
+
+from engine.constants import (
+    ATTR_ALIASES,
+    ATTR_ID,
+    ATTR_NAME,
+    FILTER_INVENTORY,
+    FILTER_RECURSIVE,
+    FILTER_ROOM,
+    LOC_INVENTORY,
+    TYPE_CONTAINER,
+    TYPE_SURFACE,
+)
+from engine.schema import NPCData, ObjectData
+
+if TYPE_CHECKING:
+    from engine.game_state import GameState
+
+
+class ResolutionError(Exception):
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
+class AmbiguityError(Exception):
+    """
+    Wird geworfen, wenn ein Begriff nicht eindeutig ist.
+    Bubbles up zum ActionDispatcher, um den Kontext zu erhalten.
+    """
+    def __init__(self, candidates: list[dict[str, Any]], query_words: list[str]) -> None:
+        self.candidates: list[dict[str, Any]] = candidates
+        self.query_words: list[str] = query_words 
+
 
 class Resolver:
-    @staticmethod
-    def clean_args(args):
-        # "den" hinzugefügt für Fälle wie "gib den verband"
-        skip_words = ["der", "die", "das", "ein", "eine", "einen", "im", "in", "am", "an", "den"]
-        return [w for w in args if w.lower() not in skip_words]
+    """
+    Hilfsklasse zum Auflösen von Text zu Spielobjekten.
+    Zentralisiert die Suchlogik und Disambiguierung.
+    Includes Performance-Optimizations (Lazy Loading).
+    """
 
     @staticmethod
-    def resolve_target(game, words, location_filter=FILTER_ROOM, verb=None):
-        if not words: return None
+    def clean_args(args: list[str]) -> list[str]:
+        ignore = ["in", "im", "an", "am", "auf", "mit", "bei", "zu", "nach", "den", "die", "das", "dem", "der", "einen", "eine", "ein"]
+        return [w for w in args if w.lower() not in ignore]
+
+    @staticmethod
+    def normalize_term(text: str) -> str:
+        return text.lower().replace("-", " ").replace("_", " ").strip()
+
+    @staticmethod
+    def _collect_candidates(game: GameState, location_filter: str | None) -> list[dict[str, Any]]:
+        """Sammelt Kandidaten basierend auf dem Filter."""
+        candidates: list[dict[str, Any]] = []
         
-        # WICHTIG: Arguments bereinigen (entfernt Füllwörter)
-        clean_words = Resolver.clean_args(words)
-        if not clean_words: return None
+        # Hilfsfunktion für Container-Inhalt
+        visited_containers: set[str | None] = set()
+
+        def add_contents_of(container_list: list[ObjectData], check_open: bool = True) -> None:
+            for obj in container_list:
+                if obj.get('type') in [TYPE_CONTAINER, TYPE_SURFACE]:
+                    obj_id = obj.get(ATTR_ID)
+                    if obj_id in visited_containers:
+                        continue
+                    visited_containers.add(obj_id)
+                    if not check_open or obj.get('type') == TYPE_SURFACE or obj.get('is_open', True):
+                        contents = [o for o in game.objects.values() if o['location'] == obj[ATTR_ID]]
+                        candidates.extend(contents)
+                        add_contents_of(contents, check_open)
+
+        # Basis-Listen (Listen-Comprehensions sind in Python sehr schnell)
+        room_objs = [o for o in game.objects.values() if o['location'] == game.location]
+        inv_objs = [o for o in game.objects.values() if o['location'] == LOC_INVENTORY]
+        room_npcs = [n for n in game.npcs if n['location'] == game.location]
+
+        if location_filter == FILTER_ROOM:
+            candidates.extend(room_objs)
+            candidates.extend(room_npcs)
+            add_contents_of(room_objs, check_open=True)
+            
+        elif location_filter == FILTER_INVENTORY:
+            candidates.extend(inv_objs)
+            add_contents_of(inv_objs, check_open=True)
+            
+        elif location_filter == FILTER_RECURSIVE:
+            candidates.extend(room_objs)
+            candidates.extend(room_npcs)
+            add_contents_of(room_objs, check_open=True)
+            candidates.extend(inv_objs)
+            add_contents_of(inv_objs, check_open=True)
+            
+        else:
+            candidates.extend(room_objs)
+            candidates.extend(inv_objs)
+            candidates.extend(room_npcs)
+            
+        return candidates
+
+    @staticmethod
+    def resolve_target(
+        game: GameState,
+        search_words: list[str],
+        location_filter: str | None = None,
+        verb: str = 'unknown',
+    ) -> dict[str, Any] | None:
+        if not search_words: 
+            return None 
         
-        search_text = " ".join(clean_words).lower()
+        # 1. Schneller Pfad: Lokale Suche OHNE Autokorrektur
+        search_query = Resolver.normalize_term(" ".join(search_words))
         candidates = Resolver._collect_candidates(game, location_filter)
         
-        # 1. Exakter Match auf ID (Debug/Admin)
-        for obj in candidates:
-            if obj[ATTR_ID] == search_text: return obj
+        exact_matches: list[dict[str, Any]] = []
+        substring_matches: list[dict[str, Any]] = []
+        
+        # 1a. Exakter Match oder Substring Match (Lokal)
+        for cand in candidates:
+            cand_name = Resolver.normalize_term(cand[ATTR_NAME])
+            cand_aliases = [Resolver.normalize_term(a) for a in cand.get(ATTR_ALIASES, [])]
             
-        # 2. Match auf Name
-        matches = [o for o in candidates if o.get(ATTR_NAME, "").lower() == search_text]
-        if len(matches) == 1: return matches[0]
+            # Priorität: Exakter Match
+            if search_query == cand_name or search_query in cand_aliases:
+                if cand not in exact_matches: exact_matches.append(cand)
+            # Sekundär: Substring Match (nur wenn wir noch keine exakten Matches haben oder sammeln wollen)
+            elif search_query in cand_name or any(search_query in a for a in cand_aliases):
+                if cand not in substring_matches: substring_matches.append(cand)
         
-        # 3. Match auf Aliases
-        alias_matches = []
-        for obj in candidates:
-            aliases = [a.lower() for a in obj.get(ATTR_ALIASES, [])]
-            if search_text in aliases:
-                alias_matches.append(obj)
-                
-        # Zusammenführen
-        all_matches = matches + alias_matches
-        
-        # Deduplizieren
-        unique = []
-        seen = set()
-        for m in all_matches:
-            if m[ATTR_ID] not in seen:
-                unique.append(m)
-                seen.add(m[ATTR_ID])
-                
-        if len(unique) == 1: return unique[0]
-        if len(unique) > 1:
-            game.log('info', f"Meinst du: {', '.join([u[ATTR_NAME] for u in unique])}?")
-            game.disambiguation = {
-                'verb': verb,
-                'candidates': unique
-            }
-            return None
-            
-        # 4. Fuzzy / Teil-Suche
-        partial_matches = []
-        for obj in candidates:
-            name = obj.get(ATTR_NAME, "").lower()
-            if search_text in name:
-                partial_matches.append(obj)
-            else:
-                for a in obj.get(ATTR_ALIASES, []):
-                    if search_text in a.lower():
-                        partial_matches.append(obj)
-                        break
-        
-        if len(partial_matches) == 1: return partial_matches[0]
-        if len(partial_matches) > 1:
-             names = list(set([o[ATTR_NAME] for o in partial_matches]))
-             game.log('info', f"Meinst du: {', '.join(names)}?")
-             return None
+        matches = exact_matches or substring_matches
+        if matches:
+            if len(matches) == 1: return matches[0]
+            raise AmbiguityError(matches, search_words)
 
-        return None
+        # 2. Langsamer Pfad: Autokorrektur & Globale Suche
+        # Wird nur ausgeführt, wenn der Spieler sich vertippt hat oder Quatsch eingibt.
+        
+        # Globale Begriffsliste aufbauen (Teuer!)
+        known_terms: set[str] = set()
+        for obj in game.objects.values():
+             known_terms.add(Resolver.normalize_term(obj[ATTR_NAME]))
+             for a in obj.get(ATTR_ALIASES, []): known_terms.add(Resolver.normalize_term(a))
+        
+        for npc in game.npcs:
+             known_terms.add(Resolver.normalize_term(npc[ATTR_NAME]))
+             for a in npc.get(ATTR_ALIASES, []): known_terms.add(Resolver.normalize_term(a))
+             
+        # Difflib Fuzzy Match
+        corrected_query: str | None = None
+        fuzzy_matches = difflib.get_close_matches(search_query, list(known_terms), n=1, cutoff=0.7)
+        
+        if fuzzy_matches:
+            corrected_query = fuzzy_matches[0]
+            # Jetzt suchen wir mit dem korrigierten Begriff erneut in den LOKALEN Kandidaten
+            for cand in candidates:
+                cand_name = Resolver.normalize_term(cand[ATTR_NAME])
+                cand_aliases = [Resolver.normalize_term(a) for a in cand.get(ATTR_ALIASES, [])]
+                
+                if corrected_query in cand_name or any(corrected_query in a for a in cand_aliases):
+                    if cand not in matches: matches.append(cand)
+        
+        # 3. Ergebnis Auswertung
+        if len(matches) == 0:
+            error_msg = f"Ich sehe hier kein '{search_query}'."
+            if not corrected_query:
+                # Es gab nicht mal einen ähnlichen Begriff im ganzen Spiel
+                error_msg = f"Ich weiß nicht, was ein '{search_query}' ist."
+            elif location_filter == FILTER_INVENTORY:
+                error_msg = f"Du hast kein '{corrected_query}' dabei."
+            else:
+                # Begriff existiert im Spiel, ist aber nicht hier
+                error_msg = f"Ich sehe hier kein '{corrected_query}'."
+
+            raise ResolutionError(error_msg)
+        
+        if len(matches) == 1: 
+            return matches[0]
+        
+        raise AmbiguityError(matches, search_words)
 
     @staticmethod
     def _collect_candidates(game, location_filter):
@@ -136,14 +243,27 @@ class Resolver:
         return []
 
     @staticmethod
-    def find_mentioned_npc(game, words):
-        if not words: return None
-        search = " ".join(words).lower()
-        
-        # Zuerst im Raum schauen
+    def find_mentioned_npc(game: GameState, words: list[str]) -> NPCData | None:
+        """Spezifische NPC Suche für Dialoge."""
+        query = Resolver.normalize_term(" ".join(words))
+        if not query:
+            return None
         local_npcs = [n for n in game.npcs if n['location'] == game.location]
+        
+        # 1. Schnellsuche
         for npc in local_npcs:
-            if search in npc[ATTR_NAME].lower(): return npc
-            if search in [a.lower() for a in npc.get(ATTR_ALIASES, [])]: return npc
+            n_name = Resolver.normalize_term(npc[ATTR_NAME])
+            n_aliases = [Resolver.normalize_term(a) for a in npc.get(ATTR_ALIASES, [])]
+            if query in n_name or any(query in alias for alias in n_aliases): return npc
+        
+        # 2. Fuzzy Suche (nur lokal bei NPCs, Dialoge über Distanz gehen eh nicht)
+        npc_map: dict[str, NPCData] = {}
+        for npc in local_npcs:
+            npc_map[Resolver.normalize_term(npc[ATTR_NAME])] = npc
+            for a in npc.get(ATTR_ALIASES, []): npc_map[Resolver.normalize_term(a)] = npc
+            
+        matches = difflib.get_close_matches(query, list(npc_map.keys()), n=1, cutoff=0.7)
+        if matches:
+            return npc_map[matches[0]]
             
         return None

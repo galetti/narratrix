@@ -1,0 +1,25 @@
+{
+  "meta": {
+    "name": "JSON Fixture",
+    "start_room": "json_room"
+  },
+  "rooms": {
+    "json_room": {
+      "id": "json_room",
+      "name": "JSON-Raum",
+      "desc": "Ein minimaler Testraum.",
+      "exits": {},
+      "_editor": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      }
+    }
+  },
+  "objects": {},
+  "npcs": [],
+  "combinations": [],
+  "narrative_matrix": [],
+  "events": [],
+  "quests": {}
+}
