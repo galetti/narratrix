@@ -101,9 +101,7 @@ class InventoryHandler:
                 if item.get(ATTR_MATTER) == MATTER_LIQUID: continue
                 
                 # Check Reach (Reichweite)
-                # Man kann Items auf der gleichen Ebene ODER eine Ebene höher nehmen (Tisch)
-                item_level = item.get('level', 0)
-                if not (item_level == game.elevation or item_level == game.elevation + 1): 
+                if not is_directly_reachable(game, item, upward_reach=1):
                     continue
 
                 if item.get('is_resource'):
@@ -133,12 +131,10 @@ class InventoryHandler:
                 if not InventoryHandler._is_takeable(target):
                     return game.log('error', Texts.TAKE_TOO_HEAVY)
                 
-                # Vertikaler Check
+                # Vertikaler Check über zentrale Reichweitenlogik
                 item_level = target.get('level', 0)
                 player_level = game.elevation
-                
-                # Erlaubt: Gleiche Ebene oder +1 (Tischhöhe)
-                is_reachable = (item_level == player_level) or (item_level == player_level + 1)
+                is_reachable = is_directly_reachable(game, target, upward_reach=1)
                 
                 if not is_reachable:
                     can_reach = False

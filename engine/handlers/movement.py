@@ -12,6 +12,7 @@ from engine.constants import (
 )
 from engine.resolver import Resolver, ResolutionError
 from engine.strings import Texts
+from engine.handlers.common import CommonHandler
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
@@ -46,18 +47,7 @@ class MovementHandler:
         if visible_items:
             game.log('info', f"Hier siehst du: {', '.join(visible_items)}")
 
-        visible_npcs: list[str] = []
-        for npc in game.npcs:
-            if npc.get('location') != room_id:
-                continue
-            npc_level = int(npc.get('level', 0))
-            npc_label = npc[ATTR_NAME]
-            if npc_level > game.elevation:
-                npc_label += f" (oben auf Ebene {npc_level})"
-            elif npc_level < game.elevation:
-                npc_label += f" (unten auf Ebene {npc_level})"
-            visible_npcs.append(npc_label)
-
+        visible_npcs = CommonHandler.format_visible_npcs(game, room_id)
         if visible_npcs:
             game.log('character', Texts.LOOK_PERSONS.format(', '.join(visible_npcs)))
 

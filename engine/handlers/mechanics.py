@@ -52,7 +52,7 @@ class MechanicsHandler:
                 return game.log("error", f"Auf/in {target[ATTR_NAME]} lässt sich nichts legen.")
             if target.get("type") == TYPE_CONTAINER and not target.get("is_open", False):
                 return game.log("error", f"{target[ATTR_NAME]} ist geschlossen.")
-            if MechanicsHandler._is_descendant(game, target, item[ATTR_ID]):
+            if CommonHandler.is_contained_in(game, target, item[ATTR_ID]):
                 return game.log("error", "Container können nicht zyklisch verschachtelt werden.")
 
             item["location"] = target[ATTR_ID]
@@ -329,18 +329,3 @@ class MechanicsHandler:
             target["name"] = f"kaputte(s) {target['name']}"
         target["desc"] = "Völlig zerstört."
 
-    @staticmethod
-    def _is_descendant(
-        game: GameState, candidate: dict[str, Any], ancestor_id: str
-    ) -> bool:
-        current: dict[str, Any] = candidate
-        seen: set[str] = set()
-        while current.get("location") in game.objects:
-            location = current["location"]
-            if location == ancestor_id:
-                return True
-            if location in seen:
-                return True
-            seen.add(location)
-            current = game.objects[location]
-        return False

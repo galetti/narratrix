@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Sequence
 
 from engine.access import is_directly_reachable, reach_error
-from engine.constants import ATTR_ALIASES, ATTR_NAME, LOC_INVENTORY, LOC_VOID
+from engine.constants import ATTR_NAME, FILTER_RECURSIVE, LOC_INVENTORY, LOC_VOID
+from engine.resolver import AmbiguityError, ResolutionError, Resolver
 from engine.schema import EntityData, ObjectData, RecipeData
 
 if TYPE_CHECKING:
@@ -176,25 +177,9 @@ class CraftingSystem:
         return None
 
     def _find_obj_or_npc_by_name(self, name: str) -> dict[str, Any] | None:
-        normalized = name.lower().strip()
-        candidates: list[dict[str, Any]] = [
-            obj
-            for obj in self.game.objects.values()
-            if obj.get("location") in {LOC_INVENTORY, self.game.location}
-        ]
-        candidates.extend(
-            npc for npc in self.game.npcs if npc.get("location") == self.game.location
-        )
-
-        for entity in candidates:
-            if entity[ATTR_NAME].lower() == normalized:
-                return entity
-        for entity in candidates:
-            if any(alias.lower() == normalized for alias in entity.get(ATTR_ALIASES, [])):
-                return entity
-        matches = [
-            entity
-            for entity in candidates
-            if normalized and normalized in entity[ATTR_NAME].lower()
-        ]
-        return matches[0] if len(matches) == 1 else None
+        try:
+            return Resolver.resolve_target(
+                self.game, name.split(), location_filter=FILTER_RECURSIVE, verb="craft"
+            )
+        except (ResolutionError, AmbiguityError):
+            return None

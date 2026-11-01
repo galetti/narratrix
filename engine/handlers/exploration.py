@@ -124,17 +124,7 @@ class ExplorationHandler:
                 game.log('info', Texts.LOOK_GROUND.format(', '.join(visible_objs)))
             
             # NPCs anzeigen (inkl. Höhen-Info)
-            visible_npcs: list[str] = []
-            for n in game.npcs:
-                if n['location'] != game.location:
-                    continue
-                npc_level = int(n.get('level', 0))
-                npc_label = n[ATTR_NAME]
-                if npc_level > game.elevation:
-                    npc_label += f" (oben auf Ebene {npc_level})"
-                elif npc_level < game.elevation:
-                    npc_label += f" (unten auf Ebene {npc_level})"
-                visible_npcs.append(npc_label)
+            visible_npcs = CommonHandler.format_visible_npcs(game, game.location)
             if visible_npcs: 
                 game.log('character', Texts.LOOK_PERSONS.format(', '.join(visible_npcs)))
             return
