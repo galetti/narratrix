@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Sequence
 
 from engine.access import is_directly_reachable, reach_error
-from engine.constants import ATTR_ALIASES, ATTR_ID, ATTR_NAME, LOC_INVENTORY, LOC_VOID
+from engine.constants import ATTR_ALIASES, ATTR_NAME, LOC_INVENTORY, LOC_VOID
 from engine.schema import EntityData, ObjectData, RecipeData
 
 if TYPE_CHECKING:
