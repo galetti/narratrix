@@ -180,67 +180,6 @@ class Resolver:
         
         raise AmbiguityError(matches, search_words)
 
-    @staticmethod
-    def _collect_candidates(game, location_filter):
-        if location_filter == FILTER_INVENTORY:
-            # FIX: Suche direkt in Objekten nach Location
-            return [o for o in game.objects.values() if o.get('location') == LOC_INVENTORY]
-        
-        elif location_filter == FILTER_ROOM: 
-            return [o for o in game.objects.values() if o.get('location') == game.location]
-            
-        elif location_filter == FILTER_RECURSIVE:
-            # Alles (für globale Suche), ABER ohne LOC_VOID
-            # Wir wollen nur Objekte finden, die tatsächlich im Spiel "existieren" (Raum, Inventar, Container)
-            # und nicht solche, die erst noch gecraftet werden müssen oder gelöscht wurden.
-            
-            # Strategie: Wir sammeln rekursiv alles ein, was vom Spieler aus erreichbar ist.
-            # Das ist sauberer als "alles außer void".
-            
-            # Startpunkte: Inventar und aktueller Raum
-            candidates = []
-            visited = set()
-            
-            # 1. Alles im Inventar
-            inventory_items = [o for o in game.objects.values() if o.get('location') == LOC_INVENTORY]
-            candidates.extend(inventory_items)
-            
-            # 2. Alles im Raum
-            room_items = [o for o in game.objects.values() if o.get('location') == game.location]
-            candidates.extend(room_items)
-            
-            # IDs merken für Rekursion
-            to_process = [o[ATTR_ID] for o in candidates]
-            visited.update(to_process)
-            
-            # 3. Rekursiv Inhalte von Containern finden
-            # Wir schauen uns alle Objekte an. Wenn ihr Location-Parent in unserer 'visited'-Liste ist,
-            # dann sind sie auch sichtbar/erreichbar (zumindest für den Resolver).
-            # Das ist ineffizient O(N^2) im Worst Case, aber bei <1000 Items okay.
-            # Besserer Ansatz: Iteriere solange, bis keine neuen Items mehr gefunden werden.
-            
-            changed = True
-            while changed:
-                changed = False
-                # Suche Objekte, deren Parent bereits als "sichtbar" markiert wurde
-                potential_contents = [
-                    o for o in game.objects.values() 
-                    if o.get('location') in visited and o[ATTR_ID] not in visited
-                ]
-                
-                for item in potential_contents:
-                    # Optional: Prüfen ob Parent ein offener Container ist?
-                    # Für den Resolver ist es oft besser, tolerant zu sein ("nimm münze" geht auch wenn sie in der offenen truhe ist)
-                    # Wir lassen die strikte "is_open"-Prüfung dem InteractionHandler, 
-                    # aber wir schließen VOID definitiv aus, da VOID nie in 'visited' sein wird.
-                    candidates.append(item)
-                    visited.add(item[ATTR_ID])
-                    to_process.append(item[ATTR_ID])
-                    changed = True
-            
-            return candidates
-            
-        return []
 
     @staticmethod
     def find_mentioned_npc(game: GameState, words: list[str]) -> NPCData | None:
