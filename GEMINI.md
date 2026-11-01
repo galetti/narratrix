@@ -18,6 +18,7 @@ Deine Aufgabe ist es, die modulare Engine, den Parser, das Event-/Acoustic-Syste
 - **Höhenebenen (Elevation):** Objekte und NPCs mit `level > 0` müssen beim Raumwechsel (`_list_room_items`) und bei `schaue` mit Höhenangaben (`oben/unten auf Ebene X`) transparent visualisiert werden.
 - **Sensor-HUD & Log-Synchronität:** Anwesende NPCs (`present_npcs`) müssen in Echtzeit synchron an das HUD und Log übermittelt werden.
 - **Verbindliche IDs:** In allen Kapiteln müssen Dictionary-Keys und das interne `id`-Feld strikt übereinstimmen.
+- **Rezept-Verben (Kombinationen):** In `items.py` dürfen Rezepte (`COMBINATIONS`) laut Schema ausschließlich die Verben `"use"` oder `"break"` verwenden. Synonyme Aktionen wie *reparieren*, *anwenden* oder *schlagen* werden vom Dispatcher automatisch auf diese beiden Basistypen gemappt.
 
 ### 3. Parser & Befehlsauflösung
 - Alle Himmelsrichtungs-Kürzel (`n`, `s`, `w`, `o`, `u`, `d`) sowie Bindestrich-Kommandos müssen sowohl im Spacy-Parser als auch im regelbasierten Fallback-Parser fehlerfrei verarbeitet werden.
@@ -29,5 +30,6 @@ Deine Aufgabe ist es, die modulare Engine, den Parser, das Event-/Acoustic-Syste
 - **Test-Architektur:**
   - `tests/test_engine.py`: Verträge, Quests, Save/Load, Spacy-Parser und AST-Code-Hygiene.
   - `tests/test_systems.py`: Isolierte Modultests für regelbasierten Parser, Akustik/Schalldämpfung und KI-Behavior-Trees.
+- **Kapitel-Testabdeckung:** Jedes neu angelegte Kapitel muss in `test_chapters_validate_and_intro_is_loaded` aufgenommen und mit einem eigenen deterministischen End-to-End-Testlauf in `tests/test_engine.py` auf Lösbarkeit abgesichert werden.
 - Manueller Testaufruf zur Verifikation:
   `/home/thorsten/miniconda3/envs/narratrix/bin/python -m unittest discover tests`
