@@ -64,7 +64,7 @@ GLOBAL_CONFIG = {
         "directions": {
             "north": ["n", "nord", "norden", "brücke"],
             "south": ["s", "süd", "süden", "kantine"],
-            "east": ["e", "ost", "osten", "reaktor"],
+            "east": ["e", "o", "ost", "osten", "reaktor"],
             "west": ["w", "west", "westen", "schleuse"],
             "up": ["u", "up", "oben", "deck1"],
             "down": ["d", "down", "unten", "wartung"]

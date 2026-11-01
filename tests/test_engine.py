@@ -24,23 +24,28 @@ from engine.ui import RichTextRenderer, load_system_config
 
 EP0: str = "data.chapters.ep0_test_lab.config"
 EP1: str = "data.chapters.ep1_deep_zero.config"
+EP2: str = "data.chapters.ep2_habitat_sector.config"
 
 
 class NarratrixEngineTests(unittest.TestCase):
     ep0: dict[str, Any]
     ep1: dict[str, Any]
+    ep2: dict[str, Any]
 
     @classmethod
     def setUpClass(cls) -> None:
         ep0 = StoryLoader.load_chapter(EP0, raise_on_error=True)
         ep1 = StoryLoader.load_chapter(EP1, raise_on_error=True)
-        assert ep0 is not None and ep1 is not None
+        ep2 = StoryLoader.load_chapter(EP2, raise_on_error=True)
+        assert ep0 is not None and ep1 is not None and ep2 is not None
         cls.ep0 = ep0
         cls.ep1 = ep1
+        cls.ep2 = ep2
 
     def test_chapters_validate_and_intro_is_loaded(self) -> None:
         validate_game_config(copy.deepcopy(self.ep0))
         validate_game_config(copy.deepcopy(self.ep1))
+        validate_game_config(copy.deepcopy(self.ep2))
         game = GameState(self.ep1)
         texts = [entry["text"] for entry in game.logs]
         self.assertTrue(any("Andockklammern" in text for text in texts))
@@ -328,6 +333,59 @@ class NarratrixEngineTests(unittest.TestCase):
         )
         parser.parse("betrete schacht")
         self.assertEqual(game.elevation, 2)
+
+    def test_ep2_habitat_sector_end_to_end(self) -> None:
+        game = GameState(self.ep2)
+        parser = SpacyParser(game)
+
+        # 1. Start in der Schleuse; Intro-Meldung empfangen
+        self.assertEqual(game.location, "quarters_airlock")
+        self.assertTrue(any("Habitat-Schleuse" in e["text"] for e in game.logs))
+
+        # 2. In die Lounge gehen; Scrubber MK-2 sehen
+        parser.parse("o")
+        self.assertEqual(game.location, "living_commons")
+        self.assertIn("Scrubber (MK-2)", game.get_snapshot()["present_npcs"])
+
+        # 3. Ins Quartier 4B gehen, Spind öffnen und Dichtungsband nehmen
+        parser.parse("s")
+        self.assertEqual(game.location, "crew_cabin_thorne")
+        parser.parse("nimm dichtungsband")
+        self.assertEqual(game.objects["sealant_tape"]["location"], "inventory")
+
+        # 4. In die Biosphäre gehen
+        parser.parse("n")
+        self.assertEqual(game.location, "living_commons")
+        parser.parse("n")
+        self.assertEqual(game.location, "hydroponics_bay")
+        self.assertIn("Dr. Elena Vance", game.get_snapshot()["present_npcs"])
+
+        # 5. Quest starten via Dialog
+        game.events.trigger_event_by_id("event_quest_start")
+        self.assertEqual(game.quests.states["biosphere_pressure"]["status"], "active")
+
+        # 6. Auf Ebene 1 klettern
+        parser.parse("klettere service-leiter")
+        self.assertEqual(game.elevation, 1)
+
+        # 7. Ventil kalibrieren & Dampfleitung versiegeln
+        parser.parse("benutze omni-tool mit ventil")
+        self.assertIn("valve_calibrated", game.knowledge)
+        parser.parse("benutze dichtungsband mit dampfleitung")
+        self.assertIn("steam_fixed", game.knowledge)
+
+        # 8. Hinabsteigen und Belohnung erhalten
+        parser.parse("klettere runter")
+        self.assertEqual(game.elevation, 0)
+
+        vance = next(npc for npc in game.npcs if npc["id"] == "dr_vance")
+        reward_entry = vance["dialogue"]["relieved"]["reward"]
+        assert isinstance(reward_entry, dict)
+        game.effects.process(reward_entry["effect"], context_npc=vance)
+
+        self.assertEqual(game.objects["core_access_chip"]["location"], "inventory")
+        self.assertEqual(game.quests.states["biosphere_pressure"]["status"], "completed")
+        self.assertTrue(game.game_over)
 
     def test_ui_helpers_work_headless(self) -> None:
         class _DummyFont:

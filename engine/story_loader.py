@@ -177,7 +177,7 @@ class StoryLoader:
             "directions": {
                 "north": ["n", "nord", "norden"],
                 "south": ["s", "süd", "süden"],
-                "east": ["e", "ost", "osten"],
+                "east": ["e", "o", "ost", "osten"],
                 "west": ["w", "west", "westen"],
                 "up": ["u", "up", "oben", "rauf", "hoch"],
                 "down": ["d", "down", "unten", "runter"],
