@@ -25,27 +25,32 @@ from engine.ui import RichTextRenderer, load_system_config
 EP0: str = "data.chapters.ep0_test_lab.config"
 EP1: str = "data.chapters.ep1_deep_zero.config"
 EP2: str = "data.chapters.ep2_habitat_sector.config"
+EP3: str = "data.chapters.ep3_reactor_core.config"
 
 
 class NarratrixEngineTests(unittest.TestCase):
     ep0: dict[str, Any]
     ep1: dict[str, Any]
     ep2: dict[str, Any]
+    ep3: dict[str, Any]
 
     @classmethod
     def setUpClass(cls) -> None:
         ep0 = StoryLoader.load_chapter(EP0, raise_on_error=True)
         ep1 = StoryLoader.load_chapter(EP1, raise_on_error=True)
         ep2 = StoryLoader.load_chapter(EP2, raise_on_error=True)
-        assert ep0 is not None and ep1 is not None and ep2 is not None
+        ep3 = StoryLoader.load_chapter(EP3, raise_on_error=True)
+        assert ep0 is not None and ep1 is not None and ep2 is not None and ep3 is not None
         cls.ep0 = ep0
         cls.ep1 = ep1
         cls.ep2 = ep2
+        cls.ep3 = ep3
 
     def test_chapters_validate_and_intro_is_loaded(self) -> None:
         validate_game_config(copy.deepcopy(self.ep0))
         validate_game_config(copy.deepcopy(self.ep1))
         validate_game_config(copy.deepcopy(self.ep2))
+        validate_game_config(copy.deepcopy(self.ep3))
         game = GameState(self.ep1)
         texts = [entry["text"] for entry in game.logs]
         self.assertTrue(any("Andockklammern" in text for text in texts))
@@ -385,6 +390,70 @@ class NarratrixEngineTests(unittest.TestCase):
 
         self.assertEqual(game.objects["core_access_chip"]["location"], "inventory")
         self.assertEqual(game.quests.states["biosphere_pressure"]["status"], "completed")
+        self.assertTrue(game.game_over)
+
+    def test_ep3_reactor_core_end_to_end(self) -> None:
+        game = GameState(self.ep3)
+        parser = SpacyParser(game)
+
+        # 1. Start auf der Zugangsbrücke; Intro-Log und Drohne Aegis
+        self.assertEqual(game.location, "reactor_bridge")
+        self.assertIn("Aegis (MK-3)", game.get_snapshot()["present_npcs"])
+
+        # 2. In den Leitstand gehen und mit Dr. Sato sprechen
+        parser.parse("o")
+        self.assertEqual(game.location, "control_room")
+        self.assertIn("Dr. Sato", game.get_snapshot()["present_npcs"])
+
+        # Quest starten
+        game.events.trigger_event_by_id("event_quest_start")
+        self.assertEqual(game.quests.states["reactor_overdrive"]["status"], "active")
+
+        # 3. Zurück zur Brücke, dann nach Norden ins Kryo-Kühllager
+        parser.parse("w")
+        self.assertEqual(game.location, "reactor_bridge")
+        parser.parse("n")
+        self.assertEqual(game.location, "coolant_depot")
+
+        # Kryo-Kühlkanister nehmen
+        parser.parse("nimm kühlkanister")
+        self.assertEqual(game.objects["cryo_canister"]["location"], "inventory")
+
+        # 4. Nach Süden zur Brücke, dann nach Süden in die Reaktorkammer
+        parser.parse("s")
+        self.assertEqual(game.location, "reactor_bridge")
+        parser.parse("s")
+        self.assertEqual(game.location, "reactor_chamber")
+
+        # 5. Auf Ebene 2 klettern
+        parser.parse("klettere injektor-leiter")
+        self.assertEqual(game.elevation, 2)
+
+        # 6. Kühlkanister an den Injektor-Verteiler anschließen
+        parser.parse("benutze kühlkanister mit verteiler")
+        self.assertIn("core_cooled", game.knowledge)
+
+        # 7. Hinabsteigen, zurück zur Brücke und in den Leitstand
+        parser.parse("klettere runter")
+        self.assertEqual(game.elevation, 0)
+        parser.parse("n")
+        self.assertEqual(game.location, "reactor_bridge")
+        parser.parse("o")
+        self.assertEqual(game.location, "control_room")
+
+        # 8. Steuerkonsole mit dem Omni-Tool kalibrieren
+        parser.parse("benutze omni-tool mit steuerkonsole")
+        self.assertIn("core_stabilized", game.knowledge)
+        self.assertEqual(game.quests.states["reactor_overdrive"]["stage"], 3)
+
+        # 9. Dr. Sato überreicht den Generalschlüssel und das Spiel endet siegreich
+        sato = next(npc for npc in game.npcs if npc["id"] == "sato")
+        reward_entry = sato["dialogue"]["celebrating"]["reward"]
+        assert isinstance(reward_entry, dict)
+        game.effects.process(reward_entry["effect"], context_npc=sato)
+
+        self.assertEqual(game.objects["master_station_key"]["location"], "inventory")
+        self.assertEqual(game.quests.states["reactor_overdrive"]["status"], "completed")
         self.assertTrue(game.game_over)
 
     def test_ui_helpers_work_headless(self) -> None:
