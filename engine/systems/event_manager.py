@@ -183,9 +183,14 @@ class EventManager:
                     formatted_direction = (
                         direction[0].upper() + direction[1:] if direction else "Irgendwo"
                     )
+                    msg = (
+                        event["muffled_msg"]
+                        if heard_volume < 0.3 and "muffled_msg" in event
+                        else event["sound_msg"]
+                    )
                     self.game.log(
                         "event",
-                        f"{formatted_direction} hörst du: {prefix}{event['sound_msg']}",
+                        f"{formatted_direction} hörst du: {prefix}{msg}",
                     )
             elif origin == self.game.location and "description" not in event:
                 self.game.log("event", event["sound_msg"])

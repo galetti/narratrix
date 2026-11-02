@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from engine.resolver import Resolver, ResolutionError
 from engine.constants import (
@@ -10,8 +10,10 @@ from engine.constants import (
     ATTR_NAME,
     ATTR_TEMP,
     ATTR_WEIGHT,
+    FILTER_INVENTORY,
     FILTER_RECURSIVE,
     FILTER_ROOM,
+    LOC_INVENTORY,
     MATTER_LIQUID,
     STATE_BROKEN,
     STATE_SABOTAGED,
@@ -174,3 +176,225 @@ class ExplorationHandler:
                 game.log('story', desc)
         except ResolutionError as e:
             game.log('error', str(e))
+
+    @staticmethod
+    def _volume_through_neighbor(
+        game: GameState,
+        source_id: str,
+        listener_id: str,
+        target_neighbor_id: str,
+        tool_bonus: float = 0.0,
+    ) -> float:
+        for neighbor, transmission, _ in game.acoustics._neighbors(listener_id):
+            if neighbor != target_neighbor_id:
+                continue
+            effective = transmission
+            if tool_bonus and transmission < 0.5:
+                effective = min(1.0, transmission + tool_bonus)
+            remote = game.acoustics._max_transmission(
+                source_id,
+                neighbor,
+                forbidden={listener_id},
+            )
+            return remote * effective
+        return 0.0
+
+    @staticmethod
+    def listen(game: GameState, args: list[str]) -> None:
+        if game.hidden_in:
+            container = game.objects.get(game.hidden_in)
+            if container:
+                game.log("info", f"Du lauschst aus deinem Versteck in {container[ATTR_NAME]} heraus...")
+
+        # 1. Prüfen auf Werkzeug ("mit <item>")
+        tool_words: list[str] = []
+        target_words: list[str] = []
+        lower_args = [w.lower() for w in args]
+
+        if "mit" in lower_args:
+            mit_idx = lower_args.index("mit")
+            if mit_idx == 0:
+                sep_idx = -1
+                for s_i, word in enumerate(lower_args[1:], start=1):
+                    if word in {"an", "gegen", "durch", "bei"}:
+                        sep_idx = s_i
+                        break
+                if sep_idx != -1:
+                    tool_words = args[1:sep_idx]
+                    target_words = args[sep_idx + 1 :]
+                else:
+                    tool_words = args[1:]
+            else:
+                target_words = args[:mit_idx]
+                tool_words = args[mit_idx + 1 :]
+        else:
+            target_words = args
+
+        used_tool: dict[str, Any] | None = None
+        if tool_words:
+            try:
+                used_tool = Resolver.resolve_target(
+                    game, tool_words, location_filter=FILTER_INVENTORY, verb="listen_tool"
+                )
+            except ResolutionError as exc:
+                game.log("error", str(exc))
+                return
+
+        inventory_boost_tool = next(
+            (
+                obj
+                for obj in game.objects.values()
+                if obj.get("location") == LOC_INVENTORY
+                and float(obj.get("acoustic_boost", 0.0)) > 0.0
+            ),
+            None,
+        )
+
+        clean_target = Resolver.clean_args(target_words)
+        if clean_target:
+            try:
+                target = Resolver.resolve_target(
+                    game, clean_target, location_filter=FILTER_RECURSIVE, verb="listen_target"
+                )
+                if not target:
+                    return
+
+                linked_exit = target.get("linked_exit")
+                current_room = game.rooms.get(game.location, {})
+                target_room_id = (
+                    current_room.get("exits", {}).get(linked_exit)
+                    if linked_exit
+                    else None
+                )
+
+                if used_tool or (inventory_boost_tool and not tool_words and target.get("linked_exit")):
+                    active_tool = used_tool or inventory_boost_tool
+                    if float(active_tool.get("acoustic_boost", 0.0)) <= 0.0:
+                        game.log(
+                            "info",
+                            f"Du hältst {active_tool[ATTR_NAME]} an {target[ATTR_NAME]}, aber es verstärkt den Schall nicht.",
+                        )
+                        return
+
+                    if target_room_id:
+                        tool_bonus = float(active_tool.get("acoustic_boost", 0.0))
+                        best_vol = 0.0
+                        best_event = None
+                        for ev in game.events.events:
+                            if not ev.get("sound_msg") or not ev.get("origin_id"):
+                                continue
+                            if not game.events.evaluate_condition(ev.get("condition", {})):
+                                continue
+                            vol = ExplorationHandler._volume_through_neighbor(
+                                game,
+                                ev["origin_id"],
+                                game.location,
+                                target_room_id,
+                                tool_bonus=tool_bonus,
+                            )
+                            if vol > best_vol:
+                                best_vol = vol
+                                best_event = ev
+
+                        if best_vol >= 0.3 and best_event:
+                            game.log(
+                                "success",
+                                f"Du drückst {active_tool[ATTR_NAME]} fest gegen {target[ATTR_NAME]} und lauschst am Boden des Glases. "
+                                f"Die Schwingungen der Tür übertragen sich klar auf das Glas! Du hörst zwei Stimmen glasklar:\n"
+                                f"'{best_event['sound_msg']}'",
+                            )
+                            game.add_knowledge("sabotage_plan_uncovered")
+                            if "investigate_sabotage" in game.quests.states:
+                                game.quests.update_quest("investigate_sabotage", 2)
+                                game.quests.complete_quest("investigate_sabotage")
+                            if best_event.get("effects"):
+                                game.effects.process(best_event["effects"])
+                            game.tick(1)
+                            return
+                        elif best_vol > 0.0:
+                            game.log(
+                                "info",
+                                f"Du drückst {active_tool[ATTR_NAME]} gegen {target[ATTR_NAME]}. "
+                                f"Du hörst gedämpfte Stimmen, aber der Schall wird noch zu stark geschluckt.",
+                            )
+                            return
+                        else:
+                            game.log(
+                                "info",
+                                f"Du drückst {active_tool[ATTR_NAME]} gegen {target[ATTR_NAME]} und lauschst angestrengt. "
+                                f"Doch dahinter herrscht absolute Stille – der Raum scheint schallundurchdringlich isoliert zu sein.",
+                            )
+                            return
+
+                if target_room_id:
+                    best_vol = 0.0
+                    for ev in game.events.events:
+                        if not ev.get("sound_msg") or not ev.get("origin_id"):
+                            continue
+                        if not game.events.evaluate_condition(ev.get("condition", {})):
+                            continue
+                        vol = ExplorationHandler._volume_through_neighbor(
+                            game,
+                            ev["origin_id"],
+                            game.location,
+                            target_room_id,
+                            tool_bonus=0.0,
+                        )
+                        if vol > best_vol:
+                            best_vol = vol
+
+                    if best_vol > 0.05:
+                        hint = (
+                            " Wenn du ein akustisches Verstärkerglas hättest, könntest du es verstehen!"
+                            if inventory_boost_tool is None
+                            else f" Drücke dein {inventory_boost_tool[ATTR_NAME]} an die Tür ('lausche an tür mit glas'), um es zu verstehen!"
+                        )
+                        game.log(
+                            "info",
+                            f"Du lauschst an {target[ATTR_NAME]}. Du nimmst gedämpftes Gemurmel und Stimmen wahr, aber das Schott schluckt zu viel Schall.{hint}",
+                        )
+                        return
+                    else:
+                        game.log(
+                            "info",
+                            f"Du lauschst an {target[ATTR_NAME]}. Dahinter ist es vollkommen still.",
+                        )
+                        return
+
+                game.log(
+                    "info",
+                    f"Du lauschst an {target[ATTR_NAME]}, kannst aber keine auffälligen Geräusche ausmachen.",
+                )
+                return
+            except ResolutionError as exc:
+                game.log("error", str(exc))
+                return
+
+        audible_count = 0
+        for event in game.events.events:
+            origin = event.get("origin_id")
+            if not origin or "sound_msg" not in event:
+                continue
+            if not game.events.evaluate_condition(event.get("condition", {})):
+                continue
+
+            vol, direction = game.acoustics.get_audibility_info(
+                origin, game.location, use_player_tools=bool(inventory_boost_tool)
+            )
+            heard_volume = min(1.0, vol * float(event.get("volume", 1.0)))
+            if heard_volume > 0.05:
+                audible_count += 1
+                prefix = (
+                    "(leise) "
+                    if heard_volume < 0.3
+                    else ("(LAUT) " if heard_volume > 0.8 else "")
+                )
+                dir_txt = direction[0].upper() + direction[1:] if direction else "Irgendwo"
+                game.log("event", f"{dir_txt} hörst du: {prefix}{event['sound_msg']}")
+
+        if audible_count == 0:
+            game.log(
+                "info",
+                "Du lauschst angestrengt in die Stille. Abgesehen vom leisen Surren der Stationslüftung ist nichts zu hören.",
+            )
+        game.tick(1)

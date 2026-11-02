@@ -171,6 +171,7 @@ class StoryLoader:
                 "hack": ["hack", "hacken", "system", "override"],
                 "help": ["hilfe", "help", "h", "?", "commands", "befehle"],
                 "hide": ["verstecke", "hide", "krieche", "duck"],
+                "listen": ["lausche", "lauschen", "horche", "horchen", "listen", "höre", "hören", "belausche", "belauschen"],
                 "journal": ["journal", "logbuch", "aufgaben", "quests", "ziele", "j"],
                 "climb": ["klettere", "climb", "steige", "erklimme"],
             },

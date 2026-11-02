@@ -302,6 +302,91 @@ ITEMS: dict[str, ObjectData] = {
         "state": STATE_BROKEN,
         ATTR_WEIGHT: 0.8,
     },
+    # --- RÄTSEL: AKUSTIK-BELAUSCHUNG & SCHALLSCHUTZ-MANIPULATION ---
+    "anteroom_door": {
+        ATTR_ID: "anteroom_door",
+        ATTR_NAME: "Vorraum-Tür",
+        ATTR_DESC: "Eine metallene Schotttür mit Gummilippendichtung, die den Sicherheits-Vorraum vom Hub trennt.",
+        ATTR_ALIASES: ["vorraum-tür", "vorraumtür", "tür", "schott", "schotttür", "vorraumtuer"],
+        "location": "central_hub",
+        "type": TYPE_CONTAINER,
+        "linked_exit": "west",
+        "is_open": True,
+        "is_locked": False,
+        "acoustic_damping": 0.12,
+        ATTR_WEIGHT: 400.0,
+    },
+    "soundproof_door": {
+        ATTR_ID: "soundproof_door",
+        ATTR_NAME: "Schallschutztür",
+        ATTR_DESC: "Eine massive, luftdicht schließende Schallschutztür. Eine starke Hydraulikfeder hält sie geschlossen.",
+        ATTR_ALIASES: ["schallschutztür", "schallschutztuer", "tür", "schutztür", "schott"],
+        "location": "briefing_anteroom",
+        "type": TYPE_CONTAINER,
+        "linked_exit": "north",
+        "is_open": False,
+        "is_locked": False,
+        "acoustic_damping": 0.0,
+        ATTR_WEIGHT: 600.0,
+    },
+    "briefing_consoles": {
+        ATTR_ID: "briefing_consoles",
+        ATTR_NAME: "Kontrollmonitore",
+        ATTR_DESC: "Flache Diagnose-Monitore an den Wänden des Sicherheits-Vorraums.",
+        ATTR_ALIASES: ["monitore", "konsolen", "bildschirme", "kontrollmonitore"],
+        "location": "briefing_anteroom",
+        "type": TYPE_FIXTURE,
+    },
+    "conference_table": {
+        ATTR_ID: "conference_table",
+        ATTR_NAME: "Konferenztisch",
+        ATTR_DESC: "Ein runder Metalltisch mit eingelassenen Kommunikationspaneelen.",
+        ATTR_ALIASES: ["tisch", "konferenztisch"],
+        "location": "soundproof_office",
+        "type": TYPE_FIXTURE,
+    },
+    "door_wedge": {
+        ATTR_ID: "door_wedge",
+        ATTR_NAME: "Schwerer Türkeil",
+        ATTR_DESC: "Ein robuster, gummierter Metallkeil aus dem Maschinenraum. Ideal, um Schotttüren und Brandschutztüren offen zu blockieren.",
+        ATTR_ALIASES: ["türkeil", "keil", "metallkeil", "tuerkeil", "wedge"],
+        "location": "lower_deck",
+        "type": TYPE_ITEM,
+        ATTR_WEIGHT: 1.2,
+    },
+    "amplifying_glass": {
+        ATTR_ID: "amplifying_glass",
+        ATTR_NAME: "Akustik-Glas",
+        ATTR_DESC: "Ein dickwandiges Labor-Trinkglas. Wenn man es mit dem Rand gegen eine Tür oder Wand drückt, wirkt der Hohlraum wie ein mechanischer Schallverstärker.",
+        ATTR_ALIASES: ["glas", "akustik-glas", "akustikglas", "trinkglas", "labor-glas"],
+        "location": "central_hub",
+        "type": TYPE_ITEM,
+        "acoustic_boost": 0.45,
+        ATTR_WEIGHT: 0.25,
+    },
+    "sector_signs": {
+        ATTR_ID: "sector_signs",
+        ATTR_NAME: "Sektorschilder",
+        ATTR_DESC: (
+            "Große Leuchtwegweiser an den Wänden:\n"
+            "• [NORDEN] Physikrätsel: Aggregatzustände (verzweigt nach Osten zum Wiegetest)\n"
+            "• [WESTEN] Physikrätsel: Akustikdämpfung (verzweigt nach Norden zur Schallschutzkammer)\n"
+            "• [OSTEN] Gesprächslabor: Dialogbäume & Wissensprüfungen\n"
+            "• [OBEN] Kletterparcours: Höhenebenen & Trittleiter\n"
+            "• [UNTEN] Maschinendeck: Lärmsimulation & Werkbank"
+        ),
+        ATTR_ALIASES: ["sektorschilder", "schilder", "wegweiser", "schild", "leuchtschilder", "leuchtwegweiser"],
+        "location": "central_hub",
+        "type": TYPE_FIXTURE,
+    },
+    "dialogue_console": {
+        ATTR_ID: "dialogue_console",
+        ATTR_NAME: "Gesprächskonsole",
+        ATTR_DESC: "Ein interaktives Interface zur Aufzeichnung und Simulation von Kommunikationsprotokollen.",
+        ATTR_ALIASES: ["konsole", "gesprächskonsole", "interface", "terminal"],
+        "location": "dialogue_lab",
+        "type": TYPE_FIXTURE,
+    },
 }
 
 COMBINATIONS: list[RecipeData] = [
@@ -352,6 +437,83 @@ COMBINATIONS: list[RecipeData] = [
         "message": "Du stimmst die Frequenz nach den Angaben der Drohne ab und setzt den Resonanz-Kern in das Zentral-Terminal ein!",
         "effects": [
             {"type": "trigger_event", "id": "protocol_complete"},
+        ],
+    },
+    # 4. Schallschutztür im Vorraum mit Türkeil aufhebeln & verkeilen -> Rauswurf in Hub & Vorraum verriegelt
+    {
+        "verb": "use",
+        "items": ["door_wedge", "soundproof_door"],
+        "ingredients": {"door_wedge": 1},
+        "station": "soundproof_door",
+        "message": (
+            "Du schiebst die schwere Schallschutztür mit beiden Händen auf und rammst den massiven Türkeil "
+            "unter das Türblatt! Die Hydraulik ächzt dagegen, doch der Keil hält die Tür sperrangelweit offen!\n"
+            "Sofort ertönt ein greller Alarmton: 'Sicherheitsverletzung im Konferenztrakt!' "
+            "Sicherheitsgreifer schieben dich unsanft aus dem Vorraum zurück in die Zentrale, "
+            "und die schwere Vorraum-Tür fällt mit einem lauten Scheppern ins Schloss und verriegelt sich!"
+        ),
+        "effects": [
+            {
+                "type": "update_object",
+                "target": "soundproof_door",
+                "updates": {"is_open": True, "jammed": True},
+            },
+            {
+                "type": "move_player",
+                "target": "central_hub",
+            },
+            {
+                "type": "update_object",
+                "target": "anteroom_door",
+                "updates": {"is_open": False, "is_locked": True},
+            },
+            {
+                "type": "learn",
+                "fact": "soundproof_door_wedged",
+            },
+            {
+                "type": "quest_update",
+                "quest_update": {"id": "investigate_sabotage", "stage": 1},
+            },
+        ],
+    },
+    # 5. An der Vorraum-Tür mit Akustik-Glas belauschen (Tür noch nicht verkeilt -> absolute Stille)
+    {
+        "verb": "use",
+        "items": ["amplifying_glass", "anteroom_door"],
+        "condition": {
+            "type": "knowledge",
+            "value": "soundproof_door_wedged",
+            "not": True,
+        },
+        "message": (
+            "Du drückst das Akustik-Glas gegen die Vorraum-Tür und lauschst angestrengt. "
+            "Doch dahinter herrscht absolute Stille – der schallisolierte Besprechungsraum lässt keinen einzigen Ton nach außen dringen."
+        ),
+    },
+    # 6. An der Vorraum-Tür mit Akustik-Glas belauschen (Tür verkeilt -> Sabotagepläne aufgedeckt)
+    {
+        "verb": "use",
+        "items": ["amplifying_glass", "anteroom_door"],
+        "condition": {
+            "type": "knowledge",
+            "value": "soundproof_door_wedged",
+        },
+        "message": (
+            "Du drückst das Akustik-Glas fest gegen die Vorraum-Tür und hältst dein Ohr an den Boden des Glases. "
+            "Die Schwingungen der Tür übertragen sich klar auf das Glas! Durch die verkeilte "
+            "Schallschutztür im Vorraum hörst du die Stimmen der Verschwörer glasklar:\n"
+            "'Die Sabotage ist beschlossene Sache. Sobald die Schicht wechselt, kappen wir die Energiekopplung "
+            "des Reaktors und legen die Station lahm!'\n"
+            "Du hast die Sabotagepläne rechtzeitig aufgedeckt!"
+        ),
+        "effects": [
+            {"type": "learn", "fact": "sabotage_plan_uncovered"},
+            {
+                "type": "quest_update",
+                "quest_update": {"id": "investigate_sabotage", "stage": 2},
+            },
+            {"type": "quest_complete", "id": "investigate_sabotage"},
         ],
     },
 ]

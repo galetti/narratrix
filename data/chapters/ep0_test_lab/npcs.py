@@ -96,4 +96,64 @@ NPCS: list[NPCData] = [
             },
         },
     },
+    {
+        "id": "saboteur_vance",
+        ATTR_NAME: "Chefingenieur Vance",
+        ATTR_DESC: "Ein hagerer Ingenieur mit düsterem Blick und nervösen Fingerbewegungen.",
+        ATTR_ALIASES: ["vance", "ingenieur", "chefingenieur"],
+        "location": "soundproof_office",
+        "state": "plotting",
+        "behavior_id": "idle",
+        "dialogue": {
+            "plotting": {
+                "greeting": "Was tust du hier?! Verschwinde sofort, das ist eine geheime Besprechung!",
+            }
+        },
+    },
+    {
+        "id": "collaborator_ray",
+        ATTR_NAME: "Techniker Ray",
+        ATTR_DESC: "Ein untersetzter Techniker, der hastig Schaltpläne in einem Terminal überblendet.",
+        ATTR_ALIASES: ["ray", "techniker"],
+        "location": "soundproof_office",
+        "state": "plotting",
+        "behavior_id": "idle",
+        "dialogue": {
+            "plotting": {
+                "greeting": "Wir sind hier beschäftigt. Geh zurück in den Hub!",
+            }
+        },
+    },
+    {
+        "id": "evaluator_droid",
+        ATTR_NAME: "Prüf-Droide Axiom",
+        ATTR_DESC: "Ein goldglänzender Protokolldroide mit blauer Holo-Projektion. Er koordiniert die Testabläufe.",
+        ATTR_ALIASES: ["axiom", "prüf-droide", "droide", "prüfdroide"],
+        "location": "dialogue_lab",
+        "state": "ready",
+        "behavior_id": "idle",
+        "dialogue": {
+            "ready": {
+                "greeting": "Seid gegrüßt! Ich bin Axiom. Willkommen im Gesprächslabor des Narratrix-Testgeländes.",
+                "sectors": {
+                    "label": "Welche Testsektoren gibt es?",
+                    "text": (
+                        "Im Norden: Physik & Wiegerätsel. "
+                        "Im Westen: Akustikdämpfung & Schallisolierung. "
+                        "Oben: Klettern & Drohnen-KI. "
+                        "Unten: Lärmsimulation & Werkbank."
+                    ),
+                },
+                "sabotage_report": {
+                    "label": "Ich habe geheime Sabotagepläne aufgedeckt!",
+                    "hidden": True,
+                    "condition": "sabotage_plan_uncovered",
+                    "text": (
+                        "Exzellent beobachtet! Du hast demonstriert, wie die Akustik-Physik "
+                        "zur Informationsbeschaffung eingesetzt werden kann. Testprotokoll bestätigt!"
+                    ),
+                },
+            }
+        },
+    },
 ]

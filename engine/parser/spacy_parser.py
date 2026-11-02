@@ -35,6 +35,7 @@ class SpacyParser:
         "schauen": "look", "ansehen": "look", "betrachten": "look", "untersuchen": "look",
         "lesen": "look", "prüfen": "look", "gucken": "look", "blicken": "look",
         "verstecken": "hide", "ducken": "hide",
+        "lauschen": "listen", "horchen": "listen", "hören": "listen", "belauschen": "listen",
         
         # Inventory
         "nehmen": "take", "aufheben": "take", "greifen": "take", "einstecken": "take", "schnappen": "take",

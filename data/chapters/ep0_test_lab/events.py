@@ -15,7 +15,17 @@ QUESTS: dict[str, QuestDefinitionData] = {
             4: "Der Resonanz-Kern läuft stabil. Testlabor-Protokoll erfolgreich abgeschlossen!",
         },
         "completion_stage": 4,
-    }
+    },
+    "investigate_sabotage": {
+        "title": "Abgekartetes Spiel",
+        "desc": "Im abhörsicheren Besprechungstrakt planen zwei Gestalten etwas Finsteres. Finde einen Weg, ihr Gespräch zu belauschen.",
+        "stages": {
+            0: "Verschaffe dir Zugang zum Vorraum des Besprechungstrakts und finde einen Weg, die Schallschutztür offen zu halten.",
+            1: "Die Schallschutztür ist verkeilt! Nutze ein akustisches Verstärkerglas an der verschlossenen Vorraum-Tür, um das Gespräch zu belauschen.",
+            2: "Du hast die Sabotagepläne aufgedeckt und weißt nun über den geplanten Anschlag auf den Reaktor Bescheid!",
+        },
+        "completion_stage": 2,
+    },
 }
 
 NARRATIVE_MATRIX: list[EventData] = [
@@ -24,11 +34,24 @@ NARRATIVE_MATRIX: list[EventData] = [
         "trigger": "time",
         "trigger_time": 0,
         "description": (
-            "Willkommen im Testlabor (Episode 0). Das Zentral-Terminal meldet: "
-            "'Resonanz-Kern fehlt. Bitte aus dem Akustik-Tresorraum bergen, kalibrieren und einsetzen.'"
+            "=== SYSTEM-TESTGELÄNDE (EPISODE 0) ===\n"
+            "Willkommen in der modularen Narratrix-Testumgebung zur Demonstration von Spielmechaniken:\n"
+            "• [NORDEN] Physikrätsel: Aggregatzustände & Wiegetest (verzweigt zum Tresor)\n"
+            "• [WESTEN] Physikrätsel: Akustikdämpfung & Belauschen (verzweigt zur Schallschutzkammer)\n"
+            "• [OSTEN] Gesprächslabor: Dialogbäume & Wissensprüfungen\n"
+            "• [OBEN] Kletterparcours: Höhenebenen & Drohnen-KI\n"
+            "• [UNTEN] Maschinendeck: Lärmsimulation & Werkbank-Crafting\n"
+            "Sieh dir die Sektorschilder an oder nutze das Zentral-Terminal, um die Testabläufe zu starten."
         ),
         "quest_start": "core_calibration",
-    }
+    },
+    {
+        "id": "enter_anteroom",
+        "trigger": "location",
+        "location": "briefing_anteroom",
+        "quest_start": "investigate_sabotage",
+        "description": "Als du den Sicherheits-Vorraum betrittst, siehst du durch die dicke Glasscheibe der Schallschutztür Chefingenieur Vance und Techniker Ray hastig über einem Bauplan gestikulieren.",
+    },
 ]
 
 EVENTS: list[EventData] = [
@@ -125,5 +148,21 @@ EVENTS: list[EventData] = [
                 ),
             },
         ],
+    },
+    # 6. Geheime Unterhaltung im Besprechungsraum (Schallquelle für Belauschung)
+    {
+        "id": "sabotage_discussion",
+        "trigger": "time",
+        "trigger_time": 0,
+        "repeat": True,
+        "origin_id": "soundproof_office",
+        "condition": {
+            "type": "object_state",
+            "item": "soundproof_door",
+            "is_open": True,
+        },
+        "sound_msg": "Die Sabotage ist beschlossene Sache. Sobald die Schicht wechselt, kappen wir die Energiekopplung des Reaktors und legen die Station lahm!",
+        "muffled_msg": "Gedämpfte Stimmen und unklares Gemurmel hinter der Vorraum-Tür.",
+        "volume": 1.0,
     },
 ]

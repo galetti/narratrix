@@ -185,6 +185,7 @@ class EventData(TypedDict, total=False):
     title: str
     description: str
     sound_msg: str
+    muffled_msg: str
     volume: float
     message: str
     condition: ConditionSpec
@@ -292,6 +293,8 @@ SUPPORTED_CONDITIONS: set[str] = {
 SUPPORTED_EFFECTS: set[str] = {
     "move_npc",
     "teleport_npc",
+    "move_player",
+    "teleport_player",
     "set_state",
     "set_npc_state",
     "learn",
@@ -474,6 +477,9 @@ def validate_game_config(config: dict[str, Any]) -> dict[str, Any]:
         effect_type = effect.get("type")
         if effect_type in {"move_npc", "teleport_npc"}:
             _require(effect.get("npc") in npc_ids, f"{context}: NPC fehlt.")
+            target = effect.get("room") or effect.get("target")
+            _require(target in room_ids, f"{context}: Zielraum '{target}' fehlt.")
+        elif effect_type in {"move_player", "teleport_player"}:
             target = effect.get("room") or effect.get("target")
             _require(target in room_ids, f"{context}: Zielraum '{target}' fehlt.")
         elif effect_type in {"set_state", "set_npc_state"} and effect.get("npc"):

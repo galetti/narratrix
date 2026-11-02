@@ -28,6 +28,7 @@ class ActionDispatcher:
         # Exploration
         'look': ExplorationHandler.look, 'l': ExplorationHandler.look, 'x': ExplorationHandler.look,
         'hide': ExplorationHandler.hide, 'verstecke': ExplorationHandler.hide,
+        'listen': ExplorationHandler.listen, 'lausche': ExplorationHandler.listen, 'horche': ExplorationHandler.listen, 'hear': ExplorationHandler.listen,
         
         # Inventory
         'take': InventoryHandler.take, 'get': InventoryHandler.take, 'nimm': InventoryHandler.take,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from engine.constants import LOC_INVENTORY
+from engine.constants import ATTR_NAME, LOC_INVENTORY
 from engine.schema import SUPPORTED_EFFECTS, EffectData, NPCData, ObjectData
 
 if TYPE_CHECKING:
@@ -54,6 +54,22 @@ class EffectProcessor:
                 and self.game.dialogue_active
             ):
                 self.game.dialogue_system.end_dialogue(reason="Partner geht")
+            return
+
+        if effect_type in {"move_player", "teleport_player"}:
+            room_id = effect.get("room") or effect.get("target")
+            if not room_id or room_id not in self.game.rooms:
+                raise EffectProcessingError(
+                    f"{effect_type}: Raum '{room_id}' ungültig."
+                )
+            self.game.location = room_id
+            self.game.elevation = 0
+            self.game.visit_room(room_id)
+            if self.game.dialogue_active:
+                self.game.dialogue_system.end_dialogue(reason="Ort verlassen")
+            room = self.game.rooms[room_id]
+            self.game.log("location", room.get(ATTR_NAME, room_id))
+            self.game.log("story", self.game.render_room_desc(room_id))
             return
 
         if effect_type in {"set_state", "set_npc_state"}:

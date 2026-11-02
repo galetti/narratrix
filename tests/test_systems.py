@@ -4,7 +4,9 @@ import copy
 from typing import Any
 import unittest
 
+from engine.action_dispatcher import ActionDispatcher
 from engine.game_state import GameState
+from engine.handlers.exploration import ExplorationHandler
 from engine.parser.rule_based import RuleBasedParser
 from engine.story_loader import StoryLoader
 from engine.systems.acoustics import AcousticsSystem
@@ -48,7 +50,7 @@ class RuleBasedParserTests(unittest.TestCase):
 
     def test_canonical_and_synonym_verbs(self) -> None:
         self.parser.parse("schaue")
-        self.assertTrue(any("Zentrale Ebene" in entry["text"] for entry in self.game.logs))
+        self.assertTrue(any("Zentraler Test-Hub" in entry["text"] for entry in self.game.logs))
 
         self.parser.parse("nimm Greifzange")
         self.assertEqual(self.game.objects["grabber"]["location"], "inventory")
@@ -134,6 +136,35 @@ class AcousticsSystemTests(unittest.TestCase):
         )
         self.assertGreaterEqual(vol_boosted, vol_raw)
 
+    def test_symmetric_exit_transmission_with_door(self) -> None:
+        self.game.rooms["room_test_a"] = {
+            "id": "room_test_a",
+            "name": "Raum A",
+            "exits": {"east": "room_test_b"},
+            "acoustics": {},
+        }
+        self.game.rooms["room_test_b"] = {
+            "id": "room_test_b",
+            "name": "Raum B",
+            "exits": {"west": "room_test_a"},
+            "acoustics": {},
+        }
+        self.game.objects["test_door"] = {
+            "id": "test_door",
+            "name": "Schott",
+            "location": "room_test_a",
+            "linked_exit": "east",
+            "is_open": False,
+            "acoustic_damping": 0.15,
+        }
+        vol_a_to_b, _ = self.acoustics.get_audibility_info(
+            "room_test_a", "room_test_b", use_player_tools=False
+        )
+        vol_b_to_a, _ = self.acoustics.get_audibility_info(
+            "room_test_b", "room_test_a", use_player_tools=False
+        )
+        self.assertAlmostEqual(vol_a_to_b, vol_b_to_a, places=2)
+
 
 class AISystemTests(unittest.TestCase):
     game_config: dict[str, Any]
@@ -190,6 +221,51 @@ class AISystemTests(unittest.TestCase):
         # Tick 2: Bewegung wird ausgeführt -> Drohne hat Raum verlassen
         self.ai.process_all_npcs(minutes=1)
         self.assertNotEqual(drone["location"], "test_chamber")
+
+
+class EffectProcessorAndListenTests(unittest.TestCase):
+    game_config: dict[str, Any]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        config = StoryLoader.load_chapter(EP0, raise_on_error=True)
+        assert config is not None
+        cls.game_config = config
+
+    def setUp(self) -> None:
+        self.game = GameState(copy.deepcopy(self.game_config), silent=False)
+
+    def test_move_player_effect(self) -> None:
+        self.assertEqual(self.game.location, "central_hub")
+        self.game.effects.process({"type": "move_player", "target": "lower_deck"})
+        self.assertEqual(self.game.location, "lower_deck")
+
+    def test_listen_bare_and_with_glass(self) -> None:
+        # 1. Zu Beginn: Schutztür zu, kein Laut dringt durch
+        ExplorationHandler.listen(self.game, ["an", "Vorraum-Tür"])
+        logs_before = [entry["text"] for entry in self.game.logs if entry["type"] == "info"]
+        self.assertTrue(any("vollkommen still" in msg for msg in logs_before))
+
+        # 2. Schutztür verkeilt, Vorraum-Tür verriegelt
+        self.game.quests.start_quest("investigate_sabotage")
+        self.game.objects["soundproof_door"]["is_open"] = True
+        self.game.objects["soundproof_door"]["jammed"] = True
+        self.game.objects["anteroom_door"]["is_open"] = False
+        self.game.objects["anteroom_door"]["is_locked"] = True
+        self.game.add_knowledge("soundproof_door_wedged")
+
+        # Lauschen ohne Glas: gedämpftes Gemurmel
+        ExplorationHandler.listen(self.game, ["an", "Vorraum-Tür"])
+        logs_muffled = [entry["text"] for entry in self.game.logs if entry["type"] == "info"]
+        self.assertTrue(any("gedämpftes Gemurmel" in msg for msg in logs_muffled))
+
+        # Lauschen mit Akustik-Glas: glasklares Belauschen der Sabotage
+        self.game.objects["amplifying_glass"]["location"] = "inventory"
+        ExplorationHandler.listen(self.game, ["an", "Vorraum-Tür", "mit", "Akustik-Glas"])
+        self.assertIn("sabotage_plan_uncovered", self.game.knowledge)
+        self.assertEqual(
+            self.game.quests.states["investigate_sabotage"]["status"], "completed"
+        )
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ from typing import Any
 import unittest
 from unittest.mock import patch
 
+from engine.action_dispatcher import ActionDispatcher
 from engine.analysis import generate_future_matrix
 from engine.game_state import GameState
 from engine.handlers.dialogue import DialogueHandler
@@ -297,6 +298,51 @@ class NarratrixEngineTests(unittest.TestCase):
             game.quests.states["core_calibration"]["status"], "completed"
         )
         self.assertIn("lab_stabilized", game.knowledge)
+
+    def test_ep0_sabotage_eavesdropping_puzzle_end_to_end(self) -> None:
+        game = GameState(self.ep0)
+
+        # 1. Akustik-Glas im central_hub nehmen
+        InventoryHandler.take(game, ["Akustik-Glas"])
+        self.assertEqual(game.objects["amplifying_glass"]["location"], "inventory")
+
+        # 2. In den Maschinenraum (lower_deck) gehen und den schweren Türkeil holen
+        MovementHandler.handle(game, ["down"])
+        self.assertEqual(game.location, "lower_deck")
+        InventoryHandler.take(game, ["Schwerer", "Türkeil"])
+        self.assertEqual(game.objects["door_wedge"]["location"], "inventory")
+
+        # 3. Zurück in den Hub und nach Westen in den Sicherheits-Vorraum gehen
+        MovementHandler.handle(game, ["up"])
+        self.assertEqual(game.location, "central_hub")
+        MovementHandler.handle(game, ["west"])
+        self.assertEqual(game.location, "briefing_anteroom")
+        self.assertIn("investigate_sabotage", game.quests.states)
+        self.assertEqual(game.quests.states["investigate_sabotage"]["stage"], 0)
+
+        # 4. Versuch, an der geschlossenen Schallschutztür zu lauschen (Schallisolierung dämpft 100%)
+        ExplorationHandler.listen(game, ["an", "Schallschutztür", "mit", "Akustik-Glas"])
+        self.assertNotIn("sabotage_plan_uncovered", game.knowledge)
+
+        # 5. Türkeil an der Schallschutztür anwenden -> Tür verkeilt sich offen, Alarm feuert, Rauswurf in den Hub!
+        MechanicsHandler.use(game, ["Schwerer", "Türkeil", "an", "Schallschutztür"])
+        self.assertTrue(game.objects["soundproof_door"]["is_open"])
+        self.assertTrue(game.objects["soundproof_door"]["jammed"])
+        self.assertEqual(game.location, "central_hub")
+        self.assertFalse(game.objects["anteroom_door"]["is_open"])
+        self.assertTrue(game.objects["anteroom_door"]["is_locked"])
+        self.assertEqual(game.quests.states["investigate_sabotage"]["stage"], 1)
+
+        # 6. Versuch, wieder in den Vorraum zu gehen: versperrt!
+        MovementHandler.handle(game, ["west"])
+        self.assertEqual(game.location, "central_hub")
+
+        # 7. An der Vorraum-Tür lauschen mit dem Akustik-Glas -> Sabotagepläne aufgedeckt!
+        ActionDispatcher.dispatch(game, "lausche", ["an", "Vorraum-Tür", "mit", "Akustik-Glas"])
+        self.assertIn("sabotage_plan_uncovered", game.knowledge)
+        self.assertEqual(
+            game.quests.states["investigate_sabotage"]["status"], "completed"
+        )
 
     def test_parser_handles_short_direction_and_hyphenated_commands(self) -> None:
         game = GameState(self.ep0, silent=True)

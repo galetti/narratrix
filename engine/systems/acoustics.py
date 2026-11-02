@@ -154,15 +154,24 @@ class AcousticsSystem:
         return f"hinter der Wand zu {neighbor.get(ATTR_NAME, neighbor_id)}"
 
     def _calculate_exit_transmission(self, room_id: str, direction: str) -> float:
-        transmission = ACOUSTIC_OPEN_AIR
+        target_id = self.game.rooms.get(room_id, {}).get("exits", {}).get(direction)
         for obj in self.game.objects.values():
-            if obj.get("location") != room_id or obj.get("linked_exit") != direction:
+            loc = obj.get("location")
+            linked = obj.get("linked_exit")
+            if not linked:
                 continue
-            if obj.get("is_open"):
-                transmission = ACOUSTIC_OPEN_DOOR
-            else:
-                transmission = float(
-                    obj.get("acoustic_damping", ACOUSTIC_CLOSED_DOOR)
+            if loc == room_id and linked == direction:
+                return (
+                    ACOUSTIC_OPEN_DOOR
+                    if obj.get("is_open")
+                    else float(obj.get("acoustic_damping", ACOUSTIC_CLOSED_DOOR))
                 )
-            break
-        return transmission
+            if target_id and loc == target_id:
+                target_room = self.game.rooms.get(target_id, {})
+                if target_room.get("exits", {}).get(linked) == room_id:
+                    return (
+                        ACOUSTIC_OPEN_DOOR
+                        if obj.get("is_open")
+                        else float(obj.get("acoustic_damping", ACOUSTIC_CLOSED_DOOR))
+                    )
+        return ACOUSTIC_OPEN_AIR

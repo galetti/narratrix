@@ -167,6 +167,8 @@ class MechanicsHandler:
                 return game.log("error", reach_error(game, target))
             if not target.get("is_open"):
                 return game.log("info", f"{target[ATTR_NAME]} ist bereits geschlossen.")
+            if target.get("jammed"):
+                return game.log("error", f"{target[ATTR_NAME]} ist verkeilt und lässt sich nicht schließen.")
             target["is_open"] = False
             game.log("success", f"Du schließt {target[ATTR_NAME]}.")
             game.tick(1)

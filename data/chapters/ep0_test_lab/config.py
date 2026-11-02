@@ -10,11 +10,11 @@ from .events import NARRATIVE_MATRIX, EVENTS, QUESTS
 # WICHTIG: Der StoryLoader erwartet "CHAPTER_CONFIG" als Variablennamen!
 CHAPTER_CONFIG: GameConfigData = {
     "meta": {
-        "name": "Episode 0: Test Labor",
+        "name": "Episode 0: Mechanik- & Testlabor",
         "author": "System",
-        "description": "Ein Test-Szenario für vertikale Akustik, Physik, Container, KI und das Resonanz-Rätsel.",
+        "description": "Modulare Testumgebung zur Demonstration von Physik-, Akustik-, Kletter- und Dialog-Mechaniken.",
         "start_room": "central_hub",
-        "version": "2.0",
+        "version": "2.1",
     },
     "rooms": ROOMS,
     "objects": ITEMS,
