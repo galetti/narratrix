@@ -7,6 +7,7 @@ from engine.resolver import Resolver
 from engine.constants import ATTR_NAME
 from engine.access import is_directly_reachable, reach_error
 from engine.schema import DialogueEntry
+from engine.strings import Texts
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
@@ -23,7 +24,7 @@ class DialogueHandler:
             if len(local) == 1: 
                 target_npc = local[0]
             else: 
-                return game.log('error', "Mit wem willst du sprechen?")
+                return game.log('error', Texts.TALK_WHO)
         if not is_directly_reachable(game, target_npc, upward_reach=0):
             return game.log('error', reach_error(game, target_npc))
 

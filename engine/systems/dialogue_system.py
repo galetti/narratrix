@@ -6,6 +6,13 @@ from typing import TYPE_CHECKING, Any
 from engine.constants import ATTR_NAME
 from engine.llm_bridge import LLMBridge
 from engine.schema import ConditionSpec, DialogueEntry, NPCData
+from engine.strings import Texts
+from engine.systems.llm_grounding import (
+    build_prompts,
+    entry_text,
+    preserves_core_facts,
+    sanitize_reply,
+)
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
@@ -28,14 +35,14 @@ class DialogueSystem:
         dialogue_db = self._get_dialogue_db(npc, current_state)
         greeting = dialogue_db.get('greeting', "...")
         
-        self.game.log('event', f"--- GESPRÄCH MIT {npc[ATTR_NAME].upper()} ---")
+        self.game.log('event', Texts.DIALOGUE_HEADER.format(npc=npc[ATTR_NAME].upper()))
         self.print_dialogue(npc, greeting)
         self.show_topics(npc)
 
     def end_dialogue(self, reason: str | None = None) -> None:
         """Beendet den aktuellen Dialog."""
         suffix = f" ({reason})" if reason else ""
-        self.game.log('event', f"--- GESPRÄCH BEENDET{suffix} ---")
+        self.game.log('event', Texts.DIALOGUE_ENDED.format(suffix=suffix))
         self.game.dialogue_active = False
         self.game.dialogue_partner = None
 
@@ -82,7 +89,7 @@ class DialogueSystem:
             if default_reply:
                 self.print_dialogue(npc, default_reply)
             else:
-                self.game.log('character', f"{npc[ATTR_NAME]} schaut dich fragend an.")
+                self.game.log('character', Texts.DIALOGUE_CONFUSED.format(npc=npc[ATTR_NAME]))
         
         self.show_topics(npc)
 
@@ -118,7 +125,7 @@ class DialogueSystem:
         visible, _ = self.get_visible_topics(npc)
         
         if not visible:
-            self.game.log('info', "(Keine offensichtlichen Gesprächsthemen)")
+            self.game.log('info', Texts.DIALOGUE_NO_TOPICS)
             return
 
         options: list[str] = []
@@ -128,7 +135,7 @@ class DialogueSystem:
                 label = entry['label']
             options.append(f"[{i+1}] {label}")
         
-        self.game.log('info', "Optionen: " + ", ".join(options))
+        self.game.log('info', Texts.DIALOGUE_OPTIONS.format(", ".join(options)))
 
     def _check_condition_wrapper(self, entry: DialogueEntry) -> bool:
         if isinstance(entry, dict) and 'condition' in entry: 
@@ -139,36 +146,50 @@ class DialogueSystem:
         if not condition: return True
         return self.game.events.evaluate_condition(condition)
 
+    def _known_facts_for_npc(self, npc: NPCData) -> list[str]:
+        visible, _ = self.get_visible_topics(npc)
+        return [entry_text(entry) for _, entry in visible if entry_text(entry)]
+
     def print_dialogue(
         self,
         npc: NPCData,
         response_entry: DialogueEntry,
         prompt_context: str | None = None,
     ) -> None:
-        core_text: Any = response_entry
-        if isinstance(response_entry, dict): core_text = response_entry.get('text', "")
-        
+        is_auto_reply = response_entry == "LLM_AUTO_REPLY"
+        core_text: Any = "" if is_auto_reply else entry_text(response_entry)
         final_text = str(core_text)
+
         use_llm = self.game.config.get('use_llm_dialogue', False)
         if use_llm:
-            personality = npc.get('personality', 'Neutral')
-            state = npc.get('state', 'default')
-            stress = "HOCH" if self.game.stability < 50 else "NIEDRIG"
-            
-            if response_entry == "LLM_AUTO_REPLY":
-                sys_prompt = f"Du bist {npc[ATTR_NAME]} ({personality}). Stimmung: {state}. Stress: {stress}. Antworte auf: '{prompt_context}'."
-                user_msg = "Antworte kurz und passend zur Rolle."
-            else:
-                sys_prompt = f"Du bist {npc[ATTR_NAME]} ({personality}). Stimmung: {state}. Stress: {stress}. Formuliere um:"
-                user_msg = f"Kern-Aussage: {core_text}"
-            
-            self.game.log('info', f"({npc[ATTR_NAME]} denkt nach...)")
-            enhanced = LLMBridge.call(
+            known_facts = self._known_facts_for_npc(npc)
+            sys_prompt, user_msg = build_prompts(
+                self.game,
+                npc,
+                core_text=None if is_auto_reply else final_text,
+                player_text=prompt_context,
+                known_facts=known_facts,
+            )
+
+            self.game.log('info', Texts.DIALOGUE_THINKING.format(npc=npc[ATTR_NAME]))
+            raw = LLMBridge.call(
                 sys_prompt,
                 user_msg,
                 api_url=self.game.config.get('llm_url'),
                 model=self.game.config.get('llm_model'),
             )
-            if enhanced: final_text = enhanced
-            
-        self.game.log('character', f"{npc[ATTR_NAME]}: \"{final_text}\"")
+            cleaned = sanitize_reply(raw, npc_name=str(npc.get(ATTR_NAME, "")))
+            if cleaned and (is_auto_reply or preserves_core_facts(final_text, cleaned)):
+                final_text = cleaned
+
+        if is_auto_reply and not final_text:
+            current_state = npc.get('state', 'default')
+            dialogue_db = self._get_dialogue_db(npc, current_state)
+            default_reply = dialogue_db.get('default')
+            if default_reply:
+                final_text = entry_text(default_reply)
+            else:
+                self.game.log('character', Texts.DIALOGUE_CONFUSED.format(npc=npc[ATTR_NAME]))
+                return
+
+        self.game.log('character', Texts.DIALOGUE_LINE.format(npc=npc[ATTR_NAME], text=final_text))

@@ -17,3 +17,4 @@ env/
 # Lokale Spielstände (Ordnerstruktur bleibt via .gitkeep erhalten)
 saves/*.json
 !saves/.gitkeep
+.aider*

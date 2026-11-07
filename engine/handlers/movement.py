@@ -30,14 +30,14 @@ class MovementHandler:
                 level_info = ""
                 
                 if obj_level != game.elevation:
-                    if obj_level > game.elevation: level_info = f" (oben auf Ebene {obj_level})"
-                    else: level_info = f" (unten auf Ebene {obj_level})"
+                    if obj_level > game.elevation: level_info = Texts.LEVEL_INFO_UP.format(level=obj_level)
+                    else: level_info = Texts.LEVEL_INFO_DOWN.format(level=obj_level)
 
                 name = obj[ATTR_NAME]
                 
                 if obj.get('type') == TYPE_CONTAINER:
-                    if obj.get('is_open'): name += " (offen)"
-                    else: name += " (geschlossen)"
+                    if obj.get('is_open'): name += Texts.CONTAINER_OPEN
+                    else: name += Texts.CONTAINER_CLOSED
                 
                 if obj.get('is_resource') and obj.get('count', 1) > 1:
                     name = f"{obj['count']}x {name}"
@@ -45,7 +45,7 @@ class MovementHandler:
                 visible_items.append(f"{name}{level_info}")
         
         if visible_items:
-            game.log('info', f"Hier siehst du: {', '.join(visible_items)}")
+            game.log('info', Texts.MOVE_SEE_ITEMS.format(', '.join(visible_items)))
 
         visible_npcs = CommonHandler.format_visible_npcs(game, room_id)
         if visible_npcs:
@@ -56,17 +56,17 @@ class MovementHandler:
         if game.hidden_in:
             if any(w in args for w in ["raus", "out", "verlasse", "exit"]):
                 game.hidden_in = None
-                game.log('success', "Du kommst aus deinem Versteck hervor.")
+                game.log('success', Texts.MOVE_LEAVE_HIDE)
                 game.log('location', game.rooms[game.location][ATTR_NAME])
                 desc = game.render_room_desc(game.location)
                 game.log('story', desc)
                 MovementHandler._list_room_items(game, game.location)
                 return
             else:
-                return game.log('error', "Du bist versteckt. Komm erst raus (gehe raus).")
+                return game.log('error', Texts.MOVE_STILL_HIDDEN)
 
         if not args:
-            return game.log('error', "Wohin willst du gehen?")
+            return game.log('error', Texts.MOVE_NO_DEST)
 
         vocab_dirs = game.config.get('vocabulary', {}).get('directions', {})
         target_dir: str | None = None
@@ -102,7 +102,7 @@ class MovementHandler:
                         break
             
             if blocked:
-                game.log('error', f"Der Weg ist versperrt durch: {blocker_name}")
+                game.log('error', Texts.MOVE_BLOCKED.format(blocker=blocker_name))
             else:
                 game.location = target_id
                 game.elevation = 0 
@@ -113,14 +113,8 @@ class MovementHandler:
                 game.log('story', desc)
                 
                 visible_exits = [k for k in game.rooms[target_id].get('exits', {}).keys()]
-                dir_trans = {
-                    "north": "Norden", "south": "Süden", "east": "Osten", "west": "Westen", 
-                    "up": "Oben", "down": "Unten", "out": "Draußen",
-                    "northeast": "Nordost", "northwest": "Nordwest", 
-                    "southeast": "Südost", "southwest": "Südwest"
-                }
-                exit_names = [dir_trans.get(d, d) for d in visible_exits]
-                if exit_names: game.log('info', f"Ausgänge: {', '.join(exit_names)}")
+                exit_names = [Texts.direction_name(d) for d in visible_exits]
+                if exit_names: game.log('info', Texts.LOOK_EXITS.format(', '.join(exit_names)))
                 
                 MovementHandler._list_room_items(game, target_id)
                 game.tick(1) 
@@ -135,7 +129,7 @@ class MovementHandler:
             if climbables:
                 MovementHandler.climb(game, [climbables[0][ATTR_NAME]])
             else:
-                game.log('error', f"Nach '{target_dir}' führt kein Weg.")
+                game.log('error', Texts.MOVE_NO_WAY.format(target=target_dir))
         else:
             try:
                 climb_candidate = Resolver.resolve_target(
@@ -146,14 +140,14 @@ class MovementHandler:
             if climb_candidate and climb_candidate.get(ATTR_CLIMBABLE, False):
                 MovementHandler.climb(game, candidate_words)
             else:
-                game.log('error', f"Nach '{target_dir}' führt kein Weg.")
+                game.log('error', Texts.MOVE_NO_WAY.format(target=target_dir))
 
     @staticmethod
     def climb(game: GameState, args: list[str]) -> None:
-        if game.hidden_in: return game.log('error', "Nicht während du versteckt bist.")
+        if game.hidden_in: return game.log('error', Texts.ERR_HIDDEN)
         
         if not args:
-            return game.log('error', "Worauf willst du klettern?")
+            return game.log('error', Texts.MOVE_CLIMB_WHAT)
 
         # Filter Präpositionen aus den Argumenten für sauberes Resolver-Matching
         clean_args = [
@@ -165,13 +159,13 @@ class MovementHandler:
         # Fallback: Wenn nur "klettere auf" eingegeben wurde, ist clean_args leer
         if not clean_args:
              if args[0].lower() not in ["up", "hoch", "rauf", "oben"]:
-                 return game.log('error', "Worauf willst du klettern?")
+                 return game.log('error', Texts.MOVE_CLIMB_WHAT)
 
         # "Climb down" logic
         if args[0].lower() in ["down", "runter", "ab", "unten", "boden"]:
             if game.elevation > 0:
                 game.elevation = 0
-                game.log('success', "Du kletterst zurück auf den Boden.")
+                game.log('success', Texts.MOVE_CLIMB_DOWN)
                 MovementHandler._list_room_items(game, game.location)
                 game.tick(1)
                 return
@@ -185,10 +179,10 @@ class MovementHandler:
                 if 'up' in game.rooms[game.location].get('exits', {}):
                     MovementHandler.handle(game, ["up"])
                 else:
-                    game.log('error', "Du kannst hier nicht einfach hochklettern. Benutze ein Objekt.")
+                    game.log('error', Texts.MOVE_CLIMB_CANNOT_SIMPLE)
                 return
             else:
-                game.log('error', "Du bist schon oben.")
+                game.log('error', Texts.MOVE_CLIMB_ALREADY_UP)
                 return
 
         try:
@@ -198,7 +192,7 @@ class MovementHandler:
                 return
             
             if not target.get(ATTR_CLIMBABLE, False):
-                game.log('info', f"Du kannst nicht auf {target[ATTR_NAME]} klettern.")
+                game.log('info', Texts.MOVE_CLIMB_CANNOT.format(target=target[ATTR_NAME]))
                 return
 
             if 'target_elevation' in target:
@@ -206,12 +200,19 @@ class MovementHandler:
                 if new_level == game.elevation:
                     game.log(
                         'info',
-                        f"Du bist bereits oben bei {target[ATTR_NAME]} (Ebene {new_level}).",
+                        Texts.MOVE_CLIMB_ALREADY_THERE.format(
+                            target=target[ATTR_NAME], level=new_level
+                        ),
                     )
                     MovementHandler._list_room_items(game, game.location)
                 else:
                     game.elevation = new_level
-                    game.log('success', f"Du kletterst auf {target[ATTR_NAME]}. (Ebene {new_level})")
+                    game.log(
+                        'success',
+                        Texts.MOVE_CLIMB_SUCCESS_LEVEL.format(
+                            target=target[ATTR_NAME], level=new_level
+                        ),
+                    )
                     MovementHandler._list_room_items(game, game.location)
                     game.tick(1)
                 return
@@ -221,7 +222,7 @@ class MovementHandler:
                 game.location = dest
                 game.elevation = 0
                 game.visit_room(dest)
-                game.log('success', f"Du kletterst auf {target[ATTR_NAME]}...")
+                game.log('success', Texts.MOVE_CLIMB_SUCCESS_DEST.format(target=target[ATTR_NAME]))
                 game.tick(1)
                 
                 game.log('location', game.rooms[dest][ATTR_NAME])
@@ -235,7 +236,10 @@ class MovementHandler:
             
             if target_id in climb_targets:
                 dest_room_id = climb_targets[target_id]
-                game.log('success', f"Du kletterst auf {target[ATTR_NAME]} und erreichst den Durchgang...")
+                game.log(
+                    'success',
+                    Texts.MOVE_CLIMB_SUCCESS_PASSAGE.format(target=target[ATTR_NAME]),
+                )
                 game.location = dest_room_id
                 game.elevation = 0
                 game.visit_room(dest_room_id)
@@ -245,7 +249,10 @@ class MovementHandler:
                 game.log('story', game.render_room_desc(dest_room_id))
                 MovementHandler._list_room_items(game, dest_room_id)
             else:
-                game.log('success', f"Du kletterst auf {target[ATTR_NAME]}, aber es bringt dich nicht höher.")
+                game.log(
+                    'success',
+                    Texts.MOVE_CLIMB_NO_HEIGHT.format(target=target[ATTR_NAME]),
+                )
         
         except ResolutionError as e:
             game.log('error', str(e))

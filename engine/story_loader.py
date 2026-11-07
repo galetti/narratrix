@@ -98,6 +98,11 @@ class StoryLoader:
             full_config = {
                 "meta": meta,
                 "settings": copy.deepcopy(chapter_data.get("settings", {})),
+                "language": str(
+                    chapter_data.get("settings", {}).get("language")
+                    or meta.get("language")
+                    or "de"
+                ),
                 "vocabulary": StoryLoader._get_default_vocabulary(),
                 "rooms": rooms,
                 "objects": objects,

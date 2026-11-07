@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from engine.constants import ATTR_NAME, LOC_INVENTORY
 from engine.schema import SUPPORTED_EFFECTS, EffectData, NPCData, ObjectData
+from engine.strings import Texts
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
@@ -66,7 +67,7 @@ class EffectProcessor:
             self.game.elevation = 0
             self.game.visit_room(room_id)
             if self.game.dialogue_active:
-                self.game.dialogue_system.end_dialogue(reason="Ort verlassen")
+                self.game.dialogue_system.end_dialogue(reason=Texts.EFFECT_LEFT_LOCATION)
             room = self.game.rooms[room_id]
             self.game.log("location", room.get(ATTR_NAME, room_id))
             self.game.log("story", self.game.render_room_desc(room_id))
@@ -79,7 +80,7 @@ class EffectProcessor:
                 raise EffectProcessingError(f"NPC '{npc_id}' für Zustandswechsel fehlt.")
             self.game.set_npc_state(target, effect.get("value"))
             if target.get("location") == self.game.location:
-                self.game.log("info", f"({target['name']} wirkt verändert.)")
+                self.game.log("info", Texts.EFFECT_NPC_CHANGED.format(name=target["name"]))
             return
 
         if effect_type == "learn":
@@ -88,7 +89,7 @@ class EffectProcessor:
                 raise EffectProcessingError("learn benötigt 'fact'.")
             was_new = self.game.add_knowledge(fact)
             if was_new and not fact.startswith("task_"):
-                self.game.log("success", f"(Wissen erhalten: {fact})")
+                self.game.log("success", Texts.EFFECT_KNOWLEDGE_GAINED.format(fact=fact))
             return
 
         if effect_type in {"spawn_item", "receive_item"}:
@@ -99,7 +100,7 @@ class EffectProcessor:
             location = effect.get("location", LOC_INVENTORY)
             obj["location"] = location
             if location == LOC_INVENTORY:
-                self.game.log("success", f"Erhalten: {obj['name']}")
+                self.game.log("success", Texts.EFFECT_ITEM_RECEIVED.format(name=obj["name"]))
             return
 
         if effect_type == "update_object":
@@ -117,7 +118,7 @@ class EffectProcessor:
             amount = float(effect.get("value", 0))
             self.game.stability -= amount
             if amount > 0:
-                self.game.log("alarm", f"WARNUNG: Hüllenintegrität gefallen (-{amount:g}%)")
+                self.game.log("alarm", Texts.EFFECT_STABILITY_DROP.format(amount=amount))
             return
 
         if effect_type == "game_over":
@@ -158,13 +159,17 @@ class EffectProcessor:
         if effect_type == "quest_complete":
             quest_id = effect.get("id") or effect.get("quest")
             if quest_id:
-                self.game.quests.complete_quest(quest_id)
+                self.game.quests.complete_quest(
+                    quest_id, outcome=effect.get("outcome")
+                )
             return
 
         if effect_type == "quest_fail":
             quest_id = effect.get("id") or effect.get("quest")
             if quest_id:
-                self.game.quests.fail_quest(quest_id)
+                self.game.quests.fail_quest(
+                    quest_id, outcome=effect.get("outcome")
+                )
             return
 
         if effect_type == "load_chapter":

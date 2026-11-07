@@ -10,6 +10,7 @@ from engine.constants import (
     TYPE_CONTAINER,
     TYPE_SURFACE,
 )
+from engine.strings import Texts
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
@@ -60,6 +61,39 @@ class CommonHandler:
         return CommonHandler.is_contained_in(game, obj, LOC_INVENTORY)
 
     @staticmethod
+    def get_contained_weight(
+        game: GameState, obj_id: str, _visited: set[str] | None = None
+    ) -> float:
+        """Berechnet rekursiv das Gesamtgewicht aller in ``obj_id`` enthaltenen Objekte."""
+        visited = _visited if _visited is not None else set()
+        if obj_id in visited:
+            return 0.0
+        visited.add(obj_id)
+
+        total = 0.0
+        for child in game.objects.values():
+            if child.get("location") != obj_id:
+                continue
+            unit_weight = float(child.get("weight", 0.0))
+            count = int(child.get("count", 1)) if child.get("is_resource") else 1
+            total += unit_weight * max(1, count)
+            child_id = child.get(ATTR_ID)
+            if isinstance(child_id, str):
+                total += CommonHandler.get_contained_weight(game, child_id, visited)
+        return total
+
+    @staticmethod
+    def get_total_weight(game: GameState, obj: dict[str, Any]) -> float:
+        """Berechnet das Eigengewicht eines Objekts plus aller rekursiv enthaltenen Objekte."""
+        unit_weight = float(obj.get("weight", 0.0))
+        count = int(obj.get("count", 1)) if obj.get("is_resource") else 1
+        own_weight = unit_weight * max(1, count)
+        obj_id = obj.get(ATTR_ID)
+        if not isinstance(obj_id, str):
+            return own_weight
+        return own_weight + CommonHandler.get_contained_weight(game, obj_id)
+
+    @staticmethod
     def format_visible_npcs(game: GameState, room_id: str) -> list[str]:
         """Ermittelt und formatiert anwesende NPCs im Raum inklusive Höhenangaben."""
         visible_npcs: list[str] = []
@@ -69,9 +103,9 @@ class CommonHandler:
             npc_level = int(npc.get("level", 0))
             npc_label = npc[ATTR_NAME]
             if npc_level > game.elevation:
-                npc_label += f" (oben auf Ebene {npc_level})"
+                npc_label += Texts.LEVEL_INFO_UP.format(level=npc_level)
             elif npc_level < game.elevation:
-                npc_label += f" (unten auf Ebene {npc_level})"
+                npc_label += Texts.LEVEL_INFO_DOWN.format(level=npc_level)
             visible_npcs.append(npc_label)
         return visible_npcs
 

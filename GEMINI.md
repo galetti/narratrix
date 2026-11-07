@@ -6,7 +6,7 @@ Deine Aufgabe ist es, die modulare Engine, den Parser, das Event-/Acoustic-Syste
 ## Kernkompetenzen & Entwicklungsrichtlinien
 
 ### 1. Python 3.10, Type Hinting & Code-Hygiene
-- Die Zielumgebung ist Python 3.10 (`/home/thorsten/miniconda3/envs/narratrix`).
+- Die Zielumgebung ist Python 3.10 (Linux: `/home/thorsten/miniconda3/envs/narratrix`, Windows: `C:\Users\User\anaconda3\envs\narratrix\python.exe`).
 - Verwende immer `from __future__ import annotations` in allen Modulen.
 - Importiere Features, die erst ab Python 3.11 in der Standardbibliothek sind (z. B. `NotRequired`, `Self`), nicht direkt aus `typing`, sondern aus `typing_extensions` oder implementiere kompatible Fallbacks.
 - Alle öffentlichen Methoden und Handler-Funktionen müssen vollständig typsicher annotiert sein (geprüft durch Code-Hygiene-Tests).
@@ -19,6 +19,9 @@ Deine Aufgabe ist es, die modulare Engine, den Parser, das Event-/Acoustic-Syste
 - **Sensor-HUD & Log-Synchronität:** Anwesende NPCs (`present_npcs`) müssen in Echtzeit synchron an das HUD und Log übermittelt werden.
 - **Verbindliche IDs:** In allen Kapiteln müssen Dictionary-Keys und das interne `id`-Feld strikt übereinstimmen.
 - **Rezept-Verben (Kombinationen):** In `items.py` dürfen Rezepte (`COMBINATIONS`) laut Schema ausschließlich die Verben `"use"` oder `"break"` verwenden. Synonyme Aktionen wie *reparieren*, *anwenden* oder *schlagen* werden vom Dispatcher automatisch auf diese beiden Basistypen gemappt.
+- **String-Zentralisierung (Lokalisierung):** Alle spielerseitigen System- und Feedback-Texte innerhalb von `engine/` müssen zentral in `engine/strings.py` (`Texts`, inkl. `Texts.direction_name` und `Texts.direction_from`) gepflegt werden – keine hartcodierten deutschen UI-/Ausgabestrings in Handlern oder Systemmodulen.
+- **Behälter-Physik & Rekursive Erreichbarkeit:** Gewichts- und Waagenberechnungen müssen stets verschachtelte Behälterinhalte über `CommonHandler.get_contained_weight()` bzw. `CommonHandler.get_total_weight()` einbeziehen. Beim Ablegen in Behälter (`put`) gelten Selbst-Einfüge-Schutz, Oberflächen-Restriktionen (keine losen Items auf Flüssigkeiten) sowie `max_weight`/`capacity`. Die Erreichbarkeit (`engine/access.py`) prüft rekursiv die gesamte Eltern-Behälterkette (`_root_entity_and_location`).
+- **Verzweigende Quests & State-Trees:** Nicht-lineare Quests nutzen `transitions`, benannte `outcomes`, `exclusive_with` und Stage-Historie (`visited_stage`). Komplexe Bedingungen in `EventManager` werden über rekursive `all`/`any`-Bäume abgebildet und statisch über `validate_quest_state_graph(config)` in `engine/analysis.py` auf unerreichbare Stages, Endlosschleifen und asymmetrische Exklusivitäten geprüft.
 
 ### 3. Parser & Befehlsauflösung
 - Alle Himmelsrichtungs-Kürzel (`n`, `s`, `w`, `o`, `u`, `d`) sowie Bindestrich-Kommandos müssen sowohl im Spacy-Parser als auch im regelbasierten Fallback-Parser fehlerfrei verarbeitet werden.
@@ -29,7 +32,13 @@ Deine Aufgabe ist es, die modulare Engine, den Parser, das Event-/Acoustic-Syste
 - **Automatischer Git Pre-Commit Hook:** In `.git/hooks/pre-commit` ist ein automatischer Test-Gatekeeper aktiv. Commits werden nur zugelassen, wenn alle Unittests fehlerfrei durchlaufen.
 - **Test-Architektur:**
   - `tests/test_engine.py`: Verträge, Quests, Save/Load, Spacy-Parser und AST-Code-Hygiene.
-  - `tests/test_systems.py`: Isolierte Modultests für regelbasierten Parser, Akustik/Schalldämpfung und KI-Behavior-Trees.
+  - `tests/test_systems.py`: Isolierte Modultests für regelbasierten Parser, Akustik/Schalldämpfung, KI-Behavior-Trees, LLM-Grounding, Quest-State-Trees und Physik-Stresstests.
 - **Kapitel-Testabdeckung:** Jedes neu angelegte Kapitel muss in `test_chapters_validate_and_intro_is_loaded` aufgenommen und mit einem eigenen deterministischen End-to-End-Testlauf in `tests/test_engine.py` auf Lösbarkeit abgesichert werden.
 - Manueller Testaufruf zur Verifikation:
-  `/home/thorsten/miniconda3/envs/narratrix/bin/python -m unittest discover tests`
+  - Linux: `/home/thorsten/miniconda3/envs/narratrix/bin/python -m unittest discover tests`
+  - Windows (PowerShell): `& "C:\Users\User\anaconda3\envs\narratrix\python.exe" -m unittest discover tests`
+
+### 5. LLM-Grounding & Zentrale Sprachsteuerung
+- **Englische System-Prompts:** Interne LLM-Anweisungen und Fakten-Grounding in `engine/systems/llm_grounding.py` werden strikt auf **Englisch** verfasst, um die Instruction-Adherence lokaler Sprachmodelle zu maximieren. Sie gehören **nicht** in `engine/strings.py`.
+- **Zentrale Zielsprache:** Die Antwortsprache der NPCs wird zentral über `game.config["language"]` (gespeist aus `data/config.json` -> `game.language`, z. B. `"de"` oder `"en"`) gesteuert und im System-Prompt als Zielsprache injiziert.
+- **Guardrails & Fallback:** Dynamische LLM-Dialoge (`LLM_AUTO_REPLY` oder Freitext-Fragen in `DialogueSystem`) durchlaufen `build_prompts()`, `sanitize_reply()` und die Fakten-/Zahlen-Invariante `preserves_core_facts()`. Bei Verbindungsfehlern, Halluzinationen oder verletzten Zahlenfakten greift immer ein deterministischer In-Character-Fallback.

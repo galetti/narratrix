@@ -61,9 +61,9 @@ class InventoryHandler:
             name = item[ATTR_NAME]
             if CommonHandler.is_open_container(item):
                 content_str = CommonHandler.format_contents_recursive(game, item[ATTR_ID])
-                if content_str: name += f" (enthält: {content_str})"
-                else: name += " (leer)"
-            elif item.get('type') == TYPE_CONTAINER: name += " (geschlossen)"
+                if content_str: name += Texts.INV_CONTAINS.format(content_str)
+                else: name += Texts.INV_EMPTY_CONTAINER_LABEL
+            elif item.get('type') == TYPE_CONTAINER: name += Texts.INV_CLOSED_CONTAINER_LABEL
             display_list.append(name)
             
         if not display_list: game.log('info', Texts.INV_EMPTY)
@@ -116,9 +116,9 @@ class InventoryHandler:
                 taken.append(item[ATTR_NAME])
                 
             if taken:
-                game.log('success', f"Genommen: {', '.join(taken)}")
+                game.log('success', Texts.TAKE_ALL_SUCCESS.format(', '.join(taken)))
                 game.tick(len(taken))
-            else: game.log('info', "Nichts Greifbares hier.")
+            else: game.log('info', Texts.TAKE_ALL_NOTHING)
             return
 
         clean_args = Resolver.clean_args(item_words)
@@ -126,7 +126,7 @@ class InventoryHandler:
             target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_RECURSIVE, verb='take')
             if target:
                 if not any(target is obj for obj in game.objects.values()):
-                    return game.log('error', "Personen kannst du nicht ins Inventar stecken.")
+                    return game.log('error', Texts.TAKE_CANNOT_PERSON)
                 if target['location'] == LOC_INVENTORY: return game.log('info', Texts.TAKE_ALREADY)
                 if not InventoryHandler._is_takeable(target):
                     return game.log('error', Texts.TAKE_TOO_HEAVY)
@@ -145,7 +145,7 @@ class InventoryHandler:
                         try:
                             tool = Resolver.resolve_target(game, tool_words, location_filter=FILTER_INVENTORY, verb='tool')
                             if not tool:
-                                game.log('error', "Du hast dieses Werkzeug nicht.")
+                                game.log('error', Texts.TOOL_NOT_IN_INVENTORY)
                                 return
                             reach = tool.get('reach', 0)
                             # Wenn wir das Tool nutzen, addieren wir die Reichweite
@@ -158,24 +158,43 @@ class InventoryHandler:
                             
                             if reach >= dist: # Vereinfacht: Tool Reichweite überbrückt die komplette Distanz
                                 can_reach = True
-                                game.log('info', f"Du benutzt {tool[ATTR_NAME]}, um {target[ATTR_NAME]} zu erreichen.")
+                                game.log(
+                                    'info',
+                                    Texts.TOOL_USE_TO_REACH.format(
+                                        tool=tool[ATTR_NAME], target=target[ATTR_NAME]
+                                    ),
+                                )
                             else:
-                                game.log('error', f"{tool[ATTR_NAME]} ist nicht lang genug.")
+                                game.log(
+                                    'error',
+                                    Texts.TOOL_NOT_LONG_ENOUGH.format(tool=tool[ATTR_NAME]),
+                                )
                                 return
                         except ResolutionError:
-                            game.log('error', "Du hast dieses Werkzeug nicht.")
+                            game.log('error', Texts.TOOL_NOT_IN_INVENTORY)
                             return
                     else:
                         # Kein Tool
                         if item_level > player_level + 1:
-                            game.log('error', f"{target[ATTR_NAME]} ist zu weit oben (Ebene {item_level}). Du kommst nicht heran.")
+                            game.log(
+                                'error',
+                                Texts.REACH_TOO_HIGH.format(
+                                    target=target[ATTR_NAME], level=item_level
+                                ),
+                            )
                             return
                         elif item_level < player_level:
-                            game.log('error', f"{target[ATTR_NAME]} liegt zu weit unten (Ebene {item_level}). Du musst runterklettern.")
+                            game.log(
+                                'error',
+                                Texts.REACH_TOO_LOW.format(
+                                    target=target[ATTR_NAME], level=item_level
+                                ),
+                            )
                             return
 
-                weight = target.get(ATTR_WEIGHT, float('inf'))
-                if weight == float('inf'): return game.log('error', Texts.TAKE_TOO_HEAVY)
+                weight = CommonHandler.get_total_weight(game, target)
+                if weight == float('inf') or target.get(ATTR_WEIGHT, float('inf')) == float('inf'):
+                    return game.log('error', Texts.TAKE_TOO_HEAVY)
                 if target.get(ATTR_MATTER) == MATTER_LIQUID: return game.log('error', Texts.TAKE_LIQUID_ERROR)
 
                 if target.get('is_resource'):
@@ -184,7 +203,14 @@ class InventoryHandler:
                         amount = target.get('count', 1)
                         existing['count'] = existing.get('count', 1) + amount
                         target['location'] = LOC_VOID 
-                        game.log('success', f"Du nimmst {amount}x {target[ATTR_NAME]} (Total: {existing['count']}).")
+                        game.log(
+                            'success',
+                            Texts.TAKE_RESOURCE_SUCCESS.format(
+                                amount=amount,
+                                item=target[ATTR_NAME],
+                                total=existing['count'],
+                            ),
+                        )
                         game.tick(1)
                         return
 
@@ -198,7 +224,7 @@ class InventoryHandler:
                     for item in contents:
                         item['location'] = LOC_INVENTORY
                         names.append(item[ATTR_NAME])
-                    if names: game.log('info', f"Du verstaust auch: {', '.join(names)}.")
+                    if names: game.log('info', Texts.TAKE_STORED_ALSO.format(', '.join(names)))
                 
                 game.tick(1)
         except ResolutionError as e: game.log('error', str(e))
@@ -276,7 +302,10 @@ class InventoryHandler:
                     game.dialogue_active = True
                     game.dialogue_partner = npc
                     
-                    game.log('event', f"--- GESPRÄCH MIT {npc[ATTR_NAME].upper()} ---")
+                    game.log(
+                        'event',
+                        Texts.DIALOGUE_HEADER.format(npc=npc[ATTR_NAME].upper()),
+                    )
                     game.dialogue_system.print_dialogue(npc, reaction_entry)
                     
                     if 'effect' in reaction_entry:

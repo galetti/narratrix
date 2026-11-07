@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from engine.constants import LOC_INVENTORY
+from engine.handlers.common import CommonHandler
 from engine.schema import ConditionSpec, EventData
 
 if TYPE_CHECKING:
@@ -106,11 +107,7 @@ class EventManager:
             scale_id = condition.get("item") or condition.get("id")
             target_weight = float(condition.get("value", 0.0))
             if isinstance(scale_id, str) and scale_id in self.game.objects:
-                total_weight = sum(
-                    float(obj.get("weight", 0.0))
-                    for obj in self.game.objects.values()
-                    if obj.get("location") == scale_id
-                )
+                total_weight = CommonHandler.get_contained_weight(self.game, scale_id)
                 result = abs(total_weight - target_weight) < 1e-3
         elif condition_type == "npc_state":
             npc_id = condition.get("npc")
@@ -126,9 +123,38 @@ class EventManager:
         elif condition_type == "quest_state":
             quest_id = condition.get("quest")
             quest = self.game.quests.states.get(quest_id, {}) if isinstance(quest_id, str) else {}
-            result = quest.get("status") == condition.get("status", "active")
+            matches = True
+            if "status" in condition or (
+                "stage" not in condition
+                and "outcome" not in condition
+                and "visited_stage" not in condition
+            ):
+                matches = matches and quest.get("status") == condition.get("status", "active")
             if "stage" in condition:
-                result = result and quest.get("stage") == int(condition["stage"])
+                matches = matches and quest.get("stage") == int(condition["stage"])
+            if "outcome" in condition:
+                matches = matches and quest.get("outcome") == condition.get("outcome")
+            if "visited_stage" in condition:
+                matches = matches and int(condition["visited_stage"]) in quest.get(
+                    "history", []
+                )
+            result = matches
+        elif condition_type in {"all", "any", "complex"}:
+            sub_conditions = condition.get("conditions", [])
+            if isinstance(sub_conditions, list) and sub_conditions:
+                operator = (
+                    "AND"
+                    if condition_type == "all"
+                    else (
+                        "OR"
+                        if condition_type == "any"
+                        else str(condition.get("operator", "AND")).upper()
+                    )
+                )
+                sub_results = [self.evaluate_condition(sub) for sub in sub_conditions]
+                result = all(sub_results) if operator == "AND" else any(sub_results)
+            else:
+                result = False
         elif condition_type == "stability":
             threshold = float(condition.get("value", 0))
             operator = condition.get("op", "<")

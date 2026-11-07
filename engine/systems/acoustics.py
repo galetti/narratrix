@@ -10,6 +10,7 @@ from engine.constants import (
     ATTR_NAME,
     LOC_INVENTORY,
 )
+from engine.strings import Texts
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
@@ -127,31 +128,16 @@ class AcousticsSystem:
     def _direction_text(
         self, listener_id: str, neighbor_id: str, direction: str | None
     ) -> str:
-        translations = {
-            "north": "aus Norden",
-            "south": "aus Süden",
-            "east": "aus Osten",
-            "west": "aus Westen",
-            "up": "von Oben",
-            "down": "von Unten",
-            "out": "von Draußen",
-            "northeast": "aus Nordosten",
-            "northwest": "aus Nordwesten",
-            "southeast": "aus Südosten",
-            "southwest": "aus Südwesten",
-        }
-        if direction in translations:
-            return translations[direction]
         if direction:
-            return str(direction)
+            return Texts.direction_from(direction)
 
         neighbor = self.game.rooms.get(neighbor_id, {})
         exits = neighbor.get("exits", {})
         if exits.get("down") == listener_id:
-            return "von Oben (durch die Decke)"
+            return Texts.ACOUSTIC_FROM_ABOVE_CEILING
         if exits.get("up") == listener_id:
-            return "von Unten (durch den Boden)"
-        return f"hinter der Wand zu {neighbor.get(ATTR_NAME, neighbor_id)}"
+            return Texts.ACOUSTIC_FROM_BELOW_FLOOR
+        return Texts.ACOUSTIC_BEHIND_WALL.format(name=neighbor.get(ATTR_NAME, neighbor_id))
 
     def _calculate_exit_transmission(self, room_id: str, direction: str) -> float:
         target_id = self.game.rooms.get(room_id, {}).get("exits", {}).get(direction)

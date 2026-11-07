@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections import deque
 from typing import TYPE_CHECKING
 
+from engine.strings import Texts
+
 if TYPE_CHECKING:
     from engine.game_state import GameState
 
@@ -52,25 +54,12 @@ class Pathfinder:
 
     def get_direction_to(self, start_room: str, target_room_id: str) -> str | None:
         if start_room == target_room_id:
-            return "hier"
+            return Texts.HERE
         path = self.find_path(start_room, target_room_id)
         if not path:
             return None
         next_step = path[0]
-        translations = {
-            "north": "Norden",
-            "south": "Süden",
-            "east": "Osten",
-            "west": "Westen",
-            "up": "Oben",
-            "down": "Unten",
-            "out": "Ausgang",
-            "northeast": "Nordosten",
-            "northwest": "Nordwesten",
-            "southeast": "Südosten",
-            "southwest": "Südwesten",
-        }
         for direction, room_id in self.game.rooms[start_room].get("exits", {}).items():
             if room_id == next_step:
-                return translations.get(direction, direction)
+                return Texts.direction_name(direction, long_form=True)
         return "irgendwo"

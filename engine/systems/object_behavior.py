@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from utils import rng
 from engine.constants import ATTR_NAME
 from engine.schema import ObjectBehaviorData, ObjectData
+from engine.strings import Texts
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
@@ -46,6 +47,6 @@ class ObjectBehaviorSystem:
                 if obj['location'] == self.game.location:
                     name = obj[ATTR_NAME]
                     if obj['is_open']:
-                        self.game.log('event', f"Der {name} öffnet sich zischend von selbst.")
+                        self.game.log('event', Texts.OBJ_AUTO_OPEN.format(name=name))
                     else:
-                        self.game.log('event', f"Der {name} fällt scheppernd ins Schloss.")
+                        self.game.log('event', Texts.OBJ_AUTO_CLOSE.format(name=name))

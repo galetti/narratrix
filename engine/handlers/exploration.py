@@ -62,7 +62,7 @@ class ExplorationHandler:
         if game.hidden_in:
             container = game.objects.get(game.hidden_in)
             if container:
-                game.log('info', f"Du versteckst dich in {container[ATTR_NAME]}.")
+                game.log('info', Texts.LOOK_HIDDEN_IN.format(container[ATTR_NAME]))
             
             # Eingeschränkter Blick in den Raum
             visible_npcs = [n[ATTR_NAME] for n in game.npcs if n['location'] == game.location]
@@ -74,7 +74,7 @@ class ExplorationHandler:
 
         room = game.get_room(game.location)
         if not room:
-            game.log('error', "Fehler: Aktueller Raum nicht gefunden.")
+            game.log('error', Texts.LOOK_ROOM_NOT_FOUND)
             return
 
         if not args:
@@ -85,8 +85,7 @@ class ExplorationHandler:
             # Ausgänge anzeigen
             exits = room.get('exits', {})
             if exits:
-                trans = {"north": "Norden", "south": "Süden", "east": "Osten", "west": "Westen", "up": "Oben", "down": "Unten", "out": "Ausgang"}
-                exit_names = [trans.get(d, d.capitalize()) for d in exits.keys()]
+                exit_names = [Texts.direction_name(d) for d in exits.keys()]
                 game.log('info', Texts.LOOK_EXITS.format(', '.join(exit_names)))
             else: 
                 game.log('info', Texts.LOOK_NO_EXITS)
@@ -98,16 +97,25 @@ class ExplorationHandler:
             for obj in local_objects:
                 if CommonHandler.is_open_container(obj):
                     content_str = CommonHandler.format_contents_recursive(game, obj[ATTR_ID])
-                    prep = "Auf dem" if obj.get('type') == TYPE_SURFACE else "Im offenen"
                     if content_str: 
-                        game.log('info', f"{prep} {obj[ATTR_NAME]}: {content_str}")
+                        msg = (
+                            Texts.LOOK_ON_SURFACE.format(name=obj[ATTR_NAME], content=content_str)
+                            if obj.get('type') == TYPE_SURFACE
+                            else Texts.LOOK_IN_OPEN.format(name=obj[ATTR_NAME], content=content_str)
+                        )
+                        game.log('info', msg)
                     else:
-                        game.log('info', f"{prep} {obj[ATTR_NAME]} ist nichts.")
+                        msg = (
+                            Texts.LOOK_NOTHING_ON.format(name=obj[ATTR_NAME])
+                            if obj.get('type') == TYPE_SURFACE
+                            else Texts.LOOK_NOTHING_IN.format(name=obj[ATTR_NAME])
+                        )
+                        game.log('info', msg)
                 
                 # Türen/Schotts extra anzeigen (Status)
                 elif obj.get('linked_exit'):
                     state = Texts.LOOK_OPEN if obj.get('is_open') else Texts.LOOK_CLOSED
-                    game.log('info', f"{obj[ATTR_NAME]} ({state})")
+                    game.log('info', Texts.LOOK_DOOR_STATUS.format(name=obj[ATTR_NAME], state=state))
                     
                 # Normale Items & Fixtures
                 elif (
@@ -117,9 +125,9 @@ class ExplorationHandler:
                     obj_level = int(obj.get('level', 0))
                     label = obj[ATTR_NAME]
                     if obj_level > game.elevation:
-                        label += f" (oben auf Ebene {obj_level})"
+                        label += Texts.LEVEL_INFO_UP.format(level=obj_level)
                     elif obj_level < game.elevation:
-                        label += f" (unten auf Ebene {obj_level})"
+                        label += Texts.LEVEL_INFO_DOWN.format(level=obj_level)
                     visible_objs.append(label)
             
             if visible_objs: 
@@ -150,9 +158,8 @@ class ExplorationHandler:
 
                 # Waagen-Display
                 if target.get('is_scale'):
-                    contents = [o for o in game.objects.values() if o['location'] == target[ATTR_ID]]
-                    total_weight = sum(o.get('weight', 0) for o in contents)
-                    status.append(f"Display: {total_weight:.2f} kg")
+                    total_weight = CommonHandler.get_contained_weight(game, target[ATTR_ID])
+                    status.append(Texts.LOOK_SCALE_DISPLAY.format(total_weight))
 
                 # Container Status
                 if target.get('type') in [TYPE_CONTAINER, TYPE_SURFACE]:
@@ -204,7 +211,7 @@ class ExplorationHandler:
         if game.hidden_in:
             container = game.objects.get(game.hidden_in)
             if container:
-                game.log("info", f"Du lauschst aus deinem Versteck in {container[ATTR_NAME]} heraus...")
+                game.log("info", Texts.LISTEN_FROM_HIDE.format(container=container[ATTR_NAME]))
 
         # 1. Prüfen auf Werkzeug ("mit <item>")
         tool_words: list[str] = []
@@ -272,7 +279,9 @@ class ExplorationHandler:
                     if float(active_tool.get("acoustic_boost", 0.0)) <= 0.0:
                         game.log(
                             "info",
-                            f"Du hältst {active_tool[ATTR_NAME]} an {target[ATTR_NAME]}, aber es verstärkt den Schall nicht.",
+                            Texts.LISTEN_TOOL_NO_BOOST.format(
+                                tool=active_tool[ATTR_NAME], target=target[ATTR_NAME]
+                            ),
                         )
                         return
 
@@ -299,9 +308,11 @@ class ExplorationHandler:
                         if best_vol >= 0.3 and best_event:
                             game.log(
                                 "success",
-                                f"Du drückst {active_tool[ATTR_NAME]} fest gegen {target[ATTR_NAME]} und lauschst am Boden des Glases. "
-                                f"Die Schwingungen der Tür übertragen sich klar auf das Glas! Du hörst zwei Stimmen glasklar:\n"
-                                f"'{best_event['sound_msg']}'",
+                                Texts.LISTEN_CLEAR_VOICES.format(
+                                    tool=active_tool[ATTR_NAME],
+                                    target=target[ATTR_NAME],
+                                    message=best_event["sound_msg"],
+                                ),
                             )
                             game.add_knowledge("sabotage_plan_uncovered")
                             if "investigate_sabotage" in game.quests.states:
@@ -314,15 +325,17 @@ class ExplorationHandler:
                         elif best_vol > 0.0:
                             game.log(
                                 "info",
-                                f"Du drückst {active_tool[ATTR_NAME]} gegen {target[ATTR_NAME]}. "
-                                f"Du hörst gedämpfte Stimmen, aber der Schall wird noch zu stark geschluckt.",
+                                Texts.LISTEN_MUFFLED.format(
+                                    tool=active_tool[ATTR_NAME], target=target[ATTR_NAME]
+                                ),
                             )
                             return
                         else:
                             game.log(
                                 "info",
-                                f"Du drückst {active_tool[ATTR_NAME]} gegen {target[ATTR_NAME]} und lauschst angestrengt. "
-                                f"Doch dahinter herrscht absolute Stille – der Raum scheint schallundurchdringlich isoliert zu sein.",
+                                Texts.LISTEN_ABSOLUTE_SILENCE.format(
+                                    tool=active_tool[ATTR_NAME], target=target[ATTR_NAME]
+                                ),
                             )
                             return
 
@@ -345,25 +358,29 @@ class ExplorationHandler:
 
                     if best_vol > 0.05:
                         hint = (
-                            " Wenn du ein akustisches Verstärkerglas hättest, könntest du es verstehen!"
+                            Texts.LISTEN_DOOR_MUFFLED_NO_TOOL
                             if inventory_boost_tool is None
-                            else f" Drücke dein {inventory_boost_tool[ATTR_NAME]} an die Tür ('lausche an tür mit glas'), um es zu verstehen!"
+                            else Texts.LISTEN_DOOR_MUFFLED_WITH_TOOL.format(
+                                tool=inventory_boost_tool[ATTR_NAME]
+                            )
                         )
                         game.log(
                             "info",
-                            f"Du lauschst an {target[ATTR_NAME]}. Du nimmst gedämpftes Gemurmel und Stimmen wahr, aber das Schott schluckt zu viel Schall.{hint}",
+                            Texts.LISTEN_DOOR_MURMURS.format(
+                                target=target[ATTR_NAME], hint=hint
+                            ),
                         )
                         return
                     else:
                         game.log(
                             "info",
-                            f"Du lauschst an {target[ATTR_NAME]}. Dahinter ist es vollkommen still.",
+                            Texts.LISTEN_DOOR_SILENCE.format(target=target[ATTR_NAME]),
                         )
                         return
 
                 game.log(
                     "info",
-                    f"Du lauschst an {target[ATTR_NAME]}, kannst aber keine auffälligen Geräusche ausmachen.",
+                    Texts.LISTEN_DOOR_NOTHING.format(target=target[ATTR_NAME]),
                 )
                 return
             except ResolutionError as exc:
@@ -385,16 +402,21 @@ class ExplorationHandler:
             if heard_volume > 0.05:
                 audible_count += 1
                 prefix = (
-                    "(leise) "
+                    Texts.LISTEN_PREFIX_QUIET
                     if heard_volume < 0.3
-                    else ("(LAUT) " if heard_volume > 0.8 else "")
+                    else (Texts.LISTEN_PREFIX_LOUD if heard_volume > 0.8 else "")
                 )
-                dir_txt = direction[0].upper() + direction[1:] if direction else "Irgendwo"
-                game.log("event", f"{dir_txt} hörst du: {prefix}{event['sound_msg']}")
+                dir_txt = direction[0].upper() + direction[1:] if direction else Texts.LISTEN_SOMEWHERE
+                game.log(
+                    "event",
+                    Texts.LISTEN_HEAR_SOUND.format(
+                        direction=dir_txt, prefix=prefix, sound=event["sound_msg"]
+                    ),
+                )
 
         if audible_count == 0:
             game.log(
                 "info",
-                "Du lauschst angestrengt in die Stille. Abgesehen vom leisen Surren der Stationslüftung ist nichts zu hören.",
+                Texts.LISTEN_QUIET_STATION,
             )
         game.tick(1)

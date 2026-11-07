@@ -104,6 +104,7 @@ class GameGUI:
         new_config["use_llm_dialogue"] = bool(
             SYS_CONFIG["system"].get("llm_enabled", False)
         )
+        new_config["language"] = str(SYS_CONFIG["game"].get("language", "de"))
         new_config["llm_url"] = SYS_CONFIG["system"].get("llm_url")
         new_config["llm_model"] = SYS_CONFIG["system"].get("llm_model")
         self.game: GameState = GameState(new_config)

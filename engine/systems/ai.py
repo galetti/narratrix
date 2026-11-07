@@ -5,6 +5,7 @@ import random
 from typing import TYPE_CHECKING, Any, Callable
 
 from engine.constants import ATTR_NAME
+from engine.strings import Texts
 from engine.schema import NPCData
 
 if TYPE_CHECKING:
@@ -123,7 +124,7 @@ class AISystem:
     def _act_greet_player(self, npc: NPCData, sys: AISystem) -> bool:
         # Sicherheitscheck: Nur grüßen, wenn Spieler da ist
         if sys.game.location == npc['location']:
-            sys.game.log('character', f"{npc[ATTR_NAME]} nickt dir zu.")
+            sys.game.log('character', Texts.NPC_NODS.format(npc=npc[ATTR_NAME]))
             npc['has_greeted'] = True
         return True
 
@@ -131,7 +132,7 @@ class AISystem:
         if random.random() < 0.1:
             # FIX: Nur loggen, wenn Spieler anwesend ist
             if sys.game.location == npc['location']:
-                sys.game.log('character', f"{npc[ATTR_NAME]} schaut sich nervös um.")
+                sys.game.log('character', Texts.NPC_NERVOUS.format(npc=npc[ATTR_NAME]))
         return True
 
     def _act_flee(self, npc: NPCData, sys: AISystem) -> bool:
@@ -174,7 +175,7 @@ class AISystem:
             # Angekommen
             # FIX: Nur loggen, wenn Spieler anwesend ist
             if sys.game.location == npc['location']:
-                sys.game.log('character', f"{npc[ATTR_NAME]} sieht sich suchend um.")
+                sys.game.log('character', Texts.NPC_SEARCHING.format(npc=npc[ATTR_NAME]))
             
             npc['memory']['last_noise_loc'] = None 
             return True
@@ -211,7 +212,7 @@ class AISystem:
                 first_step = path[0]
                 direction = self._get_exit_direction(start_room, first_step)
                 dir_str = f" nach {direction}" if direction else ""
-                self.game.log('character', f"{npc[ATTR_NAME]} bricht auf{dir_str}.")
+                self.game.log('character', Texts.NPC_DEPARTS.format(npc=npc[ATTR_NAME], direction=dir_str))
             return True
         return False
 
@@ -263,23 +264,17 @@ class AISystem:
         if player_loc == old_room:
             direction = self._get_exit_direction(old_room, new_room)
             dir_text = f" nach {direction}" if direction else ""
-            self.game.log('character', f"{npc_name} verlässt den Bereich{dir_text}.")
+            self.game.log('character', Texts.NPC_LEAVES.format(npc=npc_name, direction=dir_text))
         elif player_loc == new_room:
             direction = self._get_exit_direction(new_room, old_room)
             dir_text = f" aus {direction}" if direction else ""
-            self.game.log('character', f"{npc_name} betritt den Bereich{dir_text}.")
+            self.game.log('character', Texts.NPC_ENTERS.format(npc=npc_name, direction=dir_text))
 
     def _get_exit_direction(self, source_id: str, target_id: str) -> str | None:
         room = self.game.rooms.get(source_id)
         if not room: return None
-        trans_map = {
-            "north": "Norden", "south": "Süden", "east": "Osten", "west": "Westen", 
-            "up": "Oben", "down": "Unten",
-            "northeast": "Nordosten", "northwest": "Nordwesten",
-            "southeast": "Südosten", "southwest": "Südwesten"
-        }
         for direction, dest in room.get('exits', {}).items():
-            if dest == target_id: return trans_map.get(direction, direction)
+            if dest == target_id: return Texts.direction_name(direction, long_form=True)
         return None
 
     def _find_npc(self, identifier: str) -> NPCData | None:

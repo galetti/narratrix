@@ -14,6 +14,7 @@ from engine.handlers.mechanics import MechanicsHandler
 # NEU: Wir müssen AmbiguityError importieren
 from engine.resolver import AmbiguityError
 from engine.constants import ATTR_NAME
+from engine.strings import Texts
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
@@ -82,7 +83,7 @@ class ActionDispatcher:
             except AmbiguityError as e:
                 # Hier fangen wir den Fehler vom Resolver
                 names = [m[ATTR_NAME] for m in e.candidates]
-                game.log('info', f"Meinst du: {', '.join(names)}?")
+                game.log('info', Texts.DISAMBIGUATION_PROMPT.format(', '.join(names)))
                 
                 # Wir speichern den Kontext, um den Befehl später neu bauen zu können
                 game.disambiguation = {
@@ -100,7 +101,7 @@ class ActionDispatcher:
                 MovementHandler.handle(game, [verb])
                 return
 
-        game.log('error', f"Ich weiß nicht, wie ich '{verb}' soll.")
+        game.log('error', Texts.UNKNOWN_VERB.format(verb))
 
     @staticmethod
     def dialogue_step(game: GameState, user_input: str) -> None:

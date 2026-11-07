@@ -13,9 +13,9 @@ logger = logging.getLogger(__name__)
 
 
 class LLMBridge:
-    DEFAULT_URL: str = "http://localhost:1234/v1/chat/completions"
-    DEFAULT_MODEL: str = "local-model"
-    TIMEOUT: int = 5
+    DEFAULT_URL: str = "http://127.0.0.1:11434/v1/chat/completions"
+    DEFAULT_MODEL: str = "gemma4:12b"
+    TIMEOUT: int = 30
 
     @staticmethod
     def get_api_url(configured_url: str | None = None) -> str:
@@ -38,7 +38,7 @@ class LLMBridge:
                 {"role": "user", "content": user_message},
             ],
             "temperature": 0.7,
-            "max_tokens": 100,
+            "max_tokens": 1024,
         }
         try:
             response = requests.post(

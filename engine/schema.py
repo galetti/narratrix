@@ -203,11 +203,16 @@ class QuestDefinitionData(TypedDict, total=False):
     stages: dict[int, str]
     start_stage: int
     completion_stage: int
+    transitions: dict[int, list[int]]
+    outcomes: dict[str, str]
+    exclusive_with: list[str]
 
 
-class QuestStateData(TypedDict):
+class QuestStateData(TypedDict, total=False):
     status: str
     stage: int | None
+    outcome: str | None
+    history: list[int]
 
 
 class ActiveQuestInfo(TypedDict):
@@ -272,6 +277,7 @@ class GameConfigData(TypedDict, total=False):
     events: list[EventData]
     quests: dict[str, QuestDefinitionData]
     links: list[dict[str, str]]
+    language: str
     use_llm_dialogue: bool
     llm_url: str | None
     llm_model: str | None
@@ -289,6 +295,9 @@ SUPPORTED_CONDITIONS: set[str] = {
     "stability",
     "event_triggered",
     "inventory",
+    "all",
+    "any",
+    "complex",
 }
 SUPPORTED_EFFECTS: set[str] = {
     "move_npc",
@@ -342,6 +351,14 @@ def _validate_condition(condition: Any, context: str) -> None:
         condition_type in SUPPORTED_CONDITIONS,
         f"{context}: Unbekannter Bedingungstyp '{condition_type}'.",
     )
+    if condition_type in {"all", "any", "complex"}:
+        sub_conditions = condition.get("conditions")
+        _require(
+            isinstance(sub_conditions, list) and bool(sub_conditions),
+            f"{context}: Zusammengesetzte Bedingung benötigt 'conditions'.",
+        )
+        for index, sub in enumerate(sub_conditions):
+            _validate_condition(sub, f"{context}.conditions[{index}]")
 
 
 def _validate_effect(effect: Any, context: str) -> None:
@@ -411,6 +428,61 @@ def validate_game_config(config: dict[str, Any]) -> dict[str, Any]:
                 ) from exc
             normalized_stages[normalized_stage] = str(description)
         quest["stages"] = normalized_stages
+        if "transitions" in quest:
+            raw_transitions = quest["transitions"]
+            _require(
+                isinstance(raw_transitions, dict),
+                f"Quest '{quest_id}': transitions muss ein Dict sein.",
+            )
+            normalized_transitions: dict[int, list[int]] = {}
+            for src, targets in raw_transitions.items():
+                try:
+                    src_stage = int(src)
+                except (TypeError, ValueError) as exc:
+                    raise ConfigurationError(
+                        f"Quest '{quest_id}': Ungültige Quell-Stage '{src}' in transitions."
+                    ) from exc
+                _require(
+                    src_stage in normalized_stages,
+                    f"Quest '{quest_id}': Quell-Stage {src_stage} in transitions existiert nicht.",
+                )
+                _require(
+                    isinstance(targets, list),
+                    f"Quest '{quest_id}': Übergänge für Stage {src_stage} müssen eine Liste sein.",
+                )
+                norm_targets: list[int] = []
+                for dst in targets:
+                    try:
+                        dst_stage = int(dst)
+                    except (TypeError, ValueError) as exc:
+                        raise ConfigurationError(
+                            f"Quest '{quest_id}': Ungültige Ziel-Stage '{dst}' in transitions."
+                        ) from exc
+                    _require(
+                        dst_stage in normalized_stages,
+                        f"Quest '{quest_id}': Ziel-Stage {dst_stage} in transitions existiert nicht.",
+                    )
+                    norm_targets.append(dst_stage)
+                normalized_transitions[src_stage] = norm_targets
+            quest["transitions"] = normalized_transitions
+        if "outcomes" in quest:
+            _require(
+                isinstance(quest["outcomes"], dict)
+                and all(isinstance(k, str) and bool(k) for k in quest["outcomes"]),
+                f"Quest '{quest_id}': outcomes muss ein nicht-leeres String-Dict sein.",
+            )
+        if "exclusive_with" in quest:
+            excl = quest["exclusive_with"]
+            _require(
+                isinstance(excl, list) and all(isinstance(q, str) for q in excl),
+                f"Quest '{quest_id}': exclusive_with muss eine Liste von Quest-IDs sein.",
+            )
+    for quest_id, quest in quests.items():
+        for other_id in quest.get("exclusive_with", []):
+            _require(
+                other_id in quests and other_id != quest_id,
+                f"Quest '{quest_id}': Ungültige exclusive_with-Referenz '{other_id}'.",
+            )
 
     events = list(config.get("narrative_matrix", [])) + list(config.get("events", []))
     event_ids = _unique_ids(events, "Event")
