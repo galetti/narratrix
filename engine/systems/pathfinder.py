@@ -14,12 +14,21 @@ class Pathfinder:
         self.game: GameState = game
 
     def _is_exit_passable(self, room_id: str, direction: str) -> bool:
-        blockers = [
-            obj
-            for obj in self.game.objects.values()
-            if obj.get("location") == room_id and obj.get("linked_exit") == direction
-        ]
-        return all(obj.get("is_open", True) for obj in blockers)
+        target_id = self.game.rooms.get(room_id, {}).get("exits", {}).get(direction)
+        for obj in self.game.objects.values():
+            loc = obj.get("location")
+            linked = obj.get("linked_exit")
+            if not linked:
+                continue
+            if loc == room_id and linked == direction:
+                if not obj.get("is_open", True):
+                    return False
+            elif target_id and loc == target_id:
+                target_room = self.game.rooms.get(target_id, {})
+                if target_room.get("exits", {}).get(linked) == room_id:
+                    if not obj.get("is_open", True):
+                        return False
+        return True
 
     def find_path(
         self,

@@ -180,10 +180,15 @@ class MechanicsHandler:
                 key_id = target.get("key_id")
                 key = game.objects.get(key_id) if isinstance(key_id, str) else None
                 if not key or not CommonHandler.is_held_by_player(game, key):
-                    return game.log(
-                        "error",
-                        Texts.OPEN_LOCKED.format(target=target[ATTR_NAME]),
-                    )
+                    locked_msg = target.get("locked_msg")
+                    if isinstance(locked_msg, str) and locked_msg:
+                        try:
+                            msg = locked_msg.format(target=target[ATTR_NAME])
+                        except KeyError:
+                            msg = locked_msg
+                    else:
+                        msg = Texts.OPEN_LOCKED.format(target=target[ATTR_NAME])
+                    return game.log("error", msg)
                 target["is_locked"] = False
                 game.log(
                     "info",

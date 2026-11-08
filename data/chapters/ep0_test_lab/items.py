@@ -325,7 +325,8 @@ ITEMS: dict[str, ObjectData] = {
         "type": TYPE_CONTAINER,
         "linked_exit": "north",
         "is_open": False,
-        "is_locked": False,
+        "is_locked": True,
+        "locked_msg": "Eine starke Hydraulikfeder zieht die Schallschutztür sofort wieder zu. Sie müsste mit etwas offen gehalten werden.",
         "acoustic_damping": 0.0,
         ATTR_WEIGHT: 600.0,
     },
@@ -456,16 +457,16 @@ COMBINATIONS: list[RecipeData] = [
             {
                 "type": "update_object",
                 "target": "soundproof_door",
-                "updates": {"is_open": True, "jammed": True},
-            },
-            {
-                "type": "move_player",
-                "target": "central_hub",
+                "updates": {"is_open": True, "is_locked": False, "jammed": True},
             },
             {
                 "type": "update_object",
                 "target": "anteroom_door",
                 "updates": {"is_open": False, "is_locked": True},
+            },
+            {
+                "type": "move_player",
+                "target": "central_hub",
             },
             {
                 "type": "learn",
@@ -477,32 +478,72 @@ COMBINATIONS: list[RecipeData] = [
             },
         ],
     },
-    # 5. An der Vorraum-Tür mit Akustik-Glas belauschen (Tür noch nicht verkeilt -> absolute Stille)
+    # 5. An der Vorraum-Tür mit Akustik-Glas belauschen (Schallschutztür zu -> absolute Stille)
     {
         "verb": "use",
         "items": ["amplifying_glass", "anteroom_door"],
         "condition": {
-            "type": "knowledge",
-            "value": "soundproof_door_wedged",
-            "not": True,
+            "type": "object_state",
+            "item": "soundproof_door",
+            "is_open": False,
         },
         "message": (
             "Du drückst das Akustik-Glas gegen die Vorraum-Tür und lauschst angestrengt. "
             "Doch dahinter herrscht absolute Stille – der schallisolierte Besprechungsraum lässt keinen einzigen Ton nach außen dringen."
         ),
     },
-    # 6. An der Vorraum-Tür mit Akustik-Glas belauschen (Tür verkeilt -> Sabotagepläne aufgedeckt)
+    # 6. An der Vorraum-Tür mit Akustik-Glas belauschen (Schallschutztür offen -> Sabotagepläne aufgedeckt)
     {
         "verb": "use",
         "items": ["amplifying_glass", "anteroom_door"],
         "condition": {
-            "type": "knowledge",
-            "value": "soundproof_door_wedged",
+            "type": "object_state",
+            "item": "soundproof_door",
+            "is_open": True,
         },
         "message": (
             "Du drückst das Akustik-Glas fest gegen die Vorraum-Tür und hältst dein Ohr an den Boden des Glases. "
-            "Die Schwingungen der Tür übertragen sich klar auf das Glas! Durch die verkeilte "
+            "Die Schwingungen der Tür übertragen sich klar auf das Glas! Durch die geöffnete "
             "Schallschutztür im Vorraum hörst du die Stimmen der Verschwörer glasklar:\n"
+            "'Die Sabotage ist beschlossene Sache. Sobald die Schicht wechselt, kappen wir die Energiekopplung "
+            "des Reaktors und legen die Station lahm!'\n"
+            "Du hast die Sabotagepläne rechtzeitig aufgedeckt!"
+        ),
+        "effects": [
+            {"type": "learn", "fact": "sabotage_plan_uncovered"},
+            {
+                "type": "quest_update",
+                "quest_update": {"id": "investigate_sabotage", "stage": 2},
+            },
+            {"type": "quest_complete", "id": "investigate_sabotage"},
+        ],
+    },
+    # 7. An der Schallschutztür mit Akustik-Glas belauschen (Tür zu -> absolute Stille)
+    {
+        "verb": "use",
+        "items": ["amplifying_glass", "soundproof_door"],
+        "condition": {
+            "type": "object_state",
+            "item": "soundproof_door",
+            "is_open": False,
+        },
+        "message": (
+            "Du drückst das Akustik-Glas gegen die Schallschutztür und lauschst angestrengt. "
+            "Doch dahinter herrscht absolute Stille – der Raum scheint schallundurchdringlich isoliert zu sein."
+        ),
+    },
+    # 8. An der Schallschutztür mit Akustik-Glas belauschen (Tür offen -> Sabotagepläne aufgedeckt)
+    {
+        "verb": "use",
+        "items": ["amplifying_glass", "soundproof_door"],
+        "condition": {
+            "type": "object_state",
+            "item": "soundproof_door",
+            "is_open": True,
+        },
+        "message": (
+            "Du drückst das Akustik-Glas fest gegen die geöffnete Schallschutztür und hältst dein Ohr an den Boden des Glases. "
+            "Die Stimmen der Verschwörer sind glasklar zu verstehen:\n"
             "'Die Sabotage ist beschlossene Sache. Sobald die Schicht wechselt, kappen wir die Energiekopplung "
             "des Reaktors und legen die Station lahm!'\n"
             "Du hast die Sabotagepläne rechtzeitig aufgedeckt!"

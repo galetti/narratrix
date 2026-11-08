@@ -8,11 +8,13 @@ from unittest.mock import patch
 from engine.action_dispatcher import ActionDispatcher
 from engine.access import is_directly_reachable
 from engine.analysis import validate_quest_state_graph
-from engine.constants import LOC_INVENTORY, MATTER_LIQUID, TYPE_CONTAINER, TYPE_SURFACE
+from engine.constants import FILTER_ROOM, LOC_INVENTORY, MATTER_LIQUID, TYPE_CONTAINER, TYPE_SURFACE
 from engine.game_state import GameState
 from engine.handlers.exploration import ExplorationHandler
 from engine.handlers.inventory import InventoryHandler
 from engine.handlers.mechanics import MechanicsHandler
+from engine.handlers.movement import MovementHandler
+from engine.resolver import Resolver
 from engine.parser.rule_based import RuleBasedParser
 from engine.story_loader import StoryLoader
 from engine.systems.acoustics import AcousticsSystem
@@ -278,6 +280,26 @@ class EffectProcessorAndListenTests(unittest.TestCase):
         self.assertEqual(
             self.game.quests.states["investigate_sabotage"]["status"], "completed"
         )
+
+    def test_connecting_door_two_way_resolution_and_blocking(self) -> None:
+        self.game.location = "briefing_anteroom"
+        # 1. Vorraum-Tür muss im Vorraum auffindbar sein, obwohl location == central_hub
+        resolved = Resolver.resolve_target(self.game, ["vorraum-tür"], location_filter=FILTER_ROOM)
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved["id"], "anteroom_door")
+
+        # 2. Wenn Vorraum-Tür geschlossen ist, muss Rückweg nach Osten blockiert sein
+        self.game.objects["anteroom_door"]["is_open"] = False
+        MovementHandler.handle(self.game, ["east"])
+        self.assertEqual(self.game.location, "briefing_anteroom")
+        error_logs = [entry["text"] for entry in self.game.logs if entry["type"] == "error"]
+        self.assertTrue(any("Vorraum-Tür" in msg for msg in error_logs))
+
+    def test_custom_locked_msg_on_open(self) -> None:
+        self.game.location = "briefing_anteroom"
+        MechanicsHandler.open(self.game, ["schallschutztür"])
+        error_logs = [entry["text"] for entry in self.game.logs if entry["type"] == "error"]
+        self.assertTrue(any("Hydraulikfeder" in msg for msg in error_logs))
 
 
 class LLMGroundingAndDialogueTests(unittest.TestCase):

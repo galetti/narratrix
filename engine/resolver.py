@@ -4,6 +4,7 @@ from __future__ import annotations
 import difflib
 from typing import TYPE_CHECKING, Any
 
+from engine.access import get_connecting_doors
 from engine.constants import (
     ATTR_ALIASES,
     ATTR_ID,
@@ -74,6 +75,9 @@ class Resolver:
 
         # Basis-Listen (Listen-Comprehensions sind in Python sehr schnell)
         room_objs = [o for o in game.objects.values() if o['location'] == game.location]
+        for door in get_connecting_doors(game, game.location):
+            if door not in room_objs:
+                room_objs.append(door)
         inv_objs = [o for o in game.objects.values() if o['location'] == LOC_INVENTORY]
         room_npcs = [n for n in game.npcs if n['location'] == game.location]
 

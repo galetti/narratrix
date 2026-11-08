@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from engine.access import get_connecting_doors, get_door_target_room
 from engine.resolver import Resolver, ResolutionError
 from engine.constants import (
     ATTR_DESC,
@@ -93,6 +94,9 @@ class ExplorationHandler:
             # Objekte im Raum anzeigen
             visible_objs: list[str] = []
             local_objects = [o for o in game.objects.values() if o['location'] == game.location]
+            for door in get_connecting_doors(game, game.location):
+                if door not in local_objects:
+                    local_objects.append(door)
             
             for obj in local_objects:
                 if CommonHandler.is_open_container(obj):
@@ -266,13 +270,7 @@ class ExplorationHandler:
                 if not target:
                     return
 
-                linked_exit = target.get("linked_exit")
-                current_room = game.rooms.get(game.location, {})
-                target_room_id = (
-                    current_room.get("exits", {}).get(linked_exit)
-                    if linked_exit
-                    else None
-                )
+                target_room_id = get_door_target_room(game, target, game.location)
 
                 if used_tool or (inventory_boost_tool and not tool_words and target.get("linked_exit")):
                     active_tool = used_tool or inventory_boost_tool

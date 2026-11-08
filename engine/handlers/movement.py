@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from engine.access import get_connecting_doors
 from engine.constants import (
     ATTR_CLIMBABLE,
     ATTR_ID,
@@ -22,8 +23,11 @@ class MovementHandler:
     @staticmethod
     def _list_room_items(game: GameState, room_id: str) -> None:
         visible_items: list[str] = []
-        for obj in game.objects.values():
-            if obj['location'] == room_id:
+        room_objects = [o for o in game.objects.values() if o['location'] == room_id]
+        for door in get_connecting_doors(game, room_id):
+            if door not in room_objects:
+                room_objects.append(door)
+        for obj in room_objects:
                 if obj.get('type') == TYPE_SCENERY: continue
                 
                 obj_level = obj.get('level', 0)
@@ -93,10 +97,19 @@ class MovementHandler:
             
             blocked = False
             blocker_name = ""
-            room_objs = [o for o in game.objects.values() if o['location'] == game.location]
-            for obj in room_objs:
-                if obj.get('linked_exit') == target_dir:
-                    if not obj.get('is_open', True): 
+            target_room = game.rooms.get(target_id, {})
+            for obj in game.objects.values():
+                loc = obj.get('location')
+                linked = obj.get('linked_exit')
+                if not linked:
+                    continue
+                if loc == game.location and linked == target_dir:
+                    if not obj.get('is_open', True):
+                        blocked = True
+                        blocker_name = obj[ATTR_NAME]
+                        break
+                elif loc == target_id and target_room.get('exits', {}).get(linked) == game.location:
+                    if not obj.get('is_open', True):
                         blocked = True
                         blocker_name = obj[ATTR_NAME]
                         break

@@ -117,6 +117,8 @@ class ObjectData(TypedDict, total=False):
     resource_id: str
     count: int
     behavior: ObjectBehaviorData
+    locked_msg: str
+    jammed: bool
 
 
 class DialogueOptionData(TypedDict, total=False):
