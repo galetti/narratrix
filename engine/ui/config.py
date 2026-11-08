@@ -4,6 +4,7 @@ import json
 import logging
 from pathlib import Path
 import subprocess
+import sys
 from typing import Any
 
 try:
@@ -53,25 +54,65 @@ def load_system_config(config_path: Path | None = None) -> dict[str, dict[str, A
 
 
 def copy_to_clipboard(text_dump: str) -> bool:
-    """Kopiert Text in die Zwischenablage mit X11-Fallbacks (xclip/xsel)."""
-    payload = text_dump.encode("utf-8")
+    """Kopiert Text zuverlässig in die Zwischenablage (Windows clip.exe, Linux Wayland/X11, Tkinter, Pygame)."""
+    if not text_dump:
+        return True
+
+    # 1. Native Windows-Methode über clip.exe
+    if sys.platform == "win32":
+        try:
+            proc = subprocess.run(
+                ["clip"],
+                input=text_dump,
+                text=True,
+                timeout=2,
+                capture_output=True,
+                check=False,
+            )
+            if proc.returncode == 0:
+                return True
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    # 2. Native Linux-Tools (Wayland wl-copy, X11 xclip, xsel mit kurzem Timeout gegen Blockieren)
+    if sys.platform.startswith("linux"):
+        payload = text_dump.encode("utf-8")
+        for cmd in (["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "-b", "-i"]):
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    input=payload,
+                    timeout=1,
+                    capture_output=True,
+                    check=False,
+                )
+                if proc.returncode == 0:
+                    return True
+            except (OSError, subprocess.SubprocessError):
+                continue
+
+    # 3. Standard-Bibliothek Tkinter (plattformunabhängig für Linux & Windows)
+    try:
+        import tkinter as tk
+        root = tk.Tk()
+        root.withdraw()
+        root.clipboard_clear()
+        root.clipboard_append(text_dump)
+        root.update()
+        root.destroy()
+        return True
+    except Exception:
+        pass
+
+    # 4. Pygame Scrap Fallback
     if pygame is not None:
         try:
-            pygame.scrap.put(pygame.SCRAP_TEXT, payload)
+            if not pygame.scrap.get_init():
+                pygame.scrap.init()
+            pygame.scrap.put(pygame.SCRAP_TEXT, text_dump.encode("utf-8"))
             return True
         except pygame.error:
             pass
 
-    for cmd in (["xclip", "-selection", "clipboard"], ["xsel", "-b", "-i"]):
-        try:
-            process = subprocess.Popen(cmd, stdin=subprocess.PIPE)
-            process.communicate(input=payload)
-            if process.returncode == 0:
-                return True
-        except OSError:
-            continue
-
-    logger.warning(
-        "Zwischenablage nicht verfügbar (bitte unter Linux xclip oder xsel installieren)."
-    )
+    logger.warning("Zwischenablage konnte nicht beschrieben werden.")
     return False

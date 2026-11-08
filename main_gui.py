@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import logging
 import math
+from pathlib import Path
 import queue
 import sys
 import threading
@@ -57,32 +58,29 @@ class GameGUI:
 
         self.clock: pygame.time.Clock = pygame.time.Clock()
 
-        try:
-            self.font_log: pygame.font.Font = pygame.font.SysFont(
-                "Consolas", theme.FONT_SIZE_LOG
-            )
-            self.font_header: pygame.font.Font = pygame.font.SysFont(
-                "Verdana", theme.FONT_SIZE_HEADER, bold=True
-            )
-            self.font_big: pygame.font.Font = pygame.font.SysFont(
-                "Verdana", theme.FONT_SIZE_GAME_OVER, bold=True
-            )
-            self.font_med: pygame.font.Font = pygame.font.SysFont("Arial", 24)
-            self.font_sensor: pygame.font.Font = pygame.font.SysFont("Consolas", 14)
-        except (pygame.error, OSError):
-            logger.warning("Systemfonts nicht gefunden, nutze Fallback.")
-            self.font_log = pygame.font.SysFont("Arial", theme.FONT_SIZE_LOG)
-            self.font_header = pygame.font.SysFont("Arial", theme.FONT_SIZE_HEADER)
-            self.font_big = pygame.font.SysFont("Arial", theme.FONT_SIZE_GAME_OVER)
-            self.font_med = pygame.font.SysFont("Arial", 24)
-            self.font_sensor = pygame.font.SysFont("Arial", 12)
+        # Fonts & Renderer werden dynamisch durch das Theme geladen
+        self.font_log: pygame.font.Font
+        self.font_header: pygame.font.Font
+        self.font_big: pygame.font.Font
+        self.font_med: pygame.font.Font
+        self.font_sensor: pygame.font.Font
+        self.font_badge: pygame.font.Font
+        self.renderer: RichTextRenderer
+        self.line_height: int = 22
+        self._reload_theme_fonts_and_renderer()
 
-        self.renderer: RichTextRenderer = RichTextRenderer(
-            self.font_log, theme.COLOR_TEXT
-        )
         self.assets: AssetLoader = AssetLoader()
-
         self.result_queue: queue.Queue[str] = queue.Queue()
+
+        # Zwischenablage & Auswahl
+        self.selection_start_idx: int | None = None
+        self.selection_end_idx: int | None = None
+        self.is_selecting: bool = False
+        self.copy_btn_rect: pygame.Rect = pygame.Rect(0, 0, 0, 0)
+        self.rendered_line_rects: list[tuple[int, pygame.Rect, str]] = []
+        self.all_render_rows: list[list[TextSegment]] = []
+        self.toast_msg: str | None = None
+        self.toast_timer: int = 0
 
         self.current_chapter: str = str(
             SYS_CONFIG["game"].get("start_chapter", "data.chapters.ep1_deep_zero.config")
@@ -92,6 +90,25 @@ class GameGUI:
 
         self.show_all_logs_in_main: bool = False
 
+    def _reload_theme_fonts_and_renderer(self) -> None:
+        try:
+            self.font_log = pygame.font.SysFont("Consolas", theme.FONT_SIZE_LOG)
+            self.font_header = pygame.font.SysFont("Verdana", theme.FONT_SIZE_HEADER, bold=True)
+            self.font_big = pygame.font.SysFont("Verdana", theme.FONT_SIZE_GAME_OVER, bold=True)
+            self.font_med = pygame.font.SysFont("Arial", 22)
+            self.font_sensor = pygame.font.SysFont("Consolas", 14)
+            self.font_badge = pygame.font.SysFont("Arial", 12, bold=True)
+        except (pygame.error, OSError):
+            self.font_log = pygame.font.SysFont("Arial", theme.FONT_SIZE_LOG)
+            self.font_header = pygame.font.SysFont("Arial", theme.FONT_SIZE_HEADER)
+            self.font_big = pygame.font.SysFont("Arial", theme.FONT_SIZE_GAME_OVER)
+            self.font_med = pygame.font.SysFont("Arial", 22)
+            self.font_sensor = pygame.font.SysFont("Arial", 12)
+            self.font_badge = pygame.font.SysFont("Arial", 12)
+
+        self.renderer = RichTextRenderer(self.font_log, theme.COLOR_TEXT)
+        self.line_height = theme.FONT_SIZE_LOG + 4
+
     def load_game_chapter(
         self, chapter_path: str, transfer_state: dict[str, Any] | None = None
     ) -> None:
@@ -100,6 +117,23 @@ class GameGUI:
         if not new_config:
             logger.critical("Konnte Kapitel '%s' nicht laden!", chapter_path)
             sys.exit(1)
+
+        # 1. Theme-Anpassung pro Spielmodul (aus Config oder Auto-Preset)
+        theme_spec = new_config.get("theme")
+        if not theme_spec:
+            if "ep0" in chapter_path:
+                theme_spec = "lab"
+            elif "ep1" in chapter_path:
+                theme_spec = "deep_zero"
+            elif "ep2" in chapter_path:
+                theme_spec = "habitat"
+            elif "ep3" in chapter_path:
+                theme_spec = "reactor"
+            else:
+                theme_spec = "default"
+
+        theme.set_active_theme(theme_spec)
+        self._reload_theme_fonts_and_renderer()
 
         new_config["use_llm_dialogue"] = bool(
             SYS_CONFIG["system"].get("llm_enabled", False)
@@ -125,7 +159,9 @@ class GameGUI:
         self.history: list[str] = []
         self.history_index: int = 0
         self.scroll_offset: float = 0
-        self.line_height: int = theme.FONT_SIZE_LOG + 4
+        self.selection_start_idx = None
+        self.selection_end_idx = None
+        self.is_selecting = False
 
         self.parser: RuleBasedParser | SpacyParser
         if PARSER_MODE == "SPACY":
@@ -150,6 +186,53 @@ class GameGUI:
             self.update()
             self.draw()
             self.clock.tick(30)
+
+    def copy_selection_or_log(self) -> None:
+        """Kopiert die aktuelle Textauswahl oder den gesamten lesbaren Story-Verlauf in die Zwischenablage."""
+        text_to_copy = ""
+        if (
+            self.selection_start_idx is not None
+            and self.selection_end_idx is not None
+            and self.all_render_rows
+        ):
+            min_idx = max(0, min(self.selection_start_idx, self.selection_end_idx))
+            max_idx = min(len(self.all_render_rows) - 1, max(self.selection_start_idx, self.selection_end_idx))
+            lines: list[str] = []
+            for row in self.all_render_rows[min_idx : max_idx + 1]:
+                raw_line = "".join(seg.get("raw", seg.get("text", "")) for seg in row).strip()
+                if raw_line:
+                    lines.append(raw_line)
+            text_to_copy = "\n".join(lines)
+
+        if not text_to_copy:
+            clean_lines: list[str] = []
+            for entry in self.game.get_logs():
+                entry_type = entry.get("type", "")
+                text = entry.get("text", "")
+                if entry_type == "user":
+                    clean_lines.append(f"> {text}")
+                elif entry_type in ("story", "info", "location", "success", "event", "alarm", "character"):
+                    clean_lines.append(text)
+            text_to_copy = "\n".join(clean_lines)
+
+        if text_to_copy:
+            success = copy_to_clipboard(text_to_copy)
+            if success:
+                self.toast_msg = "✓ In Zwischenablage kopiert"
+            else:
+                self.toast_msg = "X Kopieren fehlgeschlagen"
+            self.toast_timer = 75
+
+    def _get_row_index_at_y(self, my: int) -> int | None:
+        for row_idx, r_rect, _ in self.rendered_line_rects:
+            if r_rect.collidepoint(r_rect.centerx, my):
+                return row_idx
+        if self.rendered_line_rects:
+            if my < self.rendered_line_rects[0][1].top:
+                return self.rendered_line_rects[0][0]
+            if my > self.rendered_line_rects[-1][1].bottom:
+                return self.rendered_line_rects[-1][0]
+        return None
 
     def handle_events(self) -> None:
         try:
@@ -179,12 +262,38 @@ class GameGUI:
                 continue
 
             if event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 4:
+                if event.button == 1:
+                    # Klick auf Kopieren-Button
+                    if self.copy_btn_rect.collidepoint(event.pos):
+                        self.copy_selection_or_log()
+                        continue
+
+                    # Klick in den Log-Bereich zur Textauswahl
+                    clicked_idx = self._get_row_index_at_y(event.pos[1])
+                    if clicked_idx is not None:
+                        self.selection_start_idx = clicked_idx
+                        self.selection_end_idx = clicked_idx
+                        self.is_selecting = True
+                    else:
+                        self.selection_start_idx = None
+                        self.selection_end_idx = None
+
+                elif event.button == 4:
                     self.scroll_offset += theme.SCROLL_SPEED_MOUSE
                 elif event.button == 5:
                     self.scroll_offset = max(
                         0.0, self.scroll_offset - theme.SCROLL_SPEED_MOUSE
                     )
+
+            elif event.type == pygame.MOUSEBUTTONUP:
+                if event.button == 1:
+                    self.is_selecting = False
+
+            elif event.type == pygame.MOUSEMOTION:
+                if self.is_selecting:
+                    hover_idx = self._get_row_index_at_y(event.pos[1])
+                    if hover_idx is not None:
+                        self.selection_end_idx = hover_idx
 
             elif event.type == pygame.KEYDOWN:
                 if self.is_processing:
@@ -199,11 +308,7 @@ class GameGUI:
                 elif event.key == pygame.K_c and (
                     pygame.key.get_mods() & pygame.KMOD_CTRL
                 ):
-                    snapshot = self.game.get_logs()
-                    text_dump = "\n".join(
-                        f"{entry['type']}: {entry['text']}" for entry in snapshot
-                    )
-                    copy_to_clipboard(text_dump)
+                    self.copy_selection_or_log()
                     continue
                 elif event.key == pygame.K_F1:
                     self.show_all_logs_in_main = not self.show_all_logs_in_main
@@ -226,6 +331,8 @@ class GameGUI:
                         self.user_text = ""
                         self.cursor_pos = 0
                         self.scroll_offset = 0
+                        self.selection_start_idx = None
+                        self.selection_end_idx = None
                         self.submit_command(cmd)
                 elif event.key == pygame.K_UP:
                     if self.history:
@@ -292,6 +399,10 @@ class GameGUI:
 
     def update(self) -> None:
         self.cursor_blink += 1
+        if self.toast_timer > 0:
+            self.toast_timer -= 1
+            if self.toast_timer <= 0:
+                self.toast_msg = None
 
         if self.game.pending_chapter_load and not self.is_processing:
             target_chapter = self.game.pending_chapter_load
@@ -327,14 +438,32 @@ class GameGUI:
             pygame.display.flip()
             return
 
-        scene_height = int(h * theme.SCENE_HEIGHT_RATIO)
+        # Adaptives Layout: Wenn ein Bild vorhanden ist, etwas mehr Raum, sonst schlanker Header
+        has_room_img = bool(
+            snapshot.get("room_img")
+            and snapshot["room_img"] != "???"
+            and self.assets.get_image(snapshot["room_img"])
+        )
+        has_dialogue_img = bool(
+            snapshot.get("dialogue_active")
+            and snapshot.get("dialogue_img")
+            and self.assets.get_image(snapshot["dialogue_img"])
+        )
+        has_image = has_room_img or has_dialogue_img
+
+        if has_image:
+            scene_height = max(170, int(h * theme.SCENE_HEIGHT_RATIO))
+        else:
+            # Schlanker, moderner Status- & Stimmungs-Header ohne verschwendeten Leerraum
+            scene_height = max(108, int(h * 0.15))
+
         input_height = theme.INPUT_HEIGHT
         log_height = h - scene_height - input_height
         rect_scene = pygame.Rect(0, 0, w, scene_height)
         rect_log = pygame.Rect(0, scene_height, w, log_height)
         rect_input = pygame.Rect(0, h - input_height, w, input_height)
 
-        self.draw_scene_area(rect_scene, snapshot)
+        self.draw_scene_area(rect_scene, snapshot, has_image)
         self.draw_log_area(rect_log, snapshot)
         self.draw_input_area(rect_input, snapshot)
 
@@ -350,7 +479,25 @@ class GameGUI:
 
         if self.is_processing:
             self.draw_loading_spinner(w, h, snapshot)
+
+        # Toast-Overlay (Kopier-Bestätigung)
+        if self.toast_msg and self.toast_timer > 0:
+            self.draw_toast(w, h)
+
         pygame.display.flip()
+
+    def draw_toast(self, w: int, h: int) -> None:
+        if not self.toast_msg:
+            return
+        toast_surf = self.font_med.render(self.toast_msg, True, (255, 255, 255))
+        tw, th = toast_surf.get_size()
+        pad = 12
+        toast_rect = pygame.Rect(w - tw - pad * 2 - 20, h - theme.INPUT_HEIGHT - th - pad * 2 - 15, tw + pad * 2, th + pad * 2)
+        bg_surf = pygame.Surface((toast_rect.width, toast_rect.height), pygame.SRCALPHA)
+        bg_surf.fill((20, 30, 45, 230))
+        self.screen.blit(bg_surf, toast_rect.topleft)
+        pygame.draw.rect(self.screen, theme.COLOR_ACCENT, toast_rect, 2, border_radius=6)
+        self.screen.blit(toast_surf, (toast_rect.x + pad, toast_rect.y + pad))
 
     def draw_game_over(self, w: int, h: int, snap: GameSnapshot) -> None:
         pulse = abs(math.sin(self.cursor_blink * 0.05)) * 50
@@ -376,216 +523,236 @@ class GameGUI:
             res_rect = text_restart.get_rect(center=(w // 2, h // 2 + 100))
             self.screen.blit(text_restart, res_rect)
 
-    def draw_scene_area(self, rect: pygame.Rect, snap: GameSnapshot) -> None:
-        bg_color = (20, 20, 30)
+    def draw_scene_area(self, rect: pygame.Rect, snap: GameSnapshot, has_image: bool) -> None:
+        # 1. Panel-Hintergrund
+        bg_color = theme.COLOR_PANEL_BG
         if snap["stability"] < 50 and (self.cursor_blink // 15) % 2 == 0:
             bg_color = (40, 20, 20)
         pygame.draw.rect(self.screen, bg_color, rect)
 
+        # 2. Rechter Bereich: Bild/Portrait (NUR wenn vorhanden, kein schwarzer Leerkasten!)
+        available_text_width = rect.width - 40
+        if has_image:
+            max_img_h = rect.height - 24
+            max_img_w = min(int(rect.width * 0.35), int(max_img_h * 1.5))
+            area_x = rect.width - max_img_w - 20
+            available_text_width = area_x - 30
+
+            room_img = self.assets.get_image(snap.get("room_img"))
+            dialogue_img = (
+                self.assets.get_image(snap.get("dialogue_img"))
+                if snap.get("dialogue_active")
+                else None
+            )
+            active_surf = dialogue_img or room_img
+            if active_surf:
+                o_w, o_h = active_surf.get_size()
+                aspect = o_w / max(1, o_h)
+                t_h = max_img_h
+                t_w = int(t_h * aspect)
+                if t_w > max_img_w:
+                    t_w = max_img_w
+                    t_h = max(1, int(t_w / aspect))
+                scaled = pygame.transform.smoothscale(active_surf, (t_w, t_h))
+                draw_x = area_x + (max_img_w - t_w) // 2
+                draw_y = rect.y + 12 + (max_img_h - t_h) // 2
+                img_rect = pygame.Rect(draw_x, draw_y, t_w, t_h)
+                self.screen.blit(scaled, img_rect.topleft)
+
+                border_col = (
+                    theme.COLOR_DIALOGUE_BORDER
+                    if snap.get("dialogue_active")
+                    else theme.COLOR_UI_BORDER
+                )
+                pygame.draw.rect(self.screen, border_col, img_rect, 2, border_radius=4)
+
+        # 3. Linker/Zentraler Bereich: Atmosphäre, Raumstatus, Umgebungsgeräusche & Stimmungen
+        cur_x = rect.x + 20
+        cur_y = rect.y + 14
+
+        # --- ZEILE 1: Raumtitel & Status-Badges ---
         header_text = (
-            snap["dialogue_header"]
-            if snap["dialogue_active"]
-            else snap["room_name"].upper()
+            snap.get("dialogue_header")
+            if snap.get("dialogue_active")
+            else snap.get("room_name", "Unbekannt").upper()
         )
         header_col = (
             theme.COLOR_DIALOGUE_BORDER
-            if snap["dialogue_active"]
+            if snap.get("dialogue_active")
             else theme.COLOR_ACCENT
         )
-
         text_room = self.font_header.render(header_text, True, header_col)
-        self.screen.blit(text_room, (20, 20))
+        self.screen.blit(text_room, (cur_x, cur_y))
 
-        surf_time = self.font_log.render(
-            f"ZEIT: T+{snap['time']}m", True, theme.COLOR_TEXT
-        )
-        self.screen.blit(surf_time, (20, 70))
+        # Status-Pills rechts neben dem Raumnamen
+        badge_x = cur_x + text_room.get_width() + 15
+        badge_y = cur_y + 4
 
-        max_h = rect.height - 40
-        max_w = int(rect.width * 0.4)
-        area_x = rect.width - max_w - 20
+        # Höhen-Ebene Badge
+        elevation = snap.get("elevation", 0)
+        if elevation > 0:
+            ele_surf = self.font_badge.render(f"▲ EBENE {elevation}", True, (255, 230, 100))
+            ele_rect = pygame.Rect(badge_x, badge_y, ele_surf.get_width() + 10, 22)
+            pygame.draw.rect(self.screen, (50, 45, 20), ele_rect, border_radius=4)
+            pygame.draw.rect(self.screen, (160, 140, 50), ele_rect, 1, border_radius=4)
+            self.screen.blit(ele_surf, (badge_x + 5, badge_y + 4))
+            badge_x += ele_rect.width + 8
 
-        placeholder_w = min(max_w, int(max_h * 1.33))
-        placeholder_h = int(placeholder_w / 1.33)
-        default_rect = pygame.Rect(
-            rect.width - placeholder_w - 20, 20, placeholder_w, placeholder_h
-        )
+        # Zeit & Stabilität Badge
+        stab_val = int(snap.get("stability", 100))
+        stab_col = (255, 100, 100) if stab_val < 50 else (100, 220, 150)
+        time_text = f"T+{snap.get('time', 0)}m | 🛡 {stab_val}%"
+        time_surf = self.font_badge.render(time_text, True, stab_col)
+        time_rect = pygame.Rect(badge_x, badge_y, time_surf.get_width() + 10, 22)
+        pygame.draw.rect(self.screen, (25, 30, 40), time_rect, border_radius=4)
+        pygame.draw.rect(self.screen, theme.COLOR_UI_BORDER, time_rect, 1, border_radius=4)
+        self.screen.blit(time_surf, (badge_x + 5, badge_y + 4))
 
-        room_img = self.assets.get_image(snap["room_img"])
-        dialogue_img = (
-            self.assets.get_image(snap["dialogue_img"])
-            if snap["dialogue_active"]
-            else None
-        )
+        cur_y += text_room.get_height() + 8
 
-        final_visual_rect = default_rect
+        # --- ZEILE 2: Ausgänge & Orientierung ---
+        exits = snap.get("exits", [])
+        if exits:
+            dir_short = {"north": "N", "east": "O", "south": "S", "west": "W", "up": "OBEN", "down": "UNTEN"}
+            exit_lbl = self.font_sensor.render("WEGE: ", True, theme.COLOR_TEXT_DIM)
+            self.screen.blit(exit_lbl, (cur_x, cur_y))
+            e_x = cur_x + exit_lbl.get_width()
+            for d in exits:
+                label = dir_short.get(d, d.upper())
+                p_surf = self.font_badge.render(f"[{label}]", True, theme.COLOR_ACCENT)
+                self.screen.blit(p_surf, (e_x, cur_y))
+                e_x += p_surf.get_width() + 6
+            cur_y += 22
 
-        def get_scaled_rect_and_surf(
-            img: pygame.Surface, limit_w: int, limit_h: int
-        ) -> tuple[pygame.Rect, pygame.Surface]:
-            o_w, o_h = img.get_size()
-            aspect = o_w / o_h
-            t_h = limit_h
-            t_w = int(t_h * aspect)
-            if t_w > limit_w:
-                t_w = limit_w
-                t_h = int(t_w / aspect)
-            return pygame.Rect(0, 0, t_w, t_h), pygame.transform.smoothscale(
-                img, (t_w, t_h)
-            )
+        # --- ZEILE 3: Akustik- & Umgebungssensor (Stimmungen / Geräusche) ---
+        sound_event: str | None = None
+        for entry in reversed(snap.get("logs", [])):
+            if entry.get("type") == "event":
+                t = entry.get("text", "")
+                if any(k in t.lower() for k in ("hörst", "geräusch", "wummern", "pulsieren", "schall", "lärm", "stimmen")):
+                    sound_event = t
+                    break
 
-        if room_img:
-            r_rect, r_surf = get_scaled_rect_and_surf(room_img, max_w, max_h)
-            draw_x = area_x + (max_w - r_rect.width) // 2
-            draw_y = 20 + (max_h - r_rect.height) // 2
-            bg_pos = (draw_x, draw_y)
-            final_visual_rect = pygame.Rect(draw_x, draw_y, r_rect.width, r_rect.height)
-
-            if snap["dialogue_active"]:
-                pixel_scale = 8
-                px_w = max(1, r_surf.get_width() // pixel_scale)
-                px_h = max(1, r_surf.get_height() // pixel_scale)
-                small = pygame.transform.scale(r_surf, (px_w, px_h))
-                pixelated = pygame.transform.scale(small, r_surf.get_size())
-                dark_overlay = pygame.Surface(pixelated.get_size()).convert_alpha()
-                dark_overlay.fill((0, 0, 0, 160))
-                pixelated.blit(dark_overlay, (0, 0))
-                bg_surf_to_draw = pixelated
-            else:
-                bg_surf_to_draw = r_surf
-            self.screen.blit(bg_surf_to_draw, bg_pos)
+        if sound_event:
+            # Akustik-Signal erkannt
+            if len(sound_event) > 75:
+                sound_event = sound_event[:72] + "..."
+            sound_icon = self.font_sensor.render("🔊 AKUSTIK: ", True, (255, 205, 75))
+            sound_txt = self.font_sensor.render(sound_event, True, (240, 230, 180))
+            self.screen.blit(sound_icon, (cur_x, cur_y))
+            self.screen.blit(sound_txt, (cur_x + sound_icon.get_width(), cur_y))
         else:
-            pygame.draw.rect(self.screen, (20, 20, 20), default_rect)
-            if not snap["dialogue_active"]:
-                label_text = f"IMG: {snap['room_img']}"
-                label_surf = self.font_log.render(label_text, True, (80, 80, 80))
-                label_rect = label_surf.get_rect(center=final_visual_rect.center)
-                self.screen.blit(label_surf, label_rect)
+            ambient_icon = self.font_sensor.render("🤫 UMGEBUNG: ", True, theme.COLOR_TEXT_DIM)
+            ambient_txt = self.font_sensor.render("Ruhig (keine auffälligen Schallemissionen)", True, (130, 140, 150))
+            self.screen.blit(ambient_icon, (cur_x, cur_y))
+            self.screen.blit(ambient_txt, (cur_x + ambient_icon.get_width(), cur_y))
 
-        if snap["dialogue_active"] and dialogue_img:
-            c_rect, c_surf = get_scaled_rect_and_surf(dialogue_img, max_w, max_h)
-            p_draw_x = final_visual_rect.x + (final_visual_rect.width - c_rect.width) // 2
-            p_draw_y = (
-                final_visual_rect.y + (final_visual_rect.height - c_rect.height) // 2
-            )
-            self.screen.blit(c_surf, (p_draw_x, p_draw_y))
+        cur_y += 22
 
-        border_col = (
-            theme.COLOR_DIALOGUE_BORDER
-            if snap["dialogue_active"]
-            else theme.COLOR_UI_BORDER
-        )
-        pygame.draw.rect(self.screen, border_col, final_visual_rect, 2)
-
-        # --- SENSOR HUD (Oben Links) ---
-        sensor_x = 20
-        sensor_y = 110
-
-        hud_logs = []
-        for entry in reversed(snap["logs"]):
-            if entry["type"] in ("event", "character"):
-                if "---" in entry["text"] or entry["text"].startswith("Personen:"):
-                    continue
-                hud_logs.append(entry)
-            if len(hud_logs) >= 5:
-                break
-
+        # --- ZEILE 4: Anwesende Personen oder Aktive Aufgabe ---
         present_npcs = snap.get("present_npcs", [])
         if present_npcs:
-            lbl = self.font_sensor.render("SCAN: LEBENSFORMEN", True, (100, 255, 100))
-            self.screen.blit(lbl, (sensor_x, sensor_y))
-            sensor_y += 20
+            char_lbl = self.font_sensor.render("👤 ANWESEND: ", True, (120, 200, 255))
+            char_names = self.font_sensor.render(", ".join(present_npcs), True, (180, 225, 255))
+            self.screen.blit(char_lbl, (cur_x, cur_y))
+            self.screen.blit(char_names, (cur_x + char_lbl.get_width(), cur_y))
+        elif snap.get("active_quest_info"):
+            q_info = snap["active_quest_info"]
+            if len(q_info) > 80:
+                q_info = q_info[:77] + "..."
+            quest_lbl = self.font_sensor.render("🎯 ZIEL: ", True, (255, 180, 100))
+            quest_txt = self.font_sensor.render(q_info, True, (240, 210, 170))
+            self.screen.blit(quest_lbl, (cur_x, cur_y))
+            self.screen.blit(quest_txt, (cur_x + quest_lbl.get_width(), cur_y))
 
-            for person in present_npcs:
-                surf = self.font_sensor.render(f" [!] {person}", True, (150, 255, 150))
-                self.screen.blit(surf, (sensor_x, sensor_y))
-                sensor_y += 18
-            sensor_y += 10
+        # 4. Kopieren-Button (Oben Rechts im Header)
+        btn_w, btn_h = 135, 26
+        btn_x = rect.right - btn_w - 20
+        btn_y = rect.y + 12
+        if has_image:
+            btn_x = rect.x + cur_x + max(250, available_text_width - btn_w - 10)
 
-        pygame.draw.line(
-            self.screen, (50, 50, 60), (sensor_x, sensor_y), (sensor_x + 200, sensor_y), 1
-        )
-        sensor_y += 10
+        self.copy_btn_rect = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
+        mouse_pos = pygame.mouse.get_pos()
+        is_hover = self.copy_btn_rect.collidepoint(mouse_pos)
 
-        lbl = self.font_sensor.render("SENSOR LOG:", True, (100, 150, 200))
-        self.screen.blit(lbl, (sensor_x, sensor_y))
-        sensor_y += 20
+        btn_bg = (35, 45, 60) if is_hover else (22, 28, 38)
+        btn_border = theme.COLOR_ACCENT if is_hover else theme.COLOR_UI_BORDER
+        pygame.draw.rect(self.screen, btn_bg, self.copy_btn_rect, border_radius=4)
+        pygame.draw.rect(self.screen, btn_border, self.copy_btn_rect, 1, border_radius=4)
 
-        for i, log in enumerate(hud_logs):
-            if i == 0:
-                brightness = 255
-            elif i == 1:
-                brightness = 200
-            elif i == 2:
-                brightness = 150
-            else:
-                brightness = 100
-
-            base_col = (brightness, brightness, brightness)
-            if log["type"] == "event":
-                base_col = (brightness, int(brightness * 0.8), 50)
-            elif log["type"] == "character":
-                base_col = (int(brightness * 0.4), int(brightness * 0.8), brightness)
-
-            txt = log["text"]
-            if len(txt) > 55:
-                txt = txt[:52] + "..."
-
-            surf = self.font_sensor.render(f"> {txt}", True, base_col)
-            self.screen.blit(surf, (sensor_x, sensor_y))
-            sensor_y += 18
+        btn_text = "📋 Kopieren [Ctrl+C]"
+        btn_surf = self.font_badge.render(btn_text, True, theme.COLOR_TEXT if not is_hover else (255, 255, 255))
+        self.screen.blit(btn_surf, (self.copy_btn_rect.x + 8, self.copy_btn_rect.y + 6))
 
     def draw_log_area(self, rect: pygame.Rect, snap: GameSnapshot) -> None:
         padding_x = theme.PADDING
         padding_y = theme.PADDING
-        max_text_width = rect.width - (padding_x * 2)
+        max_text_width = rect.width - (padding_x * 2) - 15  # Platz für Scrollbar
 
         render_rows: list[list[TextSegment]] = []
 
         log_colors: dict[str, theme.ColorTuple] = {
             "user": theme.COLOR_USER_ECHO,
-            "error": (255, 80, 80),
+            "error": theme.COLOR_ALERT,
             "success": theme.COLOR_ACCENT,
-            "event": (255, 200, 50),
+            "event": (255, 205, 75),
             "alarm": theme.COLOR_ALERT,
             "location": theme.COLOR_ACCENT,
-            "character": (100, 200, 255),
-            "story": (220, 220, 220),
+            "character": (110, 200, 255),
+            "story": theme.COLOR_TEXT,
             "info": theme.COLOR_INFO,
         }
 
-        for log in snap["logs"]:
-            base_color = log_colors.get(log["type"], theme.COLOR_TEXT)
+        for log in snap.get("logs", []):
+            base_color = log_colors.get(log.get("type", ""), theme.COLOR_TEXT)
             wrapped_lines = self.renderer.parse_and_wrap(
-                str(log["text"]), max_text_width, base_color
+                str(log.get("text", "")), max_text_width, base_color
             )
             render_rows.extend(wrapped_lines)
 
+        self.all_render_rows = render_rows
         total_content_height = len(render_rows) * self.line_height
         visible_height = rect.height - (2 * padding_y)
         max_scroll = max(0, total_content_height - visible_height)
 
         self.scroll_offset = min(max(0.0, self.scroll_offset), float(max_scroll))
+        bottom_draw_y = rect.bottom - padding_y - self.line_height + int(self.scroll_offset)
 
-        bottom_draw_y = (
-            rect.bottom - padding_y - self.line_height + self.scroll_offset
-        )
-        current_y = bottom_draw_y
+        self.rendered_line_rects.clear()
 
-        for row in reversed(render_rows):
-            if current_y + self.line_height > rect.top and current_y < rect.bottom:
-                current_x = rect.x + padding_x
+        # Ermittle Auswahl-Bereich
+        has_selection = (self.selection_start_idx is not None and self.selection_end_idx is not None)
+        min_sel = min(self.selection_start_idx or 0, self.selection_end_idx or 0) if has_selection else -1
+        max_sel = max(self.selection_start_idx or 0, self.selection_end_idx or 0) if has_selection else -1
+
+        # Zeilen berechnen & zeichnen
+        total_rows = len(render_rows)
+        for row_idx, row in enumerate(render_rows):
+            # Zeile row_idx: Position von oben nach unten relativ zur Unterkante
+            row_y = bottom_draw_y - (total_rows - 1 - row_idx) * self.line_height
+
+            if row_y + self.line_height >= rect.top and row_y <= rect.bottom:
+                line_rect = pygame.Rect(rect.x + padding_x, row_y, max_text_width, self.line_height)
+                row_raw = "".join(seg.get("raw", seg.get("text", "")) for seg in row)
+                self.rendered_line_rects.append((row_idx, line_rect, row_raw))
+
+                # 1. Auswahl-Hervorhebung zeichnen
+                if has_selection and min_sel <= row_idx <= max_sel:
+                    sel_bg = pygame.Rect(rect.x + padding_x - 4, row_y, max_text_width + 8, self.line_height)
+                    pygame.draw.rect(self.screen, theme.COLOR_SELECTION, sel_bg, border_radius=2)
+
+                # 2. Textsegmente zeichnen
+                cur_x = rect.x + padding_x
                 for segment in row:
-                    text_surf = self.font_log.render(
-                        segment["text"], True, segment["color"]
-                    )
-                    self.screen.blit(text_surf, (current_x, current_y))
-                    current_x += segment["width"]
+                    seg_text = segment.get("text", "")
+                    if seg_text:
+                        seg_color = (255, 255, 255) if (has_selection and min_sel <= row_idx <= max_sel) else segment.get("color", theme.COLOR_TEXT)
+                        text_surf = self.font_log.render(seg_text, True, seg_color)
+                        self.screen.blit(text_surf, (cur_x, row_y))
+                        cur_x += segment.get("width", 0)
 
-            current_y -= self.line_height
-            if current_y < rect.top - 50:
-                break
-
+        # Scrollbar zeichnen
         if max_scroll > 0:
             scroll_ratio = self.scroll_offset / max_scroll
             bar_height = max(
@@ -597,26 +764,27 @@ class GameGUI:
                 - bar_height
                 - (scroll_ratio * (visible_height - bar_height))
             )
-
             pygame.draw.rect(
                 self.screen,
-                (60, 60, 80),
+                (40, 45, 60),
                 (rect.right - 10, rect.top + padding_y, 4, visible_height),
+                border_radius=2,
             )
             pygame.draw.rect(
                 self.screen,
-                theme.COLOR_ACCENT,
+                theme.COLOR_ACCENT_DIM,
                 (rect.right - 10, bar_y, 4, bar_height),
+                border_radius=2,
             )
 
     def draw_input_area(self, rect: pygame.Rect, snap: GameSnapshot) -> None:
-        pygame.draw.rect(self.screen, (0, 0, 0), rect)
+        pygame.draw.rect(self.screen, (10, 12, 16), rect)
         padding = theme.PADDING
         prompt = "> "
 
         col_prompt = (
             theme.COLOR_DIALOGUE_BORDER
-            if snap["dialogue_active"]
+            if snap.get("dialogue_active")
             else theme.COLOR_ACCENT
         )
         surf_prompt = self.font_log.render(prompt, True, col_prompt)
@@ -649,7 +817,7 @@ class GameGUI:
         end_y = center_y + radius * math.sin(math.radians(angle))
         col = (
             theme.COLOR_DIALOGUE_BORDER
-            if snap["dialogue_active"]
+            if snap.get("dialogue_active")
             else theme.COLOR_LOADING
         )
         pygame.draw.circle(self.screen, col, (center_x, center_y), radius, 1)

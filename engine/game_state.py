@@ -205,11 +205,25 @@ class GameState:
                 elif npc_level < self.elevation:
                     label += f" (unten auf Ebene {npc_level})"
                 present_npcs.append(label)
+            active_quest_info: str | None = None
+            if hasattr(self, "quests") and hasattr(self.quests, "states"):
+                for q_id, q_state in self.quests.states.items():
+                    if q_state.get("status") == "active":
+                        q_def = self.quests.definitions.get(q_id, {})
+                        title = q_def.get("title", q_id)
+                        stage_num = q_state.get("stage", 0)
+                        stage_desc = q_def.get("stages", {}).get(stage_num, "")
+                        active_quest_info = f"{title}: {stage_desc}" if stage_desc else title
+                        break
+
+            visible_exits = list(room.get("exits", {}).keys()) if room else []
+
             return {
                 "time": self.time,
                 "stability": self.stability,
                 "game_over": self.game_over,
                 "pending_chapter_load": self.pending_chapter_load,
+                "location": self.location,
                 "room_name": room[ATTR_NAME] if room else "Unbekannt",
                 "room_img": room.get("img", "???") if room else "???",
                 "dialogue_active": self.dialogue_active,
@@ -220,6 +234,8 @@ class GameState:
                 "logs": list(self.logs),
                 "elevation": self.elevation,
                 "present_npcs": present_npcs,
+                "exits": visible_exits,
+                "active_quest_info": active_quest_info,
             }
 
     def get_room(self, room_id: str) -> RoomData | None:

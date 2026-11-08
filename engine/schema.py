@@ -245,11 +245,12 @@ class LogEntry(TypedDict):
     turn: int
 
 
-class GameSnapshot(TypedDict):
+class GameSnapshot(TypedDict, total=False):
     time: int
     stability: float
     game_over: bool
     pending_chapter_load: str | None
+    location: str
     room_name: str
     room_img: str
     dialogue_active: bool
@@ -258,6 +259,8 @@ class GameSnapshot(TypedDict):
     logs: list[LogEntry]
     elevation: int
     present_npcs: list[str]
+    exits: list[str]
+    active_quest_info: str | None
 
 
 class VocabularyData(TypedDict, total=False):

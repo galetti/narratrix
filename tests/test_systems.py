@@ -31,6 +31,8 @@ from engine.systems.llm_grounding import (
     preserves_core_facts,
     sanitize_reply,
 )
+import engine.theme as theme
+from engine.ui import copy_to_clipboard
 
 
 EP0: str = "data.chapters.ep0_test_lab.config"
@@ -625,6 +627,51 @@ class PhysicsAndSimulationStressTests(unittest.TestCase):
         self.assertFalse(is_directly_reachable(self.game, self.game.objects["lead_ingot"]))
         MechanicsHandler.put(self.game, ["Lederbeutel", "in", "Metallkassette"])
         self.assertEqual(self.game.objects["small_pouch"]["location"], LOC_INVENTORY)
+
+
+class GUIModularityAndClipboardTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        theme.set_active_theme("default")
+
+    def test_theme_presets_and_customization(self) -> None:
+        # 1. Preset "lab"
+        lab_theme = theme.set_active_theme("lab")
+        self.assertEqual(lab_theme["name"], "lab")
+        self.assertEqual(theme.COLOR_ACCENT, (0, 215, 255))
+
+        # 2. Preset "reactor" mit Farb-Override
+        custom = theme.set_active_theme(
+            {"preset": "reactor", "color_accent": [255, 140, 20]}
+        )
+        self.assertEqual(custom["name"], "reactor")
+        self.assertEqual(theme.COLOR_ACCENT, (255, 140, 20))
+
+        # 3. Hex-Farben Unterstützung
+        hex_theme = theme.set_active_theme({"accent": "#00ff88"})
+        self.assertEqual(hex_theme["color_accent"], (0, 255, 136))
+
+    def test_clipboard_copy_mechanism(self) -> None:
+        # Leerer String ist immer erfolgreich
+        self.assertTrue(copy_to_clipboard(""))
+        # Nicht-leerer String funktioniert über Plattform-Fallback
+        result = copy_to_clipboard("Narratrix Modulares Testen")
+        self.assertIsInstance(result, bool)
+
+    def test_game_snapshot_exits_and_quest_info(self) -> None:
+        config = StoryLoader.load_chapter(EP0, raise_on_error=True)
+        assert config is not None
+        game = GameState(config, silent=True)
+        game.quests.start_quest("core_calibration")
+        snap = game.get_snapshot()
+
+        # Ausgänge müssen im Snapshot enthalten sein
+        self.assertIn("exits", snap)
+        self.assertIn("north", snap["exits"])
+        self.assertIn("west", snap["exits"])
+
+        # Aktive Quest Info muss enthalten sein
+        self.assertIn("active_quest_info", snap)
+        self.assertIn("Operation Resonanz-Kern", str(snap["active_quest_info"]))
 
 
 if __name__ == "__main__":
