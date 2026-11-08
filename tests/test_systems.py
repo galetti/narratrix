@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import os
 from typing import Any
 import unittest
 from unittest.mock import patch
@@ -237,6 +238,17 @@ class AISystemTests(unittest.TestCase):
         # Tick 2: Bewegung wird ausgeführt -> Drohne hat Raum verlassen
         self.ai.process_all_npcs(minutes=1)
         self.assertNotEqual(drone["location"], "test_chamber")
+
+    def test_pathfinder_respects_connecting_door_from_adjacent_room(self) -> None:
+        # Pfad von briefing_anteroom nach central_hub
+        # Die Vorraum-Tür befindet sich physikalisch in central_hub mit linked_exit west
+        self.game.objects["anteroom_door"]["is_open"] = False
+        path_blocked = self.game.pathfinder.find_path("briefing_anteroom", "central_hub")
+        self.assertIsNone(path_blocked)
+
+        self.game.objects["anteroom_door"]["is_open"] = True
+        path_open = self.game.pathfinder.find_path("briefing_anteroom", "central_hub")
+        self.assertEqual(path_open, ["central_hub"])
 
 
 class EffectProcessorAndListenTests(unittest.TestCase):
@@ -672,6 +684,33 @@ class GUIModularityAndClipboardTests(unittest.TestCase):
         # Aktive Quest Info muss enthalten sein
         self.assertIn("active_quest_info", snap)
         self.assertIn("Operation Resonanz-Kern", str(snap["active_quest_info"]))
+
+    def test_headless_game_gui_lifecycle_and_selection(self) -> None:
+        os.environ["SDL_VIDEODRIVER"] = "dummy"
+        import pygame
+        pygame.init()
+        from main_gui import GameGUI
+
+        gui = GameGUI()
+        # 1. Render-Zyklus ohne Fehler
+        gui.draw()
+
+        # 2. Kopieren ohne Auswahl -> sauberes Log
+        gui.copy_selection_or_log()
+        self.assertEqual(gui.toast_msg, "✓ In Zwischenablage kopiert")
+
+        # 3. Textauswahl im Log
+        gui.all_render_rows = [
+            [{"text": "Zeile A", "raw": "Zeile A"}],
+            [{"text": "Zeile B", "raw": "Zeile B"}],
+            [{"text": "Zeile C", "raw": "Zeile C"}],
+        ]
+        gui.selection_start_idx = 0
+        gui.selection_end_idx = 1
+        gui.copy_selection_or_log()
+        self.assertEqual(gui.toast_msg, "✓ In Zwischenablage kopiert")
+
+        pygame.quit()
 
 
 if __name__ == "__main__":
