@@ -12,14 +12,15 @@ Voraussetzung ist Python 3.9 oder neuer.
 ```bash
 python -m pip install -r requirements.txt
 python main_gui.py
+python main_gui.py --module test_lab
 ```
 
 `requirements.txt` installiert das deutsche Spacy-Modell
 `de_core_news_md`. Ist Spacy oder das Modell nicht verfügbar, verwendet die
 Engine automatisch den regelbasierten Parser.
 
-Die Laufzeitkonfiguration liegt in `data/config.json`. Dort werden Startkapitel,
-Auflösung, Parser und die optionale Verbindung zu einem lokalen
+Die Laufzeitkonfiguration liegt in `data/config.json`. Dort werden Standardmodul
+(`default_module`), Auflösung, Parser und die optionale Verbindung zu einem lokalen
 OpenAI-kompatiblen LLM konfiguriert.
 
 ## Architektur
@@ -29,14 +30,13 @@ OpenAI-kompatiblen LLM konfiguriert.
 - `engine/handlers/`: Spieleraktionen wie Bewegung, Inventar und Mechanik.
 - `engine/systems/`: Events, Effekte, Quests, Crafting, KI und Akustik.
 - `engine/parser/`: regelbasierte und Spacy-basierte Texteingabe.
-- `data/common/`: kapitelübergreifende Inhalte.
-- `data/chapters/`: konkrete Episoden und Testszenarien.
+- `data/modules/`: eigenständige Spielmodule (`deep_zero`, `test_lab`) mit jeweils eigenem `module.py`-Manifest, Kapiteln, optionalem `common/`-Layer und isolierten `assets/`.
 - `tools/`: Validator, Simulationsansicht und JSON World Editor.
 - `tests/`: Regressionstests der Kernsysteme.
 
-Der Common-Layer wird zuerst geladen. Kapitel überschreiben Räume, Objekte,
-NPCs und Events mit derselben ID. Doppelte oder ungültige Referenzen führen
-bereits beim Laden zu einem verständlichen Fehler.
+Falls ein Modul einen `common_module`-Layer deklariert, wird dieser zuerst geladen.
+Kapitel überschreiben Räume, Objekte, NPCs und Events mit derselben ID. Doppelte oder
+ungültige Referenzen führen bereits beim Laden zu einem verständlichen Fehler.
 
 ## Verbindliche IDs
 
@@ -132,11 +132,12 @@ zustandsverändernden Aktionen geprüft.
 
 ## Werkzeuge
 
-Aktuelles Kapitel validieren:
+Aktuelles Kapitel oder alle Module validieren:
 
 ```bash
-python -m tools.validator
-python -m tools.validator data.chapters.ep0_test_lab.config
+python -m tools.validator --all
+python -m tools.validator --module test_lab
+python -m tools.validator data.modules.deep_zero.chapters.ep1_deep_zero.config
 ```
 
 JSON-Welt bearbeiten:
