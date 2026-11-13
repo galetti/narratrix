@@ -442,6 +442,59 @@ class LLMGroundingAndDialogueTests(unittest.TestCase):
         self.assertEqual(core["state"], "online")
         self.assertEqual(core["img"], "face_ai_calm")
 
+    def test_quest_and_npc_state_updates_ground_ai_and_history(self) -> None:
+        from engine.handlers.dialogue import DialogueHandler
+
+        core = next(n for n in self.game.npcs if n["id"] == "core_ai")
+        visible_before = [k for k, _ in self.game.dialogue_system.get_visible_topics(core)[0]]
+        self.assertIn("status_ep1_noise", visible_before)
+        self.assertNotIn("status_ep1_clear", visible_before)
+
+        self.assertTrue(self.game.events.trigger_event_by_id("rusty_shutdown"))
+        # Auch aus einem anderen Raum heraus sieht C.O.R.E. Quest-Fortschritt und NPC-Telemetrie
+        self.game.location = "room_inner_corridor_north"
+        ctx = build_world_context(
+            self.game,
+            core,
+            known_facts=self.game.dialogue_system._known_facts_for_npc(core),
+        )
+        self.assertIn("Active quests:", ctx)
+        self.assertIn("Lärmbelästigung: Der Bot ist abgeschaltet. Melde dich bei Sato.", ctx)
+        self.assertIn("Rusty (MK-1 Bot) in Müllverarbeitung [state: disabled]", ctx)
+        self.assertIn("Dr. Sato [state: grateful]", ctx)
+
+        visible_after = [k for k, _ in self.game.dialogue_system.get_visible_topics(core)[0]]
+        self.assertIn("status_ep1_clear", visible_after)
+        self.assertNotIn("status_ep1_noise", visible_after)
+
+        # Mehrstufiger Dialog übergibt Kurzzeit-Verlauf an LLMBridge.call und leert ihn beim Beenden
+        captured_histories: list[list[dict[str, str]] | None] = []
+
+        def fake_call(
+            system_prompt: str,
+            user_message: str,
+            api_url: str | None = None,
+            model: str | None = None,
+            history: list[dict[str, str]] | None = None,
+        ) -> str:
+            captured_histories.append(history)
+            return "Telemetrie bestätigt Abschaltung."
+
+        with patch("engine.systems.dialogue_system.LLMBridge.call", side_effect=fake_call):
+            DialogueHandler.talk(self.game, ["mit", "core"])
+            DialogueHandler.step(self.game, "Wie geht es Rusty?")
+            DialogueHandler.step(self.game, "Und was sagt Sato?")
+
+        self.assertGreaterEqual(len(captured_histories), 3)
+        self.assertIsNone(captured_histories[0])  # Greeting hat noch keinen Verlauf
+        last_history = captured_histories[-1]
+        assert last_history is not None
+        self.assertTrue(any(turn["content"] == "wie geht es rusty?" for turn in last_history))
+        self.assertTrue(any(turn["content"] == "Telemetrie bestätigt Abschaltung." for turn in last_history))
+
+        self.game.dialogue_system.end_dialogue()
+        self.assertEqual(self.game.dialogue_system._conversation_history, [])
+
 
 class QuestBranchingAndStateTreeTests(unittest.TestCase):
     game_config: dict[str, Any]

@@ -51,15 +51,47 @@ COMMON_NPCS: list[NPCData] = [
                 },
                 "dialogue": {
                     "greeting": "C.O.R.E. online. Alle Telemetrie-Kanäle zu Ihrem Headset sind aktiv, Dr. Thorne.",
+                    "status_ep1_noise": {
+                        "label": "Stationsstatus abfragen",
+                        "condition": {"type": "npc_state", "npc": "rusty", "state": "malfunction"},
+                        "text": (
+                            "Außenhülle stabil. Primäre Diagnosepunkte: Aktive akustische Störung durch Wartungsbot Rusty "
+                            "im äußeren Ring; Dr. Sato im Inneren Ring benötigt Unterstützung."
+                        ),
+                    },
+                    "status_ep1_clear": {
+                        "label": "Stationsstatus abfragen",
+                        "condition": {"type": "npc_state", "npc": "rusty", "state": "disabled"},
+                        "text": (
+                            "Außenhülle stabil. Wartungsbot Rusty im äußeren Ring ist abgeschaltet; "
+                            "akustische Telemetrie ist wieder ruhig. Erstatten Sie Dr. Sato im Inneren Ring Bericht."
+                        ),
+                    },
                     "status": {
                         "label": "Stationsstatus abfragen",
+                        "condition": {
+                            "type": "all",
+                            "conditions": [
+                                {"type": "npc_state", "npc": "rusty", "state": "malfunction", "not": True},
+                                {"type": "npc_state", "npc": "rusty", "state": "disabled", "not": True},
+                            ],
+                        },
                         "text": (
-                            "Außenhülle stabil. Primäre Diagnosepunkte: Akustische Störung im äußeren Ring, "
-                            "Drucküberwachung im Habitat-Sektor und thermische Reserven im Reaktorkern."
+                            "Außenhülle stabil. Primäre Diagnosepunkte: Drucküberwachung im Habitat-Sektor "
+                            "und thermische Reserven im Reaktorkern."
+                        ),
+                    },
+                    "mission_report_sato": {
+                        "label": "Aktuelle Prioritäten",
+                        "condition": {"type": "npc_state", "npc": "rusty", "state": "disabled"},
+                        "text": (
+                            "Wartungsbot Rusty ist deaktiviert. Erstatten Sie Dr. Sato im Inneren Ring Bericht, "
+                            "um Ihre Freigabe für den Habitat-Sektor zu erhalten."
                         ),
                     },
                     "mission": {
                         "label": "Aktuelle Prioritäten",
+                        "condition": {"type": "npc_state", "npc": "rusty", "state": "disabled", "not": True},
                         "text": (
                             "Koordinieren Sie sich mit den leitenden Ingenieuren vor Ort: Dr. Sato im Inneren Ring "
                             "sowie Dr. Elena Vance im Biosphären-Trakt."

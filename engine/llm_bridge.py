@@ -27,16 +27,22 @@ class LLMBridge:
         user_message: str,
         api_url: str | None = None,
         model: str | None = None,
+        history: list[dict[str, str]] | None = None,
     ) -> str | None:
         if requests is None:
             return None
         url = LLMBridge.get_api_url(api_url)
+        messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        if history:
+            for turn in history:
+                role = turn.get("role")
+                content = turn.get("content", "")
+                if role in {"user", "assistant"} and content:
+                    messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": user_message})
         payload: dict[str, Any] = {
             "model": model or os.getenv("NARRATRIX_LLM_MODEL", LLMBridge.DEFAULT_MODEL),
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
+            "messages": messages,
             "temperature": 0.7,
             "max_tokens": 1024,
         }

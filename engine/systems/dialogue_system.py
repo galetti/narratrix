@@ -22,13 +22,17 @@ class DialogueSystem:
     """
     Verwaltet die Logik von Dialogen, unabhängig vom Input-Handler.
     """
+    MAX_HISTORY_MESSAGES: int = 8
+
     def __init__(self, game: GameState) -> None:
         self.game: GameState = game
+        self._conversation_history: list[dict[str, str]] = []
 
     def start_dialogue(self, npc: NPCData) -> None:
         """Startet einen Dialog mit einem NPC."""
         self.game.dialogue_active = True
         self.game.dialogue_partner = npc
+        self._conversation_history.clear()
         
         # Begrüßung
         current_state = npc.get('state', 'default')
@@ -45,6 +49,7 @@ class DialogueSystem:
         self.game.log('event', Texts.DIALOGUE_ENDED.format(suffix=suffix))
         self.game.dialogue_active = False
         self.game.dialogue_partner = None
+        self._conversation_history.clear()
 
     def refresh_topics(self) -> None:
         """Zeigt die Themen für den aktuellen NPC erneut an."""
@@ -55,6 +60,7 @@ class DialogueSystem:
 
     def handle_selection(self, entry: DialogueEntry, topic_key: str | None = None) -> None:
         """Verarbeitet eine gewählte Dialog-Option."""
+        selected_label: str | None = None
         with self.game.lock:
             npc = self.game.dialogue_partner
             if not npc:
@@ -64,9 +70,10 @@ class DialogueSystem:
                 label = topic_key
                 if isinstance(entry, dict) and 'label' in entry:
                     label = entry['label']
+                selected_label = label
                 self.game.log('user', f"> {label}")
 
-        self.print_dialogue(npc, entry)
+        self.print_dialogue(npc, entry, prompt_context=selected_label)
 
         with self.game.lock:
             # Effekte auslösen (Delegation an EffectProcessor)
@@ -157,6 +164,23 @@ class DialogueSystem:
         visible, _ = self.get_visible_topics(npc)
         return [entry_text(entry) for _, entry in visible if entry_text(entry)]
 
+    def _record_history_turn(
+        self, npc: NPCData, user_text: str | None, assistant_text: str
+    ) -> None:
+        if self.game.dialogue_partner is not npc or not assistant_text:
+            return
+        if user_text and user_text.strip():
+            self._conversation_history.append(
+                {"role": "user", "content": user_text.strip()}
+            )
+        self._conversation_history.append(
+            {"role": "assistant", "content": assistant_text}
+        )
+        if len(self._conversation_history) > self.MAX_HISTORY_MESSAGES:
+            self._conversation_history = self._conversation_history[
+                -self.MAX_HISTORY_MESSAGES :
+            ]
+
     def print_dialogue(
         self,
         npc: NPCData,
@@ -173,6 +197,11 @@ class DialogueSystem:
             llm_model = self.game.config.get('llm_model')
             sys_prompt = ""
             user_msg = ""
+            history_snapshot: list[dict[str, str]] = (
+                list(self._conversation_history)
+                if self.game.dialogue_partner is npc
+                else []
+            )
             if use_llm:
                 known_facts = self._known_facts_for_npc(npc)
                 sys_prompt, user_msg = build_prompts(
@@ -190,6 +219,7 @@ class DialogueSystem:
                 user_msg,
                 api_url=llm_url,
                 model=llm_model,
+                history=history_snapshot or None,
             )
             cleaned = sanitize_reply(raw, npc_name=npc_name)
             if cleaned and (is_auto_reply or preserves_core_facts(final_text, cleaned)):
@@ -206,4 +236,5 @@ class DialogueSystem:
                     self.game.log('character', Texts.DIALOGUE_CONFUSED.format(npc=npc[ATTR_NAME]))
                     return
 
+            self._record_history_turn(npc, prompt_context, final_text)
             self.game.log('character', Texts.DIALOGUE_LINE.format(npc=npc[ATTR_NAME], text=final_text))

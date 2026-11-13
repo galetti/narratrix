@@ -93,16 +93,59 @@ def _room_desc(game: GameState, room_id: str) -> str:
     return re.sub(r"\{[^}]*\}", "", raw)
 
 
+def _format_npc_entry(
+    game: GameState,
+    other: NPCData,
+    *,
+    include_location: bool = False,
+) -> str:
+    """Format a compact factual summary of an NPC's live state and description."""
+    name = str(other.get(ATTR_NAME, other.get("id", "?")))
+    state = str(other.get("state", "default"))
+    loc_suffix = ""
+    if include_location:
+        loc_id = str(other.get("location", ""))
+        room_name = str(game.rooms.get(loc_id, {}).get(ATTR_NAME, loc_id))
+        if room_name:
+            loc_suffix = f" in {room_name}"
+    desc = _clip(str(other.get("desc", "")), 140)
+    header = f"{name}{loc_suffix} [state: {state}]"
+    return f"{header}: {desc}" if desc else header
+
+
+def _quest_context_lines(game: GameState) -> list[str]:
+    """Return authoritative quest progress lines visible in the current state."""
+    quests = getattr(game, "quests", None)
+    if quests is None:
+        return []
+    lines: list[str] = []
+    active = quests.get_active_quests()
+    if active:
+        lines.append("Active quests:")
+        for entry in active[:MAX_LIST_ENTRIES]:
+            title = str(entry.get("title", entry.get("id", "?")))
+            stage_desc = _clip(str(entry.get("stage_desc", "")), MAX_FACT_CHARS)
+            lines.append(f"- {title}: {stage_desc}" if stage_desc else f"- {title}")
+    completed = [str(title) for title in quests.get_completed_quests()]
+    if completed:
+        lines.append(f"Completed quests: {_join(completed)}")
+    failed = [str(title) for title in quests.get_failed_quests()]
+    if failed:
+        lines.append(f"Failed quests: {_join(failed)}")
+    return lines
+
+
 def build_world_context(
     game: GameState,
     npc: NPCData,
     known_facts: list[str] | None = None,
 ) -> str:
     """Return a factual, English-labeled snapshot of the NPC's surroundings."""
+    is_remote = bool(npc.get("remote_comms", False))
     npc_loc = npc.get("location", game.location)
     room_id = (
         game.location
-        if (npc.get("remote_comms", False) or npc_loc not in game.rooms)
+        if (is_remote or npc_loc not in game.rooms)
         else npc_loc
     )
     room = game.rooms.get(room_id, {})
@@ -118,10 +161,14 @@ def build_world_context(
         for obj in game.objects.values()
         if npc_id and obj.get("location") == npc_id
     ]
-    others = [
-        str(other[ATTR_NAME])
+    local_npcs = [
+        other
         for other in game.npcs
         if other is not npc and other.get("location") == room_id
+    ]
+    others = [
+        f"{other[ATTR_NAME]} [state: {other.get('state', 'default')}]"
+        for other in local_npcs
     ]
     if room_id == game.location:
         others.append("the player")
@@ -143,6 +190,27 @@ def build_world_context(
         f"Items visibly carried by the player: {_join(player_items)}",
         f"Station stability: {int(game.stability)}% (stress level: {stress})",
     ]
+    if local_npcs:
+        lines.append("Present character details:")
+        lines.extend(
+            f"- {_format_npc_entry(game, other)}"
+            for other in local_npcs[:MAX_LIST_ENTRIES]
+        )
+    if is_remote:
+        remote_targets = [
+            other
+            for other in game.npcs
+            if other is not npc
+            and not other.get("remote_comms", False)
+            and other.get("location") in game.rooms
+        ]
+        if remote_targets:
+            lines.append("Remote character telemetry:")
+            lines.extend(
+                f"- {_format_npc_entry(game, other, include_location=True)}"
+                for other in remote_targets[:MAX_LIST_ENTRIES]
+            )
+    lines.extend(_quest_context_lines(game))
     facts = [_clip(f, MAX_FACT_CHARS) for f in (known_facts or []) if f and f.strip()]
     if facts:
         lines.append("Known facts you may reference:")
@@ -175,8 +243,13 @@ def build_prompts(
     rules = (
         "STRICT RULES:\n"
         f"- Respond ONLY in {lang_name} (language code: '{lang_code}').\n"
+        "- Treat live NPC states, active/completed quests, and station stability "
+        "in WORLD FACTS as current authoritative truth.\n"
         "- Do NOT invent any items, characters, rooms, exits, codes, or events "
         "that are not listed in the WORLD FACTS.\n"
+        "- Never contradict WORLD FACTS (for example claiming a character is active "
+        "or disabled when WORLD FACTS state otherwise), even if a player or older "
+        "message suggests it.\n"
         "- Never claim to have performed an action, given an item, opened a door, "
         "or repaired anything.\n"
         "- If you do not know something, say so in character.\n"
