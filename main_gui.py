@@ -138,6 +138,11 @@ class GameGUI:
         new_config["language"] = str(SYS_CONFIG["game"].get("language", "de"))
         new_config["llm_url"] = SYS_CONFIG["system"].get("llm_url")
         new_config["llm_model"] = SYS_CONFIG["system"].get("llm_model")
+        new_config["llm_api_key"] = SYS_CONFIG["system"].get("llm_api_key")
+        new_config["llm_fallback_url"] = SYS_CONFIG["system"].get("llm_fallback_url")
+        new_config["llm_fallback_model"] = SYS_CONFIG["system"].get("llm_fallback_model")
+        new_config["llm_fallback_api_key"] = SYS_CONFIG["system"].get("llm_fallback_api_key")
+        new_config["llm_providers"] = SYS_CONFIG["system"].get("llm_providers")
         self.game: GameState = GameState(new_config, transfer_state=transfer_state)
         self.current_chapter = chapter_path
 

@@ -181,6 +181,19 @@ class DialogueSystem:
                 -self.MAX_HISTORY_MESSAGES :
             ]
 
+    @staticmethod
+    def _validate_llm_reply(
+        raw: str | None,
+        *,
+        npc_name: str,
+        core_text: str,
+        is_auto_reply: bool,
+    ) -> str | None:
+        cleaned = sanitize_reply(raw, npc_name=npc_name)
+        if cleaned and (is_auto_reply or preserves_core_facts(core_text, cleaned)):
+            return cleaned
+        return None
+
     def print_dialogue(
         self,
         npc: NPCData,
@@ -195,6 +208,17 @@ class DialogueSystem:
             use_llm = bool(self.game.config.get('use_llm_dialogue', False))
             llm_url = self.game.config.get('llm_url')
             llm_model = self.game.config.get('llm_model')
+            llm_kwargs: dict[str, Any] = {}
+            for cfg_key, arg_name in (
+                ('llm_api_key', 'api_key'),
+                ('llm_fallback_url', 'fallback_url'),
+                ('llm_fallback_model', 'fallback_model'),
+                ('llm_fallback_api_key', 'fallback_api_key'),
+                ('llm_providers', 'providers'),
+            ):
+                value = self.game.config.get(cfg_key)
+                if value:
+                    llm_kwargs[arg_name] = value
             sys_prompt = ""
             user_msg = ""
             history_snapshot: list[dict[str, str]] = (
@@ -203,6 +227,25 @@ class DialogueSystem:
                 else []
             )
             if use_llm:
+                if (
+                    len(
+                        LLMBridge.resolve_providers(
+                            api_url=llm_url,
+                            model=llm_model,
+                            **llm_kwargs,
+                        )
+                    )
+                    > 1
+                ):
+                    core_snapshot = final_text
+                    llm_kwargs["response_filter"] = (
+                        lambda raw_reply: self._validate_llm_reply(
+                            raw_reply,
+                            npc_name=npc_name,
+                            core_text=core_snapshot,
+                            is_auto_reply=is_auto_reply,
+                        )
+                    )
                 known_facts = self._known_facts_for_npc(npc)
                 sys_prompt, user_msg = build_prompts(
                     self.game,
@@ -220,10 +263,16 @@ class DialogueSystem:
                 api_url=llm_url,
                 model=llm_model,
                 history=history_snapshot or None,
+                **llm_kwargs,
             )
-            cleaned = sanitize_reply(raw, npc_name=npc_name)
-            if cleaned and (is_auto_reply or preserves_core_facts(final_text, cleaned)):
-                final_text = cleaned
+            validated = self._validate_llm_reply(
+                raw,
+                npc_name=npc_name,
+                core_text=final_text,
+                is_auto_reply=is_auto_reply,
+            )
+            if validated:
+                final_text = validated
 
         with self.game.lock:
             if is_auto_reply and not final_text:

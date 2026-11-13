@@ -303,6 +303,11 @@ class GameConfigData(TypedDict, total=False):
     use_llm_dialogue: bool
     llm_url: str | None
     llm_model: str | None
+    llm_api_key: str | None
+    llm_fallback_url: str | None
+    llm_fallback_model: str | None
+    llm_fallback_api_key: str | None
+    llm_providers: list[dict[str, Any]] | None
 
 
 SUPPORTED_TRIGGERS: set[str] = {"time", "location", "condition", "complex", "manual"}

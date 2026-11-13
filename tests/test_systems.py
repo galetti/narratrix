@@ -495,6 +495,118 @@ class LLMGroundingAndDialogueTests(unittest.TestCase):
         self.game.dialogue_system.end_dialogue()
         self.assertEqual(self.game.dialogue_system._conversation_history, [])
 
+    def test_two_stage_llm_fallback_chain_and_deterministic_fallback(self) -> None:
+        from types import SimpleNamespace
+        from engine.llm_bridge import LLMBridge
+
+        class FakeConnectionError(OSError):
+            pass
+
+        class FakeTimeout(OSError):
+            pass
+
+        class FakeRequestException(OSError):
+            pass
+
+        LLMBridge.reset_cooldowns()
+        try:
+            self.game.config["llm_url"] = "http://127.0.0.1:11434/v1/chat/completions"
+            self.game.config["llm_model"] = "gemma4:12b"
+            self.game.config["llm_fallback_url"] = "https://free-llm.example/v1/chat/completions"
+            self.game.config["llm_fallback_model"] = "free-model"
+            self.game.config["llm_fallback_api_key"] = "demo-key"
+
+            seen_calls: list[tuple[str, dict[str, str], str]] = []
+
+            class DummyResponse:
+                def __init__(self, text: str) -> None:
+                    self._text = text
+
+                def raise_for_status(self) -> None:
+                    return None
+
+                def json(self) -> dict[str, Any]:
+                    return {"choices": [{"message": {"content": self._text}}]}
+
+            fake_exceptions = SimpleNamespace(
+                ConnectionError=FakeConnectionError,
+                Timeout=FakeTimeout,
+                RequestException=FakeRequestException,
+            )
+
+            def fake_post(
+                url: str, headers: dict[str, str], json: dict[str, Any], timeout: Any
+            ) -> DummyResponse:
+                seen_calls.append((url, headers, str(json.get("model"))))
+                if "127.0.0.1" in url:
+                    raise FakeConnectionError("Ollama offline")
+                return DummyResponse("Online-Fallback aktiv.")
+
+            with patch(
+                "engine.llm_bridge.requests",
+                SimpleNamespace(exceptions=fake_exceptions, post=fake_post),
+            ):
+                self.game.dialogue_system.print_dialogue(
+                    self.npc, "LLM_AUTO_REPLY", prompt_context="Status?"
+                )
+                self.assertIn("Online-Fallback aktiv.", self.game.logs[-1]["text"])
+                # Zweiter Aufruf innerhalb des Cooldowns springt direkt zum Online-Fallback
+                self.game.dialogue_system.print_dialogue(
+                    self.npc, "LLM_AUTO_REPLY", prompt_context="Noch da?"
+                )
+
+            self.assertEqual(
+                [c[0] for c in seen_calls],
+                [
+                    "http://127.0.0.1:11434/v1/chat/completions",
+                    "https://free-llm.example/v1/chat/completions",
+                    "https://free-llm.example/v1/chat/completions",
+                ],
+            )
+            self.assertEqual(seen_calls[1][1].get("Authorization"), "Bearer demo-key")
+            self.assertEqual(seen_calls[1][2], "free-model")
+
+            # Wenn Stufe 1 (Ollama) unbrauchbaren Text liefert, greift Stufe 2 (Fallback)
+            LLMBridge.reset_cooldowns()
+            seen_calls.clear()
+
+            def guardrail_fallback_post(
+                url: str, headers: dict[str, str], json: dict[str, Any], timeout: Any
+            ) -> DummyResponse:
+                seen_calls.append((url, headers, str(json.get("model"))))
+                if "127.0.0.1" in url:
+                    return DummyResponse("Als KI kann ich das nicht.")
+                return DummyResponse("Leitung ist unterbrochen.")
+
+            with patch(
+                "engine.llm_bridge.requests",
+                SimpleNamespace(exceptions=fake_exceptions, post=guardrail_fallback_post),
+            ):
+                self.game.dialogue_system.print_dialogue(
+                    self.npc, "LLM_AUTO_REPLY", prompt_context="Bericht?"
+                )
+            self.assertIn("Leitung ist unterbrochen.", self.game.logs[-1]["text"])
+            self.assertEqual(len(seen_calls), 2)
+
+            # Wenn beide Online/Lokal-Provider ausfallen, greift Stufe 3 (deterministisch)
+            LLMBridge.reset_cooldowns()
+
+            def all_offline_post(
+                url: str, headers: dict[str, str], json: dict[str, Any], timeout: Any
+            ) -> DummyResponse:
+                raise FakeConnectionError("Offline")
+
+            with patch(
+                "engine.llm_bridge.requests",
+                SimpleNamespace(exceptions=fake_exceptions, post=all_offline_post),
+            ):
+                self.game.dialogue_system.print_dialogue(
+                    self.npc, "Code ist 4210.", prompt_context=None
+                )
+            self.assertIn("4210", self.game.logs[-1]["text"])
+        finally:
+            LLMBridge.reset_cooldowns()
+
 
 class QuestBranchingAndStateTreeTests(unittest.TestCase):
     game_config: dict[str, Any]

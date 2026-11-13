@@ -31,6 +31,11 @@ def load_system_config(config_path: Path | None = None) -> dict[str, dict[str, A
             "parser_mode": "SPACY",
             "llm_enabled": False,
             "llm_url": "http://localhost:1234/v1/chat/completions",
+            "llm_model": "gemma4:12b",
+            "llm_api_key": "",
+            "llm_fallback_url": "",
+            "llm_fallback_model": "",
+            "llm_fallback_api_key": "",
         },
     }
 
