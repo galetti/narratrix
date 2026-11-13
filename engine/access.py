@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from engine.constants import ATTR_ID, LOC_INVENTORY, TYPE_CONTAINER
-from engine.schema import EntityData
+from engine.schema import EntityData, ObjectData
 from engine.strings import Texts
 
 if TYPE_CHECKING:
@@ -132,6 +132,30 @@ def get_door_direction(
         if target == target_room_id:
             return direction
     return None
+
+
+def get_exit_doors(
+    game: GameState, room_id: str, direction: str
+) -> list[ObjectData]:
+    """Return all door objects guarding the exit in ``direction`` from ``room_id``."""
+    room = game.rooms.get(room_id, {})
+    target_id = room.get("exits", {}).get(direction)
+    target_room = game.rooms.get(target_id, {}) if target_id else {}
+    doors: list[ObjectData] = []
+    for obj in game.objects.values():
+        loc = obj.get("location")
+        linked = obj.get("linked_exit")
+        if not linked:
+            continue
+        if loc == room_id and linked == direction:
+            doors.append(obj)
+        elif (
+            target_id
+            and loc == target_id
+            and target_room.get("exits", {}).get(linked) == room_id
+        ):
+            doors.append(obj)
+    return doors
 
 
 def reach_error(game: GameState, entity: EntityData) -> str:

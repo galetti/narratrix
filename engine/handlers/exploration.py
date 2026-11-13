@@ -312,10 +312,8 @@ class ExplorationHandler:
                                     message=best_event["sound_msg"],
                                 ),
                             )
-                            game.add_knowledge("sabotage_plan_uncovered")
-                            if "investigate_sabotage" in game.quests.states:
-                                game.quests.update_quest("investigate_sabotage", 2)
-                                game.quests.complete_quest("investigate_sabotage")
+                            if best_event.get("listen_effects"):
+                                game.effects.process(best_event["listen_effects"])
                             if best_event.get("effects"):
                                 game.effects.process(best_event["effects"])
                             game.tick(1)

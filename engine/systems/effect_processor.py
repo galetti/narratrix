@@ -54,7 +54,7 @@ class EffectProcessor:
                 and room_id != self.game.location
                 and self.game.dialogue_active
             ):
-                self.game.dialogue_system.end_dialogue(reason="Partner geht")
+                self.game.dialogue_system.end_dialogue(reason=Texts.EFFECT_PARTNER_LEFT)
             return
 
         if effect_type in {"move_player", "teleport_player"}:

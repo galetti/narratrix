@@ -21,7 +21,11 @@ from engine.constants import (
 )
 from engine.strings import Texts
 from engine.handlers.common import CommonHandler
-from engine.access import is_directly_reachable, reach_error
+from engine.access import (
+    _root_entity_and_location,
+    is_directly_reachable,
+    reach_error,
+)
 from engine.schema import DialogueOptionData, ObjectData
 
 if TYPE_CHECKING:
@@ -85,7 +89,7 @@ class InventoryHandler:
             item_words = args[:idx]
             tool_words = args[idx+1:]
 
-        if any(w in args for w in ["all", "alles", "alle"]):
+        if any(w.lower() in {"all", "alles", "alle"} for w in args):
             # Alles nehmen (nur reachable)
             candidates = Resolver._collect_candidates(game, FILTER_RECURSIVE)
             object_identities = {id(obj) for obj in game.objects.values()}
@@ -132,12 +136,16 @@ class InventoryHandler:
                     return game.log('error', Texts.TAKE_TOO_HEAVY)
                 
                 # Vertikaler Check über zentrale Reichweitenlogik
-                item_level = target.get('level', 0)
+                item_level = int(target.get('level', 0))
                 player_level = game.elevation
                 is_reachable = is_directly_reachable(game, target, upward_reach=1)
                 
                 if not is_reachable:
-                    can_reach = False
+                    _, root_loc, blocked_by_container = _root_entity_and_location(game, target)
+                    if blocked_by_container or root_loc not in (game.location, LOC_INVENTORY):
+                        game.log('error', reach_error(game, target))
+                        return
+
                     dist = abs(item_level - player_level)
                     
                     # Tool Check
@@ -147,17 +155,13 @@ class InventoryHandler:
                             if not tool:
                                 game.log('error', Texts.TOOL_NOT_IN_INVENTORY)
                                 return
-                            reach = tool.get('reach', 0)
-                            # Wenn wir das Tool nutzen, addieren wir die Reichweite
-                            # Ein Tool mit reach 1 macht item_level+1 erreichbar von item_level-1?
-                            # Einfach: Distanz muss <= Reichweite + Standard-Armlänge (1 Ebene nach oben ist Standard)
-                            
-                            # Wenn Item höher ist: Standard reach ist 1. Tool addiert dazu.
-                            # Wenn Item tiefer ist: Standard reach ist 0 (bücken ist keine Tool action hier, sondern climb down).
-                            # Aber mit Stange kann man auch nach unten angeln.
-                            
-                            if reach >= dist: # Vereinfacht: Tool Reichweite überbrückt die komplette Distanz
-                                can_reach = True
+                            reach = int(tool.get('reach', 0))
+                            if reach >= dist and is_directly_reachable(
+                                game,
+                                target,
+                                upward_reach=max(1, reach),
+                                allow_below=True,
+                            ):
                                 game.log(
                                     'info',
                                     Texts.TOOL_USE_TO_REACH.format(
@@ -183,7 +187,7 @@ class InventoryHandler:
                                 ),
                             )
                             return
-                        elif item_level < player_level:
+                        if item_level < player_level:
                             game.log(
                                 'error',
                                 Texts.REACH_TOO_LOW.format(
@@ -191,6 +195,8 @@ class InventoryHandler:
                                 ),
                             )
                             return
+                        game.log('error', reach_error(game, target))
+                        return
 
                 weight = CommonHandler.get_total_weight(game, target)
                 if weight == float('inf') or target.get(ATTR_WEIGHT, float('inf')) == float('inf'):

@@ -55,43 +55,50 @@ class DialogueSystem:
 
     def handle_selection(self, entry: DialogueEntry, topic_key: str | None = None) -> None:
         """Verarbeitet eine gewählte Dialog-Option."""
-        npc = self.game.dialogue_partner
-        if not npc: return
+        with self.game.lock:
+            npc = self.game.dialogue_partner
+            if not npc:
+                return
 
-        if topic_key: # Wenn es ein Key war, loggen wir den Label als User-Input
-            label = topic_key
-            if isinstance(entry, dict) and 'label' in entry:
-                label = entry['label']
-            self.game.log('user', f"> {label}")
+            if topic_key:  # Wenn es ein Key war, loggen wir den Label als User-Input
+                label = topic_key
+                if isinstance(entry, dict) and 'label' in entry:
+                    label = entry['label']
+                self.game.log('user', f"> {label}")
 
         self.print_dialogue(npc, entry)
-        
-        # Effekte auslösen (Delegation an EffectProcessor)
-        if isinstance(entry, dict) and 'effect' in entry:
-            self.game.effects.process(entry['effect'], context_npc=npc)
-            
-        # Nach der Interaktion Topics neu laden (Status könnte sich geändert haben)
-        self.refresh_topics()
+
+        with self.game.lock:
+            # Effekte auslösen (Delegation an EffectProcessor)
+            if isinstance(entry, dict) and 'effect' in entry:
+                self.game.effects.process(entry['effect'], context_npc=npc)
+
+            # Nach der Interaktion Topics neu laden (Status könnte sich geändert haben)
+            self.refresh_topics()
 
     def handle_fallback(self, user_text: str) -> None:
         """Wenn keine passende Option gefunden wurde."""
-        npc = self.game.dialogue_partner
-        if not npc: return
-        
-        current_state = npc.get('state', 'default')
-        dialogue_db = self._get_dialogue_db(npc, current_state)
-        
-        use_llm = self.game.config.get('use_llm_dialogue', False)
-        if use_llm: 
-            self.print_dialogue(npc, "LLM_AUTO_REPLY", prompt_context=user_text)
-        else: 
+        with self.game.lock:
+            npc = self.game.dialogue_partner
+            if not npc:
+                return
+
+            current_state = npc.get('state', 'default')
+            dialogue_db = self._get_dialogue_db(npc, current_state)
+            use_llm = self.game.config.get('use_llm_dialogue', False)
             default_reply = dialogue_db.get('default')
-            if default_reply:
-                self.print_dialogue(npc, default_reply)
-            else:
-                self.game.log('character', Texts.DIALOGUE_CONFUSED.format(npc=npc[ATTR_NAME]))
-        
-        self.show_topics(npc)
+
+        if use_llm:
+            self.print_dialogue(npc, "LLM_AUTO_REPLY", prompt_context=user_text)
+        else:
+            with self.game.lock:
+                if default_reply:
+                    self.print_dialogue(npc, default_reply)
+                else:
+                    self.game.log('character', Texts.DIALOGUE_CONFUSED.format(npc=npc[ATTR_NAME]))
+
+        with self.game.lock:
+            self.show_topics(npc)
 
     # --- INTERNE HELPER ---
 
@@ -156,40 +163,47 @@ class DialogueSystem:
         response_entry: DialogueEntry,
         prompt_context: str | None = None,
     ) -> None:
-        is_auto_reply = response_entry == "LLM_AUTO_REPLY"
-        core_text: Any = "" if is_auto_reply else entry_text(response_entry)
-        final_text = str(core_text)
+        with self.game.lock:
+            is_auto_reply = response_entry == "LLM_AUTO_REPLY"
+            core_text: Any = "" if is_auto_reply else entry_text(response_entry)
+            final_text = str(core_text)
+            npc_name = str(npc.get(ATTR_NAME, ""))
+            use_llm = bool(self.game.config.get('use_llm_dialogue', False))
+            llm_url = self.game.config.get('llm_url')
+            llm_model = self.game.config.get('llm_model')
+            sys_prompt = ""
+            user_msg = ""
+            if use_llm:
+                known_facts = self._known_facts_for_npc(npc)
+                sys_prompt, user_msg = build_prompts(
+                    self.game,
+                    npc,
+                    core_text=None if is_auto_reply else final_text,
+                    player_text=prompt_context,
+                    known_facts=known_facts,
+                )
+                self.game.log('info', Texts.DIALOGUE_THINKING.format(npc=npc[ATTR_NAME]))
 
-        use_llm = self.game.config.get('use_llm_dialogue', False)
         if use_llm:
-            known_facts = self._known_facts_for_npc(npc)
-            sys_prompt, user_msg = build_prompts(
-                self.game,
-                npc,
-                core_text=None if is_auto_reply else final_text,
-                player_text=prompt_context,
-                known_facts=known_facts,
-            )
-
-            self.game.log('info', Texts.DIALOGUE_THINKING.format(npc=npc[ATTR_NAME]))
             raw = LLMBridge.call(
                 sys_prompt,
                 user_msg,
-                api_url=self.game.config.get('llm_url'),
-                model=self.game.config.get('llm_model'),
+                api_url=llm_url,
+                model=llm_model,
             )
-            cleaned = sanitize_reply(raw, npc_name=str(npc.get(ATTR_NAME, "")))
+            cleaned = sanitize_reply(raw, npc_name=npc_name)
             if cleaned and (is_auto_reply or preserves_core_facts(final_text, cleaned)):
                 final_text = cleaned
 
-        if is_auto_reply and not final_text:
-            current_state = npc.get('state', 'default')
-            dialogue_db = self._get_dialogue_db(npc, current_state)
-            default_reply = dialogue_db.get('default')
-            if default_reply:
-                final_text = entry_text(default_reply)
-            else:
-                self.game.log('character', Texts.DIALOGUE_CONFUSED.format(npc=npc[ATTR_NAME]))
-                return
+        with self.game.lock:
+            if is_auto_reply and not final_text:
+                current_state = npc.get('state', 'default')
+                dialogue_db = self._get_dialogue_db(npc, current_state)
+                default_reply = dialogue_db.get('default')
+                if default_reply:
+                    final_text = entry_text(default_reply)
+                else:
+                    self.game.log('character', Texts.DIALOGUE_CONFUSED.format(npc=npc[ATTR_NAME]))
+                    return
 
-        self.game.log('character', Texts.DIALOGUE_LINE.format(npc=npc[ATTR_NAME], text=final_text))
+            self.game.log('character', Texts.DIALOGUE_LINE.format(npc=npc[ATTR_NAME], text=final_text))

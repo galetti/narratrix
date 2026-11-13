@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 from engine.constants import LOC_INVENTORY
 from engine.handlers.common import CommonHandler
 from engine.schema import ConditionSpec, EventData
+from engine.strings import Texts
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
@@ -203,11 +204,13 @@ class EventManager:
                 )
                 heard_volume = min(1.0, propagated * source_volume)
                 if heard_volume > 0.05:
-                    prefix = "(leise) " if heard_volume < 0.3 else ""
+                    prefix = Texts.LISTEN_PREFIX_QUIET if heard_volume < 0.3 else ""
                     if heard_volume > 0.8:
-                        prefix = "(LAUT) "
+                        prefix = Texts.LISTEN_PREFIX_LOUD
                     formatted_direction = (
-                        direction[0].upper() + direction[1:] if direction else "Irgendwo"
+                        direction[0].upper() + direction[1:]
+                        if direction
+                        else Texts.LISTEN_SOMEWHERE
                     )
                     msg = (
                         event["muffled_msg"]
@@ -216,7 +219,9 @@ class EventManager:
                     )
                     self.game.log(
                         "event",
-                        f"{formatted_direction} hörst du: {prefix}{msg}",
+                        Texts.LISTEN_HEAR_SOUND.format(
+                            direction=formatted_direction, prefix=prefix, sound=msg
+                        ),
                     )
             elif origin == self.game.location and "description" not in event:
                 self.game.log("event", event["sound_msg"])

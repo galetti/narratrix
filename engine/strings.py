@@ -49,6 +49,7 @@ class Texts:
     }
 
     HERE: str = "hier"
+    SOMEWHERE: str = "irgendwo"
 
     @classmethod
     def direction_name(
@@ -237,7 +238,29 @@ class Texts:
 
     # --- Action Dispatcher ---
     DISAMBIGUATION_PROMPT: str = "Meinst du: {}?"
+    DISAMBIGUATION_CANCELLED: str = "Abgebrochen."
+    DISAMBIGUATION_SELECTED: str = "(Ausgewählt: {name})"
+    DISAMBIGUATION_STILL_AMBIGUOUS: str = "Das grenzt es nicht genug ein. Meinst du: {names}?"
+    DISAMBIGUATION_INVALID: str = "Das war keiner der Vorschläge. (Tippe 'stop' zum Abbrechen)"
     UNKNOWN_VERB: str = "Ich weiß nicht, wie ich '{}' soll."
+
+    # --- Resolver ---
+    RESOLVE_NOT_HERE: str = "Ich sehe hier kein '{query}'."
+    RESOLVE_UNKNOWN: str = "Ich weiß nicht, was ein '{query}' ist."
+    RESOLVE_NOT_IN_INV: str = "Du hast kein '{query}' dabei."
+
+    # --- Crafting ---
+    CRAFT_NOT_FOUND: str = "Ich weiß nicht, was du kombinieren willst."
+    CRAFT_NO_RECIPE: str = "Das scheint nicht zu funktionieren."
+    CRAFT_FAILED: str = "Das funktioniert so nicht."
+    CRAFT_CONDITION_FAILED: str = "Diese Aktion ist bereits erledigt."
+    CRAFT_STATION_UNREACHABLE: str = "Die benötigte Station '{station}' ist nicht erreichbar."
+    CRAFT_MISSING_BLUEPRINT: str = "Dir fehlt das Wissen für dieses Rezept."
+    CRAFT_MISSING_TOOL: str = "Dir fehlt das Werkzeug '{tool}'."
+    CRAFT_RESULT_EXISTS: str = "{name} wurde bereits hergestellt."
+    CRAFT_MISSING_INGREDIENTS: str = "Dir fehlt noch: {missing}."
+    CRAFT_SUCCESS_DEFAULT: str = "Hergestellt: {name}"
+    CRAFT_ACTION_DONE: str = "Aktion ausgeführt."
 
     # --- Systems (AI / NPC / Quests / Effects / Objects / Map / Journal / Save) ---
     NPC_LEAVES: str = "{npc} verlässt den Bereich{direction}."
@@ -258,6 +281,17 @@ class Texts:
     EFFECT_ITEM_RECEIVED: str = "Erhalten: {name}"
     EFFECT_STABILITY_DROP: str = "WARNUNG: Hüllenintegrität gefallen (-{amount:g}%)"
     EFFECT_LEFT_LOCATION: str = "Ort verlassen"
+    EFFECT_PARTNER_LEFT: str = "Partner geht"
+    STATE_HIDDEN_CONTAINER_FALLBACK: str = "einem Versteck"
+    STATE_HIDDEN_DESC: str = "Du bist versteckt in {name}. Durch einen Spalt siehst du den Raum."
+    STATE_TAG_SABOTAGED: str = " [SABOTIERT]"
+    STATE_TAG_BROKEN: str = " [DEFEKT]"
+    STATE_TAG_OPEN: str = " [OFFEN]"
+    STATE_TAG_CLOSED: str = " [VERSCHLOSSEN]"
+    STATE_ELEVATION_NOTE: str = "\n(Du befindest dich auf Ebene {level}.)"
+    STATE_DIALOGUE_SNAPSHOT_HEADER: str = "GESPRÄCH: {npc}"
+    STATE_GAME_OVER_CRITICAL: str = "GAME OVER: STATION KRITISCH."
+    STATE_SIM_ERROR: str = "Systemfehler (Simulation): {error}"
     OBJ_AUTO_OPEN: str = "Der {name} öffnet sich zischend von selbst."
     OBJ_AUTO_CLOSE: str = "Der {name} fällt scheppernd ins Schloss."
     ACOUSTIC_FROM_ABOVE_CEILING: str = "von Oben (durch die Decke)"

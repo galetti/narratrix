@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from engine.access import get_connecting_doors
+from engine.access import get_connecting_doors, get_exit_doors
 from engine.constants import (
     ATTR_CLIMBABLE,
     ATTR_ID,
@@ -97,22 +97,11 @@ class MovementHandler:
             
             blocked = False
             blocker_name = ""
-            target_room = game.rooms.get(target_id, {})
-            for obj in game.objects.values():
-                loc = obj.get('location')
-                linked = obj.get('linked_exit')
-                if not linked:
-                    continue
-                if loc == game.location and linked == target_dir:
-                    if not obj.get('is_open', True):
-                        blocked = True
-                        blocker_name = obj[ATTR_NAME]
-                        break
-                elif loc == target_id and target_room.get('exits', {}).get(linked) == game.location:
-                    if not obj.get('is_open', True):
-                        blocked = True
-                        blocker_name = obj[ATTR_NAME]
-                        break
+            for obj in get_exit_doors(game, game.location, target_dir):
+                if not obj.get('is_open', True):
+                    blocked = True
+                    blocker_name = obj[ATTR_NAME]
+                    break
             
             if blocked:
                 game.log('error', Texts.MOVE_BLOCKED.format(blocker=blocker_name))

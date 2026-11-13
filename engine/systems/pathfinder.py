@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 from typing import TYPE_CHECKING
 
+from engine.access import get_exit_doors
 from engine.strings import Texts
 
 if TYPE_CHECKING:
@@ -14,21 +15,10 @@ class Pathfinder:
         self.game: GameState = game
 
     def _is_exit_passable(self, room_id: str, direction: str) -> bool:
-        target_id = self.game.rooms.get(room_id, {}).get("exits", {}).get(direction)
-        for obj in self.game.objects.values():
-            loc = obj.get("location")
-            linked = obj.get("linked_exit")
-            if not linked:
-                continue
-            if loc == room_id and linked == direction:
-                if not obj.get("is_open", True):
-                    return False
-            elif target_id and loc == target_id:
-                target_room = self.game.rooms.get(target_id, {})
-                if target_room.get("exits", {}).get(linked) == room_id:
-                    if not obj.get("is_open", True):
-                        return False
-        return True
+        return all(
+            door.get("is_open", True)
+            for door in get_exit_doors(self.game, room_id, direction)
+        )
 
     def find_path(
         self,
@@ -71,4 +61,4 @@ class Pathfinder:
         for direction, room_id in self.game.rooms[start_room].get("exits", {}).items():
             if room_id == next_step:
                 return Texts.direction_name(direction, long_form=True)
-        return "irgendwo"
+        return Texts.SOMEWHERE

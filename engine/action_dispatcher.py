@@ -65,43 +65,44 @@ class ActionDispatcher:
 
     @staticmethod
     def dispatch(game: GameState, verb: str, args: list[str]) -> None:
-        # 1. Check auf ausstehende Interaktionen
-        if game.pending_interaction:
-            ActionDispatcher._handle_pending(game, verb, args)
-            return
-
-        # 2. Check auf Disambiguierung
-        if game.disambiguation:
-            ActionDispatcher._handle_disambiguation(game, verb, args)
-            return
-
-        # 3. Normales Dispatching mit Ambiguity Handling
-        handler_func = ActionDispatcher.COMMAND_MAP.get(verb)
-        if handler_func:
-            try:
-                handler_func(game, args)
-            except AmbiguityError as e:
-                # Hier fangen wir den Fehler vom Resolver
-                names = [m[ATTR_NAME] for m in e.candidates]
-                game.log('info', Texts.DISAMBIGUATION_PROMPT.format(', '.join(names)))
-                
-                # Wir speichern den Kontext, um den Befehl später neu bauen zu können
-                game.disambiguation = {
-                    'verb': verb,
-                    'full_args': args,             # Die vollen Argumente (z.B. ["key", "with", "door"])
-                    'ambiguous_words': e.query_words, # Der Teil, der mehrdeutig war (z.B. ["key"])
-                    'candidates': e.candidates
-                }
-            return
-
-        # 4. Fallback: Richtung?
-        vocab_dirs = game.config.get('vocabulary', {}).get('directions', {})
-        for canonical, synonyms in vocab_dirs.items():
-            if verb == canonical or verb in synonyms:
-                MovementHandler.handle(game, [verb])
+        with game.lock:
+            # 1. Check auf ausstehende Interaktionen
+            if game.pending_interaction:
+                ActionDispatcher._handle_pending(game, verb, args)
                 return
 
-        game.log('error', Texts.UNKNOWN_VERB.format(verb))
+            # 2. Check auf Disambiguierung
+            if game.disambiguation:
+                ActionDispatcher._handle_disambiguation(game, verb, args)
+                return
+
+            # 3. Normales Dispatching mit Ambiguity Handling
+            handler_func = ActionDispatcher.COMMAND_MAP.get(verb)
+            if handler_func:
+                try:
+                    handler_func(game, args)
+                except AmbiguityError as e:
+                    # Hier fangen wir den Fehler vom Resolver
+                    names = [m[ATTR_NAME] for m in e.candidates]
+                    game.log('info', Texts.DISAMBIGUATION_PROMPT.format(', '.join(names)))
+                    
+                    # Wir speichern den Kontext, um den Befehl später neu bauen zu können
+                    game.disambiguation = {
+                        'verb': verb,
+                        'full_args': args,             # Die vollen Argumente (z.B. ["key", "with", "door"])
+                        'ambiguous_words': e.query_words, # Der Teil, der mehrdeutig war (z.B. ["key"])
+                        'candidates': e.candidates
+                    }
+                return
+
+            # 4. Fallback: Richtung?
+            vocab_dirs = game.config.get('vocabulary', {}).get('directions', {})
+            for canonical, synonyms in vocab_dirs.items():
+                if verb == canonical or verb in synonyms:
+                    MovementHandler.handle(game, [verb])
+                    return
+
+            game.log('error', Texts.UNKNOWN_VERB.format(verb))
 
     @staticmethod
     def dialogue_step(game: GameState, user_input: str) -> None:
@@ -145,7 +146,7 @@ class ActionDispatcher:
         cancel_words = game.config.get('vocabulary', {}).get('system_commands', {}).get('cancel', ["stop"])
         
         if filter_text in cancel_words:
-            game.log('info', "Abgebrochen.")
+            game.log('info', Texts.DISAMBIGUATION_CANCELLED)
             game.disambiguation = None
             return
 
@@ -158,7 +159,7 @@ class ActionDispatcher:
         
         if len(matches) == 1:
             target = matches[0]
-            game.log('user', f"(Ausgewählt: {target['name']})")
+            game.log('user', Texts.DISAMBIGUATION_SELECTED.format(name=target['name']))
             
             # --- REKONSTRUKTION DES BEFEHLS ---
             original_verb = state['verb']
@@ -211,6 +212,6 @@ class ActionDispatcher:
 
         elif len(matches) > 1:
             names = [m['name'] for m in matches]
-            game.log('info', f"Das grenzt es nicht genug ein. Meinst du: {', '.join(names)}?")
+            game.log('info', Texts.DISAMBIGUATION_STILL_AMBIGUOUS.format(names=', '.join(names)))
         else:
-            game.log('info', "Das war keiner der Vorschläge. (Tippe 'stop' zum Abbrechen)")
+            game.log('info', Texts.DISAMBIGUATION_INVALID)

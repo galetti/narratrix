@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Sequence
 
-from engine.access import is_directly_reachable, reach_error
+from engine.access import _root_entity_and_location, is_directly_reachable, reach_error
 from engine.constants import ATTR_NAME, FILTER_RECURSIVE, LOC_INVENTORY, LOC_VOID
 from engine.resolver import AmbiguityError, ResolutionError, Resolver
 from engine.schema import EntityData, ObjectData, RecipeData
+from engine.strings import Texts
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
@@ -40,7 +41,7 @@ class CraftingSystem:
         item1 = self._find_obj_or_npc_by_name(item1_name)
         item2 = self._find_obj_or_npc_by_name(item2_name)
         if not item1 or not item2:
-            return CraftResult(False, "Ich weiß nicht, was du kombinieren willst.", "not_found")
+            return CraftResult(False, Texts.CRAFT_NOT_FOUND, "not_found")
 
         for entity in (item1, item2):
             if not is_directly_reachable(self.game, entity):
@@ -53,7 +54,7 @@ class CraftingSystem:
             and self._matches_interaction(recipe, (item1, item2))
         ]
         if not possible:
-            return CraftResult(False, "Das scheint nicht zu funktionieren.", "no_recipe")
+            return CraftResult(False, Texts.CRAFT_NO_RECIPE, "no_recipe")
 
         failures: list[CraftResult] = []
         for recipe in possible:
@@ -61,7 +62,7 @@ class CraftingSystem:
             if result.success:
                 return result
             failures.append(result)
-        return failures[0] if failures else CraftResult(False, "Das funktioniert so nicht.", "failed")
+        return failures[0] if failures else CraftResult(False, Texts.CRAFT_FAILED, "failed")
 
     def _matches_interaction(
         self, recipe: RecipeData, entities: Sequence[EntityData]
@@ -83,22 +84,30 @@ class CraftingSystem:
         if "condition" in recipe and not self.game.events.evaluate_condition(
             recipe["condition"]
         ):
-            return CraftResult(False, "Diese Aktion ist bereits erledigt.", "condition")
+            return CraftResult(False, Texts.CRAFT_CONDITION_FAILED, "condition")
 
         station_id = recipe.get("station")
         if station_id:
             station = self._find_entity_by_identifier(station_id)
             if not station or not is_directly_reachable(self.game, station):
-                return CraftResult(False, f"Die benötigte Station '{station_id}' ist nicht erreichbar.", "station")
+                return CraftResult(
+                    False,
+                    Texts.CRAFT_STATION_UNREACHABLE.format(station=station_id),
+                    "station",
+                )
 
         blueprint = recipe.get("blueprint")
         if blueprint and blueprint not in self.game.knowledge:
-            return CraftResult(False, "Dir fehlt das Wissen für dieses Rezept.", "blueprint")
+            return CraftResult(False, Texts.CRAFT_MISSING_BLUEPRINT, "blueprint")
 
         for tool_id in recipe.get("tools", []):
             tool = self._find_inventory_entity(tool_id)
             if not tool:
-                return CraftResult(False, f"Dir fehlt das Werkzeug '{tool_id}'.", "tool")
+                return CraftResult(
+                    False,
+                    Texts.CRAFT_MISSING_TOOL.format(tool=tool_id),
+                    "tool",
+                )
 
         result_id = recipe.get("result") or recipe.get("spawn_item")
         result_obj: ObjectData | None = None
@@ -109,7 +118,7 @@ class CraftingSystem:
             if result_obj.get("location") != LOC_VOID:
                 return CraftResult(
                     False,
-                    f"{result_obj[ATTR_NAME]} wurde bereits hergestellt.",
+                    Texts.CRAFT_RESULT_EXISTS.format(name=result_obj[ATTR_NAME]),
                     "result_exists",
                 )
 
@@ -125,7 +134,11 @@ class CraftingSystem:
                 missing.append(f"{required_count}x {ingredient_id}")
             ingredient_plan[ingredient_id] = (required_count, stacks)
         if missing:
-            return CraftResult(False, f"Dir fehlt noch: {', '.join(missing)}.", "ingredients")
+            return CraftResult(
+                False,
+                Texts.CRAFT_MISSING_INGREDIENTS.format(missing=", ".join(missing)),
+                "ingredients",
+            )
 
         # Validation is complete; all following mutations form one atomic action.
         for _, (required_count, stacks) in ingredient_plan.items():
@@ -156,16 +169,18 @@ class CraftingSystem:
 
         message = recipe.get("message")
         if not message and result_name:
-            message = f"Hergestellt: {result_name}"
-        return CraftResult(True, message or "Aktion ausgeführt.")
+            message = Texts.CRAFT_SUCCESS_DEFAULT.format(name=result_name)
+        return CraftResult(True, message or Texts.CRAFT_ACTION_DONE)
 
     def _inventory_entities(self, identifier: str) -> list[ObjectData]:
-        return [
-            entity
-            for entity in self.game.objects.values()
-            if entity.get("location") == LOC_INVENTORY
-            and identifier in self._identifiers(entity)
-        ]
+        results: list[ObjectData] = []
+        for entity in self.game.objects.values():
+            if identifier not in self._identifiers(entity):
+                continue
+            _, root_loc, blocked = _root_entity_and_location(self.game, entity)
+            if root_loc == LOC_INVENTORY and not blocked:
+                results.append(entity)
+        return results
 
     def _find_inventory_entity(self, identifier: str) -> ObjectData | None:
         return next(iter(self._inventory_entities(identifier)), None)
