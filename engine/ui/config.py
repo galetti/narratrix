@@ -21,7 +21,7 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 def load_system_config(config_path: Path | None = None) -> dict[str, dict[str, Any]]:
     default_conf: dict[str, dict[str, Any]] = {
         "game": {
-            "start_chapter": "data.chapters.ep1_deep_zero.config",
+            "default_module": "deep_zero",
             "title": "Narratrix",
             "language": "de",
         },

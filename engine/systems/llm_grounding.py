@@ -99,7 +99,12 @@ def build_world_context(
     known_facts: list[str] | None = None,
 ) -> str:
     """Return a factual, English-labeled snapshot of the NPC's surroundings."""
-    room_id = npc.get("location", game.location)
+    npc_loc = npc.get("location", game.location)
+    room_id = (
+        game.location
+        if (npc.get("remote_comms", False) or npc_loc not in game.rooms)
+        else npc_loc
+    )
     room = game.rooms.get(room_id, {})
     npc_id = npc.get("id")
 

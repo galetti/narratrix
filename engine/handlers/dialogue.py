@@ -25,7 +25,9 @@ class DialogueHandler:
                 target_npc = local[0]
             else: 
                 return game.log('error', Texts.TALK_WHO)
-        if not is_directly_reachable(game, target_npc, upward_reach=0):
+        if not target_npc.get("remote_comms", False) and not is_directly_reachable(
+            game, target_npc, upward_reach=0
+        ):
             return game.log('error', reach_error(game, target_npc))
 
         # Delegiere Start an System
@@ -34,50 +36,50 @@ class DialogueHandler:
     @staticmethod
     def step(game: GameState, user_input: str) -> None:
         text = user_input.strip().lower()
-        npc = game.dialogue_partner
-        
-        if not npc: 
-            game.dialogue_active = False
-            return
+        with game.lock:
+            npc = game.dialogue_partner
+            if not npc:
+                game.dialogue_active = False
+                return
 
-        exit_words = ["bye", "ende", "tschüss", "weg", "stop", "exit", "leave", "q"]
-        if any(w == text for w in exit_words):
-            game.dialogue_system.end_dialogue()
-            return
+            exit_words = ["bye", "ende", "tschüss", "weg", "stop", "exit", "leave", "q"]
+            if any(w == text for w in exit_words):
+                game.dialogue_system.end_dialogue()
+                return
 
-        # "Gib Item" Sonderfall im Dialog
-        args = text.split()
-        if args and args[0] in ["gib", "give", "geb", "geben", "reich"]:
-            # Dieser Import ist okay, da InventoryHandler keine Abhängigkeit mehr zu DialogueHandler hat.
-            from engine.handlers.inventory import InventoryHandler
-            if "an" not in args and "to" not in args:
-                new_args = args[1:] + ["an", npc[ATTR_NAME]]
-                InventoryHandler.give(game, new_args)
+            # "Gib Item" Sonderfall im Dialog
+            args = text.split()
+            if args and args[0] in ["gib", "give", "geb", "geben", "reich"]:
+                # Dieser Import ist okay, da InventoryHandler keine Abhängigkeit mehr zu DialogueHandler hat.
+                from engine.handlers.inventory import InventoryHandler
+                if "an" not in args and "to" not in args:
+                    new_args = args[1:] + ["an", npc[ATTR_NAME]]
+                    InventoryHandler.give(game, new_args)
+                else:
+                    InventoryHandler.give(game, args[1:])
+
+                # Refresh Topics nach Item-Übergabe
+                game.dialogue_system.refresh_topics()
+                return
+
+            # Auswahl-Logik
+            visible_topics, _ = game.dialogue_system.get_visible_topics(npc)
+
+            chosen_entry: DialogueEntry | None = None
+            chosen_topic_key: str | None = None
+
+            if text.isdigit():
+                idx = int(text) - 1
+                if 0 <= idx < len(visible_topics):
+                    chosen_topic_key, chosen_entry = visible_topics[idx]
             else:
-                InventoryHandler.give(game, args[1:])
-            
-            # Refresh Topics nach Item-Übergabe
-            game.dialogue_system.refresh_topics()
-            return
-
-        # Auswahl-Logik
-        visible_topics, _ = game.dialogue_system.get_visible_topics(npc)
-        
-        chosen_entry: DialogueEntry | None = None
-        chosen_topic_key: str | None = None
-
-        if text.isdigit():
-            idx = int(text) - 1
-            if 0 <= idx < len(visible_topics):
-                chosen_topic_key, chosen_entry = visible_topics[idx]
-        else:
-            # Textsuche
-            for topic, entry in visible_topics:
-                label = entry.get('label', '') if isinstance(entry, dict) else ''
-                if topic.lower() in text or (label and label.lower() in text):
-                    chosen_entry = entry
-                    chosen_topic_key = topic
-                    break
+                # Textsuche
+                for topic, entry in visible_topics:
+                    label = entry.get('label', '') if isinstance(entry, dict) else ''
+                    if topic.lower() in text or (label and label.lower() in text):
+                        chosen_entry = entry
+                        chosen_topic_key = topic
+                        break
 
         if chosen_entry:
             game.dialogue_system.handle_selection(chosen_entry, chosen_topic_key)

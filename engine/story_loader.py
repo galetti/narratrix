@@ -2,36 +2,114 @@ from __future__ import annotations
 
 import copy
 import importlib
+import importlib.util
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
-from engine.schema import ConfigurationError, VocabularyData, validate_game_config
+from engine.schema import (
+    ConfigurationError,
+    ModuleConfigData,
+    VocabularyData,
+    validate_game_config,
+)
 
 logger = logging.getLogger(__name__)
+PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
+DEFAULT_MODULES_DIR: Path = PROJECT_ROOT / "data" / "modules"
+
+
+def _empty_common_config() -> dict[str, Any]:
+    return {
+        "rooms": {},
+        "objects": {},
+        "npcs": [],
+        "matrix": [],
+        "events": [],
+        "combinations": [],
+        "quests": {},
+    }
 
 
 class StoryLoader:
-    """Load and merge common and chapter content into one validated config."""
+    """Load and merge module-scoped common and chapter content into one validated config."""
 
     @staticmethod
-    def _load_common_config() -> dict[str, Any]:
+    def discover_modules(modules_dir: Path | None = None) -> dict[str, ModuleConfigData]:
+        """Discover all game modules under data/modules/<id>/module.py."""
+
+        target_dir = modules_dir or DEFAULT_MODULES_DIR
+        if not target_dir.is_dir():
+            return {}
+
+        discovered: dict[str, ModuleConfigData] = {}
+        is_default_dir = target_dir.resolve() == DEFAULT_MODULES_DIR.resolve()
+        for entry in sorted(target_dir.iterdir(), key=lambda p: p.name):
+            if not entry.is_dir() or entry.name.startswith((".", "_")):
+                continue
+            manifest_path = entry / "module.py"
+            if not manifest_path.is_file():
+                continue
+            try:
+                if is_default_dir:
+                    mod = importlib.import_module(f"data.modules.{entry.name}.module")
+                    mod = importlib.reload(mod)
+                else:
+                    spec = importlib.util.spec_from_file_location(
+                        f"_narratrix_module_{entry.name}", manifest_path
+                    )
+                    if spec is None or spec.loader is None:
+                        continue
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                raw_cfg = getattr(mod, "MODULE_CONFIG", getattr(mod, "MODULE_META", None))
+                if not isinstance(raw_cfg, dict):
+                    continue
+                cfg: ModuleConfigData = copy.deepcopy(raw_cfg)  # type: ignore[assignment]
+                mod_id = str(cfg.get("id") or entry.name)
+                cfg["id"] = mod_id
+                if isinstance(cfg.get("start_chapter"), str) and cfg["start_chapter"]:
+                    discovered[mod_id] = cfg
+            except (ImportError, OSError, AttributeError, TypeError, ValueError) as exc:
+                logger.warning("StoryLoader: Modul '%s' konnte nicht geladen werden: %s", entry.name, exc)
+        return discovered
+
+    @staticmethod
+    def get_module(
+        module_id: str, modules_dir: Path | None = None
+    ) -> ModuleConfigData | None:
+        return StoryLoader.discover_modules(modules_dir).get(module_id)
+
+    @staticmethod
+    def resolve_start_chapter(
+        module_or_chapter: str, modules_dir: Path | None = None
+    ) -> str:
+        modules = StoryLoader.discover_modules(modules_dir)
+        if module_or_chapter in modules:
+            return str(modules[module_or_chapter]["start_chapter"])
+        return module_or_chapter
+
+    @staticmethod
+    def _infer_module_meta(chapter_source: str) -> ModuleConfigData | None:
+        if chapter_source.startswith("data.modules."):
+            parts = chapter_source.split(".")
+            if len(parts) >= 3:
+                return StoryLoader.get_module(parts[2])
+        return None
+
+    @staticmethod
+    def _load_common_config(common_source: str | None = None) -> dict[str, Any]:
+        if not common_source:
+            return _empty_common_config()
         try:
-            module = importlib.import_module("data.common.config")
+            module = importlib.import_module(common_source)
             importlib.reload(module)
             return copy.deepcopy(module.COMMON_CONFIG)
         except ImportError as exc:
-            logger.warning("StoryLoader: Common-Layer nicht verfügbar: %s", exc)
-            return {
-                "rooms": {},
-                "objects": {},
-                "npcs": [],
-                "matrix": [],
-                "events": [],
-                "combinations": [],
-                "quests": {},
-            }
+            logger.warning("StoryLoader: Common-Layer '%s' nicht verfügbar: %s", common_source, exc)
+            return _empty_common_config()
 
     @staticmethod
     def _load_chapter_data(chapter_source: str) -> tuple[dict[str, Any], str]:
@@ -66,8 +144,17 @@ class StoryLoader:
         chapter_source: str, raise_on_error: bool = False
     ) -> dict[str, Any] | None:
         try:
-            common_data = StoryLoader._load_common_config()
             chapter_data, module_id = StoryLoader._load_chapter_data(chapter_source)
+            parent_module = StoryLoader._infer_module_meta(chapter_source)
+
+            if "common_module" in chapter_data:
+                common_source = chapter_data.get("common_module")
+            elif parent_module is not None:
+                common_source = parent_module.get("common_module")
+            else:
+                common_source = None
+
+            common_data = StoryLoader._load_common_config(common_source)
 
             rooms = copy.deepcopy(common_data.get("rooms", {}))
             rooms.update(copy.deepcopy(chapter_data.get("rooms", {})))
@@ -95,9 +182,24 @@ class StoryLoader:
             meta["module"] = module_id
             StoryLoader._process_links(chapter_data.get("links", []), rooms)
 
+            theme_spec = (
+                chapter_data.get("theme")
+                or meta.get("theme")
+                or (parent_module.get("theme") if parent_module else None)
+                or "default"
+            )
+            asset_dir = (
+                chapter_data.get("asset_dir")
+                or (parent_module.get("asset_dir") if parent_module else None)
+            )
+
             full_config = {
                 "meta": meta,
                 "settings": copy.deepcopy(chapter_data.get("settings", {})),
+                "theme": copy.deepcopy(theme_spec),
+                "common_module": common_source,
+                "asset_dir": asset_dir,
+                "module_id": parent_module.get("id") if parent_module else None,
                 "language": str(
                     chapter_data.get("settings", {}).get("language")
                     or meta.get("language")

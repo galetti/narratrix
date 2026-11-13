@@ -1,7 +1,7 @@
 # narratrix_engine/main_gui.py
 from __future__ import annotations
 
-import copy
+import argparse
 import logging
 import math
 from pathlib import Path
@@ -17,11 +17,10 @@ import pygame.scrap
 warnings.filterwarnings("ignore", category=UserWarning, module="pygame")
 
 from engine.action_dispatcher import ActionDispatcher
-from engine.constants import LOC_INVENTORY
 from engine.game_state import GameState
 from engine.parser.rule_based import RuleBasedParser
 from engine.parser.spacy_parser import SpacyParser
-from engine.schema import GameSnapshot, ObjectData
+from engine.schema import GameSnapshot
 from engine.story_loader import StoryLoader
 import engine.theme as theme
 from engine.ui import (
@@ -41,7 +40,11 @@ PARSER_MODE: str = str(SYS_CONFIG["system"].get("parser_mode", "SPACY")).upper()
 
 
 class GameGUI:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        module_id: str | None = None,
+        start_chapter: str | None = None,
+    ) -> None:
         pygame.init()
         display_flags = pygame.RESIZABLE
         if SYS_CONFIG["system"].get("fullscreen", False):
@@ -82,9 +85,14 @@ class GameGUI:
         self.toast_msg: str | None = None
         self.toast_timer: int = 0
 
-        self.current_chapter: str = str(
-            SYS_CONFIG["game"].get("start_chapter", "data.chapters.ep1_deep_zero.config")
+        configured_target = (
+            start_chapter
+            or module_id
+            or SYS_CONFIG["game"].get("start_chapter")
+            or SYS_CONFIG["game"].get("default_module", "deep_zero")
         )
+        self.initial_chapter: str = StoryLoader.resolve_start_chapter(str(configured_target))
+        self.current_chapter: str = self.initial_chapter
         logger.info("Starte mit Kapitel: %s", self.current_chapter)
         self.load_game_chapter(self.current_chapter)
 
@@ -118,22 +126,11 @@ class GameGUI:
             logger.critical("Konnte Kapitel '%s' nicht laden!", chapter_path)
             sys.exit(1)
 
-        # 1. Theme-Anpassung pro Spielmodul (aus Config oder Auto-Preset)
-        theme_spec = new_config.get("theme")
-        if not theme_spec:
-            if "ep0" in chapter_path:
-                theme_spec = "lab"
-            elif "ep1" in chapter_path:
-                theme_spec = "deep_zero"
-            elif "ep2" in chapter_path:
-                theme_spec = "habitat"
-            elif "ep3" in chapter_path:
-                theme_spec = "reactor"
-            else:
-                theme_spec = "default"
-
+        # 1. Theme- und Asset-Verzeichnis deklarativ aus Kapitel-/Modul-Config übernehmen
+        theme_spec = new_config.get("theme") or "default"
         theme.set_active_theme(theme_spec)
         self._reload_theme_fonts_and_renderer()
+        self.assets.set_base_dir(new_config.get("asset_dir"))
 
         new_config["use_llm_dialogue"] = bool(
             SYS_CONFIG["system"].get("llm_enabled", False)
@@ -141,16 +138,8 @@ class GameGUI:
         new_config["language"] = str(SYS_CONFIG["game"].get("language", "de"))
         new_config["llm_url"] = SYS_CONFIG["system"].get("llm_url")
         new_config["llm_model"] = SYS_CONFIG["system"].get("llm_model")
-        self.game: GameState = GameState(new_config)
+        self.game: GameState = GameState(new_config, transfer_state=transfer_state)
         self.current_chapter = chapter_path
-
-        if transfer_state:
-            self.game.knowledge = set(transfer_state.get("knowledge", set()))
-            self.game.time = transfer_state.get("time", self.game.time)
-            self.game.stability = transfer_state.get("stability", self.game.stability)
-            for old_item in transfer_state.get("inventory_objects", []):
-                item_id = old_item["id"]
-                self.game.objects[item_id] = copy.deepcopy(old_item)
 
         self.user_text: str = ""
         self.cursor_pos: int = 0
@@ -175,9 +164,7 @@ class GameGUI:
         self.submit_command("look", echo=False)
 
     def restart_game(self) -> None:
-        self.current_chapter = str(
-            SYS_CONFIG["game"].get("start_chapter", "data.chapters.ep1_deep_zero.config")
-        )
+        self.current_chapter = self.initial_chapter
         self.load_game_chapter(self.current_chapter)
 
     def run(self) -> None:
@@ -382,9 +369,12 @@ class GameGUI:
 
         def worker() -> None:
             try:
-                if self.game.dialogue_active:
+                with self.game.lock:
+                    in_dialogue = self.game.dialogue_active
+                    in_disambiguation = bool(self.game.disambiguation)
+                if in_dialogue:
                     ActionDispatcher.dialogue_step(self.game, text)
-                elif self.game.disambiguation:
+                elif in_disambiguation:
                     ActionDispatcher.dispatch(self.game, "disambiguate", [text])
                 else:
                     self.parser.parse(text)
@@ -404,29 +394,13 @@ class GameGUI:
             if self.toast_timer <= 0:
                 self.toast_msg = None
 
-        if self.game.pending_chapter_load and not self.is_processing:
-            target_chapter = self.game.pending_chapter_load
+        with self.game.lock:
+            pending_chapter = self.game.pending_chapter_load if not self.is_processing else None
+        if pending_chapter:
+            target_chapter = pending_chapter
             logger.info("Wechsle zu Kapitel: %s", target_chapter)
-
-            transfer_state = {
-                "knowledge": set(self.game.knowledge),
-                "time": self.game.time,
-                "stability": self.game.stability,
-                "inventory_objects": self._collect_inventory_objects(),
-            }
+            transfer_state = self.game.export_transfer_state()
             self.load_game_chapter(target_chapter, transfer_state)
-
-    def _collect_inventory_objects(self) -> list[ObjectData]:
-        held: list[ObjectData] = []
-        for obj in self.game.objects.values():
-            location = obj.get("location")
-            visited: set[str] = set()
-            while location in self.game.objects and location not in visited:
-                visited.add(location)
-                location = self.game.objects[location].get("location")
-            if location == LOC_INVENTORY:
-                held.append(copy.deepcopy(obj))
-        return held
 
     def draw(self) -> None:
         snapshot = self.game.get_snapshot()
@@ -824,11 +798,36 @@ class GameGUI:
         pygame.draw.line(self.screen, col, (center_x, center_y), (end_x, end_y), 2)
 
 
-def main() -> None:
+def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Narratrix Engine 6.0")
+    parser.add_argument(
+        "--module",
+        help="Spielmodul-ID aus data/modules/<id>/module.py (z. B. deep_zero oder test_lab)",
+    )
+    parser.add_argument(
+        "--chapter",
+        help="Direkter Kapitel-Importpfad oder JSON-Datei",
+    )
+    parser.add_argument(
+        "--list-modules",
+        action="store_true",
+        help="Alle verfügbaren Spielmodule auflisten und beenden",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(
         level=logging.INFO, format="[%(levelname)s] %(name)s: %(message)s"
     )
-    gui = GameGUI()
+    args = parse_cli_args(argv)
+    if args.list_modules:
+        modules = StoryLoader.discover_modules()
+        for mod_id, cfg in modules.items():
+            logger.info("%s: %s (%s)", mod_id, cfg.get("title", mod_id), cfg.get("start_chapter"))
+        return
+
+    gui = GameGUI(module_id=args.module, start_chapter=args.chapter)
     gui.run()
 
 

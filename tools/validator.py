@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 import sys
 
@@ -8,7 +9,15 @@ from engine.story_loader import StoryLoader
 
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
-DEFAULT_CHAPTER: str = "data.chapters.ep1_deep_zero.config"
+DEFAULT_CHAPTER: str = "data.modules.deep_zero.chapters.ep1_deep_zero.config"
+
+
+def _resolve_asset_dir(config: dict[str, object]) -> Path:
+    configured = config.get("asset_dir")
+    if isinstance(configured, str) and configured:
+        candidate = Path(configured)
+        return candidate if candidate.is_absolute() else (PROJECT_ROOT / candidate)
+    return PROJECT_ROOT / "data" / "assets" / "images"
 
 
 def validate_integrity(chapter_source: str = DEFAULT_CHAPTER) -> int:
@@ -23,7 +32,7 @@ def validate_integrity(chapter_source: str = DEFAULT_CHAPTER) -> int:
         return 1
 
     warnings: list[str] = []
-    asset_dir = PROJECT_ROOT / "data" / "assets" / "images"
+    asset_dir = _resolve_asset_dir(config)
     for room_id, room in config["rooms"].items():
         image_id = room.get("img")
         if image_id and not any(
@@ -59,10 +68,43 @@ def validate_integrity(chapter_source: str = DEFAULT_CHAPTER) -> int:
     return 0
 
 
-def main() -> int:
-    source = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_CHAPTER
-    return validate_integrity(source)
+def validate_all_modules() -> int:
+    modules = StoryLoader.discover_modules()
+    if not modules:
+        print("❌ Keine Spielmodule unter data/modules/ gefunden.")
+        return 1
+
+    exit_code = 0
+    for mod_id, mod_cfg in modules.items():
+        chapters = list(mod_cfg.get("chapters") or [mod_cfg["start_chapter"]])
+        print(f"=== Modul '{mod_id}' ({mod_cfg.get('title', mod_id)}) ===")
+        for chapter in chapters:
+            if validate_integrity(chapter) != 0:
+                exit_code = 1
+    return exit_code
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Narratrix Kapitel- und Modul-Validator")
+    parser.add_argument("source", nargs="?", help="Kapitel-Importpfad oder JSON-Datei")
+    parser.add_argument("--module", help="Alle Kapitel eines bestimmten Moduls validieren")
+    parser.add_argument("--all", action="store_true", help="Alle entdeckten Module validieren")
+    args = parser.parse_args(argv)
+
+    if args.all:
+        return validate_all_modules()
+    if args.module:
+        mod_cfg = StoryLoader.get_module(args.module)
+        if not mod_cfg:
+            print(f"❌ Unbekanntes Modul: {args.module}")
+            return 1
+        exit_code = 0
+        for chapter in list(mod_cfg.get("chapters") or [mod_cfg["start_chapter"]]):
+            if validate_integrity(chapter) != 0:
+                exit_code = 1
+        return exit_code
+    return validate_integrity(args.source or DEFAULT_CHAPTER)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))

@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from engine.action_dispatcher import ActionDispatcher
-from engine.access import is_directly_reachable
+from engine.access import get_exit_doors, is_directly_reachable
 from engine.analysis import validate_quest_state_graph
 from engine.constants import FILTER_ROOM, LOC_INVENTORY, MATTER_LIQUID, TYPE_CONTAINER, TYPE_SURFACE
 from engine.game_state import GameState
@@ -36,8 +36,8 @@ import engine.theme as theme
 from engine.ui import copy_to_clipboard
 
 
-EP0: str = "data.chapters.ep0_test_lab.config"
-EP1: str = "data.chapters.ep1_deep_zero.config"
+EP0: str = "data.modules.test_lab.chapters.sandbox.config"
+EP1: str = "data.modules.deep_zero.chapters.ep1_deep_zero.config"
 
 
 class RuleBasedParserTests(unittest.TestCase):
@@ -328,7 +328,7 @@ class LLMGroundingAndDialogueTests(unittest.TestCase):
     def setUp(self) -> None:
         self.game = GameState(copy.deepcopy(self.game_config), silent=False)
         self.game.config["use_llm_dialogue"] = True
-        self.npc = self.game.npcs[0]
+        self.npc = next(n for n in self.game.npcs if n["id"] == "sato")
         self.game.location = self.npc["location"]
 
     def test_english_prompts_and_central_language_config(self) -> None:
@@ -378,6 +378,45 @@ class LLMGroundingAndDialogueTests(unittest.TestCase):
                 self.npc, "LLM_AUTO_REPLY", prompt_context="Test?"
             )
         self.assertNotIn("LLM_AUTO_REPLY", self.game.logs[-1]["text"])
+
+    def test_core_ai_remote_comms_dialogue_and_grounding(self) -> None:
+        from engine.handlers.dialogue import DialogueHandler
+
+        self.game.location = "room_outer_docking"
+        self.assertNotIn("C.O.R.E.", self.game.get_snapshot()["present_npcs"])
+
+        with patch("engine.systems.dialogue_system.LLMBridge.call", return_value=None):
+            DialogueHandler.talk(self.game, ["mit", "core"])
+        self.assertTrue(self.game.dialogue_active)
+        assert self.game.dialogue_partner is not None
+        self.assertEqual(self.game.dialogue_partner["id"], "core_ai")
+
+        ctx = build_world_context(self.game, self.game.dialogue_partner)
+        self.assertIn("Hangar Bay 4", ctx)
+        self.assertIn("Shuttle 'Charon'", ctx)
+
+        with patch(
+            "engine.systems.dialogue_system.LLMBridge.call",
+            return_value="Sie befinden sich in Hangar Bay 4 beim Shuttle 'Charon'.",
+        ):
+            DialogueHandler.step(self.game, "Wo bin ich gerade?")
+        self.assertIn("Hangar Bay 4", self.game.logs[-2]["text"])
+
+    def test_core_ai_switches_to_glitch_on_low_stability_and_recovers(self) -> None:
+        core = next(n for n in self.game.npcs if n["id"] == "core_ai")
+        self.assertEqual(core["state"], "online")
+        self.assertEqual(core["img"], "face_ai_calm")
+
+        self.game.stability = 40
+        self.game.tick(1)
+        self.assertEqual(core["state"], "glitched")
+        self.assertEqual(core["img"], "face_ai_glitch")
+        self.assertIn("Overloaded", core["personality"])
+
+        self.game.stability = 80
+        self.game.tick(1)
+        self.assertEqual(core["state"], "online")
+        self.assertEqual(core["img"], "face_ai_calm")
 
 
 class QuestBranchingAndStateTreeTests(unittest.TestCase):
@@ -639,6 +678,57 @@ class PhysicsAndSimulationStressTests(unittest.TestCase):
         self.assertFalse(is_directly_reachable(self.game, self.game.objects["lead_ingot"]))
         MechanicsHandler.put(self.game, ["Lederbeutel", "in", "Metallkassette"])
         self.assertEqual(self.game.objects["small_pouch"]["location"], LOC_INVENTORY)
+
+    def test_take_respects_closed_container_and_crafting_reads_open_carried_bag(self) -> None:
+        # Item in anderem Raum oder geschlossenem Behälter darf nicht via take (auch nicht mit Greifzange) gegriffen werden
+        self.game.objects["inner_case"]["location"] = self.game.location
+        self.game.objects["inner_case"]["is_open"] = False
+        self.game.objects["lead_ingot"]["location"] = "inner_case"
+        self.game.objects["reaching_pole"] = {
+            "id": "reaching_pole",
+            "name": "Greifzange",
+            "desc": "Lange Zange.",
+            "type": "item",
+            "is_tool": True,
+            "reach": 2,
+            "location": LOC_INVENTORY,
+            "weight": 0.5,
+            "level": 0,
+        }
+        InventoryHandler.take(self.game, ["Bleibarren", "mit", "Greifzange"])
+        self.assertEqual(self.game.objects["lead_ingot"]["location"], "inner_case")
+
+        # Zutat in offenem Beutel im Inventar soll für Crafting nutzbar sein, in geschlossenem Beutel nicht
+        ep0_cfg = StoryLoader.load_chapter(EP0, raise_on_error=True)
+        assert ep0_cfg is not None
+        game = GameState(ep0_cfg, silent=True)
+        game.location = "lower_deck"
+        game.objects["small_pouch"] = {
+            "id": "small_pouch",
+            "name": "Lederbeutel",
+            "location": LOC_INVENTORY,
+            "type": "container",
+            "is_open": False,
+            "weight": 0.5,
+        }
+        game.objects["scrap_metal_1"]["location"] = "small_pouch"
+        game.objects["wire_coil"]["location"] = LOC_INVENTORY
+
+        blocked_res = game.perform_combine("Metallschrott", "Werkbank")
+        self.assertFalse(blocked_res.success)
+
+        game.objects["small_pouch"]["is_open"] = True
+        open_res = game.perform_combine("Metallschrott", "Werkbank")
+        self.assertTrue(open_res.success)
+
+    def test_get_exit_doors_is_symmetric(self) -> None:
+        ep0_cfg = StoryLoader.load_chapter(EP0, raise_on_error=True)
+        assert ep0_cfg is not None
+        game = GameState(ep0_cfg, silent=True)
+        from_hub = get_exit_doors(game, "central_hub", "west")
+        from_anteroom = get_exit_doors(game, "briefing_anteroom", "east")
+        self.assertEqual([d["id"] for d in from_hub], ["anteroom_door"])
+        self.assertEqual([d["id"] for d in from_anteroom], ["anteroom_door"])
 
 
 class GUIModularityAndClipboardTests(unittest.TestCase):

@@ -164,6 +164,7 @@ class NPCData(TypedDict, total=False):
     memory: NPCMemoryData
     toughness: int
     personality: str
+    remote_comms: bool
     img: str
     dialogue: dict[str, dict[str, DialogueEntry]]
     _state_managed_keys: list[str]
@@ -197,6 +198,7 @@ class EventData(TypedDict, total=False):
     quest_update: dict[str, Any]
     quest_complete: str
     effects: EffectData | list[EffectData]
+    listen_effects: EffectData | list[EffectData]
 
 
 class QuestDefinitionData(TypedDict, total=False):
@@ -269,9 +271,24 @@ class VocabularyData(TypedDict, total=False):
     skip_words: list[str]
 
 
+class ModuleConfigData(TypedDict, total=False):
+    id: str
+    title: str
+    description: str
+    start_chapter: str
+    chapters: list[str]
+    theme: str | dict[str, Any]
+    common_module: str | None
+    asset_dir: str | None
+
+
 class GameConfigData(TypedDict, total=False):
     meta: dict[str, Any]
     settings: dict[str, Any]
+    theme: str | dict[str, Any]
+    common_module: str | None
+    asset_dir: str | None
+    module_id: str | None
     vocabulary: VocabularyData
     rooms: dict[str, RoomData]
     objects: dict[str, ObjectData]
@@ -412,9 +429,11 @@ def validate_game_config(config: dict[str, Any]) -> dict[str, Any]:
             f"Objekt '{object_id}' hat ungültige Location '{obj.get('location')}'.",
         )
     for npc in npcs:
+        npc_loc = npc.get("location")
+        is_remote = bool(npc.get("remote_comms", False))
         _require(
-            npc.get("location") in room_ids,
-            f"NPC '{npc['id']}' hat ungültige Location '{npc.get('location')}'.",
+            npc_loc in room_ids or (is_remote and npc_loc == LOC_VOID),
+            f"NPC '{npc['id']}' hat ungültige Location '{npc_loc}'.",
         )
 
     quests = config.get("quests", {})
@@ -512,11 +531,12 @@ def validate_game_config(config: dict[str, Any]) -> dict[str, Any]:
             _require(isinstance(conditions, list) and conditions, f"Event '{event_id}': conditions fehlen.")
             for index, condition in enumerate(conditions):
                 _validate_condition(condition, f"Event '{event_id}' Bedingung #{index}")
-        effects = event.get("effects", [])
-        if not isinstance(effects, list):
-            effects = [effects]
-        for index, effect in enumerate(effects):
-            _validate_effect(effect, f"Event '{event_id}' Effekt #{index}")
+        for key in ("effects", "listen_effects"):
+            effects = event.get(key, [])
+            if not isinstance(effects, list):
+                effects = [effects]
+            for index, effect in enumerate(effects):
+                _validate_effect(effect, f"Event '{event_id}' {key} #{index}")
 
     known_entity_ids = object_ids | npc_ids | resource_ids
     combinations = config.get("combinations", [])
@@ -606,13 +626,14 @@ def validate_game_config(config: dict[str, Any]) -> dict[str, Any]:
                 walk_content(value, f"{context}[{index}]")
 
     for event in events:
-        effects = event.get("effects", [])
-        if not isinstance(effects, list):
-            effects = [effects]
-        for effect_index, effect in enumerate(effects):
-            validate_effect_references(
-                effect, f"Event '{event['id']}' Effekt #{effect_index}"
-            )
+        for key in ("effects", "listen_effects"):
+            effects = event.get(key, [])
+            if not isinstance(effects, list):
+                effects = [effects]
+            for effect_index, effect in enumerate(effects):
+                validate_effect_references(
+                    effect, f"Event '{event['id']}' {key} #{effect_index}"
+                )
     for recipe_index, recipe in enumerate(combinations):
         effects = recipe.get("effects", recipe.get("effect", []))
         if not isinstance(effects, list):

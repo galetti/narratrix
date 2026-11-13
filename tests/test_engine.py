@@ -20,13 +20,13 @@ from engine.handlers.system import SystemHandler
 from engine.parser.spacy_parser import SpacyParser
 from engine.schema import ConfigurationError, validate_game_config
 from engine.story_loader import StoryLoader
-from engine.ui import RichTextRenderer, load_system_config
+from engine.ui import AssetLoader, RichTextRenderer, load_system_config
 
 
-EP0: str = "data.chapters.ep0_test_lab.config"
-EP1: str = "data.chapters.ep1_deep_zero.config"
-EP2: str = "data.chapters.ep2_habitat_sector.config"
-EP3: str = "data.chapters.ep3_reactor_core.config"
+EP0: str = "data.modules.test_lab.chapters.sandbox.config"
+EP1: str = "data.modules.deep_zero.chapters.ep1_deep_zero.config"
+EP2: str = "data.modules.deep_zero.chapters.ep2_habitat_sector.config"
+EP3: str = "data.modules.deep_zero.chapters.ep3_reactor_core.config"
 
 
 class NarratrixEngineTests(unittest.TestCase):
@@ -128,7 +128,8 @@ class NarratrixEngineTests(unittest.TestCase):
         self.assertEqual(
             game.quests.states["noise_pollution"]["status"], "completed"
         )
-        self.assertTrue(game.game_over)
+        self.assertEqual(game.pending_chapter_load, EP2)
+        self.assertFalse(game.game_over)
 
     def test_map_tracks_visited_rooms_and_empty_move_is_safe(self) -> None:
         game = GameState(self.ep1)
@@ -398,7 +399,9 @@ class NarratrixEngineTests(unittest.TestCase):
         self.assertEqual(game.location, "living_commons")
         self.assertIn("Scrubber (MK-2)", game.get_snapshot()["present_npcs"])
 
-        # 3. Ins Quartier 4B gehen, Spind öffnen und Dichtungsband nehmen
+        # 3. Quartiertür mit Quartierschlüssel öffnen, ins Quartier 4B gehen und Dichtungsband nehmen
+        parser.parse("öffne quartiertür")
+        self.assertTrue(game.objects["cabin_door"]["is_open"])
         parser.parse("s")
         self.assertEqual(game.location, "crew_cabin_thorne")
         parser.parse("nimm dichtungsband")
@@ -425,7 +428,7 @@ class NarratrixEngineTests(unittest.TestCase):
         parser.parse("benutze dichtungsband mit dampfleitung")
         self.assertIn("steam_fixed", game.knowledge)
 
-        # 8. Hinabsteigen und Belohnung erhalten
+        # 8. Hinabsteigen und Belohnung erhalten (Übergang in Episode 3)
         parser.parse("klettere runter")
         self.assertEqual(game.elevation, 0)
 
@@ -436,17 +439,21 @@ class NarratrixEngineTests(unittest.TestCase):
 
         self.assertEqual(game.objects["core_access_chip"]["location"], "inventory")
         self.assertEqual(game.quests.states["biosphere_pressure"]["status"], "completed")
-        self.assertTrue(game.game_over)
+        self.assertEqual(game.pending_chapter_load, EP3)
+        self.assertFalse(game.game_over)
 
     def test_ep3_reactor_core_end_to_end(self) -> None:
         game = GameState(self.ep3)
         parser = SpacyParser(game)
 
-        # 1. Start auf der Zugangsbrücke; Intro-Log und Drohne Aegis
+        # 1. Start auf der Zugangsbrücke; Intro-Log, Drohne Aegis und glitched C.O.R.E. während Reaktorkrise
         self.assertEqual(game.location, "reactor_bridge")
         self.assertIn("Aegis (MK-3)", game.get_snapshot()["present_npcs"])
+        core = next(npc for npc in game.npcs if npc["id"] == "core_ai")
+        self.assertEqual(core["state"], "glitched")
+        self.assertEqual(core["img"], "face_ai_glitch")
 
-        # 2. In den Leitstand gehen und mit Dr. Sato sprechen
+        # 2. In den Leitstand gehen, mit Dr. Sato sprechen und Isolierhandschuhe nehmen
         parser.parse("o")
         self.assertEqual(game.location, "control_room")
         self.assertIn("Dr. Sato", game.get_snapshot()["present_npcs"])
@@ -455,9 +462,14 @@ class NarratrixEngineTests(unittest.TestCase):
         game.events.trigger_event_by_id("event_quest_start")
         self.assertEqual(game.quests.states["reactor_overdrive"]["status"], "active")
 
-        # 3. Zurück zur Brücke, dann nach Norden ins Kryo-Kühllager
+        parser.parse("nimm isolierhandschuhe")
+        self.assertEqual(game.objects["insulating_gloves"]["location"], "inventory")
+
+        # 3. Zurück zur Brücke, Sicherheitsgitter mit Chip öffnen und ins Kryo-Kühllager
         parser.parse("w")
         self.assertEqual(game.location, "reactor_bridge")
+        parser.parse("öffne sicherheitsgitter")
+        self.assertTrue(game.objects["security_gate"]["is_open"])
         parser.parse("n")
         self.assertEqual(game.location, "coolant_depot")
 
@@ -487,10 +499,12 @@ class NarratrixEngineTests(unittest.TestCase):
         parser.parse("o")
         self.assertEqual(game.location, "control_room")
 
-        # 8. Steuerkonsole mit dem Omni-Tool kalibrieren
+        # 8. Steuerkonsole mit dem Omni-Tool kalibrieren -> Kern stabilisiert, C.O.R.E. wieder calm
         parser.parse("benutze omni-tool mit steuerkonsole")
         self.assertIn("core_stabilized", game.knowledge)
         self.assertEqual(game.quests.states["reactor_overdrive"]["stage"], 3)
+        self.assertEqual(core["state"], "online")
+        self.assertEqual(core["img"], "face_ai_calm")
 
         # 9. Dr. Sato überreicht den Generalschlüssel und das Spiel endet siegreich
         sato = next(npc for npc in game.npcs if npc["id"] == "sato")
@@ -501,6 +515,114 @@ class NarratrixEngineTests(unittest.TestCase):
         self.assertEqual(game.objects["master_station_key"]["location"], "inventory")
         self.assertEqual(game.quests.states["reactor_overdrive"]["status"], "completed")
         self.assertTrue(game.game_over)
+
+    def test_module_discovery_isolation_and_assets(self) -> None:
+        modules = StoryLoader.discover_modules()
+        self.assertIn("test_lab", modules)
+        self.assertIn("deep_zero", modules)
+        self.assertEqual(StoryLoader.resolve_start_chapter("test_lab"), EP0)
+        self.assertEqual(StoryLoader.resolve_start_chapter("deep_zero"), EP1)
+
+        # Testlab darf keinen Sci-Fi-Common-Layer erben und trägt eigenes Theme/Assets
+        self.assertEqual(self.ep0["theme"], "lab")
+        self.assertIsNone(self.ep0["common_module"])
+        self.assertFalse(
+            any(ev.get("id") == "evt_global_ambience" for ev in self.ep0["narrative_matrix"])
+        )
+
+        # Deep Zero erhält seinen eigenen Common-Layer und kapitel-spezifische Themes
+        self.assertEqual(self.ep1["theme"], "deep_zero")
+        self.assertEqual(self.ep2["theme"], "habitat")
+        self.assertEqual(self.ep3["theme"], "reactor")
+        self.assertTrue(
+            any(ev.get("id") == "evt_global_ambience" for ev in self.ep1["narrative_matrix"])
+        )
+
+        loader = AssetLoader(self.ep0["asset_dir"])
+        self.assertIsNotNone(loader._find_image_path("hub_main"))
+        self.assertIsNone(loader._find_image_path("scifi_bridge"))
+        loader.set_base_dir(self.ep1["asset_dir"])
+        self.assertIsNotNone(loader._find_image_path("scifi_bridge"))
+        self.assertIsNone(loader._find_image_path("hub_main"))
+
+    def test_deep_zero_ep1_to_ep3_chained_campaign(self) -> None:
+        # Episode 1 starten, abschließen und Übergang nach Episode 2 auslösen
+        game1 = GameState(self.ep1)
+        parser1 = SpacyParser(game1)
+        parser1.parse("o")
+        game1.events.trigger_event_by_id("quest_start_rusty")
+        parser1.parse("nimm rohrzange")
+        parser1.parse("o")
+        parser1.parse("o")
+        parser1.parse("klettere wartungsleiter")
+        parser1.parse("benutze rohrzange mit rusty")
+        sato1 = next(npc for npc in game1.npcs if npc["id"] == "sato")
+        reward1 = sato1["dialogue"]["grateful"]["reward"]
+        assert isinstance(reward1, dict)
+        game1.effects.process(reward1["effect"], context_npc=sato1)
+        self.assertEqual(game1.pending_chapter_load, EP2)
+
+        # Übergang in Episode 2 mit übertragenem Inventar und Zustand
+        ep2_cfg = StoryLoader.load_chapter(game1.pending_chapter_load, raise_on_error=True)
+        assert ep2_cfg is not None
+        game2 = GameState(ep2_cfg, transfer_state=game1.export_transfer_state())
+        self.assertNotIn("ep2_quest_started", game2.knowledge)
+        self.assertEqual(game2.objects["keycard_quarters"]["location"], "inventory")
+        self.assertEqual(game2.objects["tool_omni"]["location"], "inventory")
+        self.assertEqual(game2.objects["parents_photo"]["location"], "inventory")
+        self.assertIn("id-karte", game2.objects["keycard_quarters"]["aliases"])
+
+        parser2 = SpacyParser(game2)
+        parser2.parse("o")
+        parser2.parse("öffne quartiertür")
+        parser2.parse("s")
+        parser2.parse("nimm dichtungsband")
+        parser2.parse("n")
+        parser2.parse("n")
+        game2.events.trigger_event_by_id("event_quest_start")
+        parser2.parse("klettere service-leiter")
+        parser2.parse("benutze omni-tool mit ventil")
+        parser2.parse("benutze dichtungsband mit dampfleitung")
+        parser2.parse("klettere runter")
+        vance = next(npc for npc in game2.npcs if npc["id"] == "dr_vance")
+        reward2 = vance["dialogue"]["relieved"]["reward"]
+        assert isinstance(reward2, dict)
+        game2.effects.process(reward2["effect"], context_npc=vance)
+        self.assertEqual(game2.pending_chapter_load, EP3)
+
+        # Übergang in Episode 3 mit übertragenem Reaktorchip
+        ep3_cfg = StoryLoader.load_chapter(game2.pending_chapter_load, raise_on_error=True)
+        assert ep3_cfg is not None
+        game3 = GameState(ep3_cfg, transfer_state=game2.export_transfer_state())
+        self.assertNotIn("ep3_quest_started", game3.knowledge)
+        self.assertEqual(game3.objects["core_access_chip"]["location"], "inventory")
+        self.assertEqual(game3.objects["tool_omni"]["location"], "inventory")
+        self.assertEqual(game3.objects["keycard_quarters"]["location"], "inventory")
+
+        parser3 = SpacyParser(game3)
+        parser3.parse("o")
+        game3.events.trigger_event_by_id("event_quest_start")
+        parser3.parse("nimm isolierhandschuhe")
+        parser3.parse("w")
+        parser3.parse("öffne sicherheitsgitter")
+        parser3.parse("n")
+        parser3.parse("nimm kühlkanister")
+        parser3.parse("s")
+        parser3.parse("s")
+        parser3.parse("klettere injektor-leiter")
+        parser3.parse("benutze kühlkanister mit verteiler")
+        parser3.parse("klettere runter")
+        parser3.parse("n")
+        parser3.parse("o")
+        parser3.parse("benutze omni-tool mit steuerkonsole")
+        sato3 = next(npc for npc in game3.npcs if npc["id"] == "sato")
+        reward3 = sato3["dialogue"]["celebrating"]["reward"]
+        assert isinstance(reward3, dict)
+        game3.effects.process(reward3["effect"], context_npc=sato3)
+
+        self.assertEqual(game3.objects["master_station_key"]["location"], "inventory")
+        self.assertEqual(game3.quests.states["reactor_overdrive"]["status"], "completed")
+        self.assertTrue(game3.game_over)
 
     def test_ui_helpers_work_headless(self) -> None:
         class _DummyFont:

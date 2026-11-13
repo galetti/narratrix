@@ -17,6 +17,7 @@ from engine.constants import (
     TYPE_SURFACE,
 )
 from engine.schema import NPCData, ObjectData
+from engine.strings import Texts
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
@@ -167,15 +168,15 @@ class Resolver:
         
         # 3. Ergebnis Auswertung
         if len(matches) == 0:
-            error_msg = f"Ich sehe hier kein '{search_query}'."
+            error_msg = Texts.RESOLVE_NOT_HERE.format(query=search_query)
             if not corrected_query:
                 # Es gab nicht mal einen ähnlichen Begriff im ganzen Spiel
-                error_msg = f"Ich weiß nicht, was ein '{search_query}' ist."
+                error_msg = Texts.RESOLVE_UNKNOWN.format(query=search_query)
             elif location_filter == FILTER_INVENTORY:
-                error_msg = f"Du hast kein '{corrected_query}' dabei."
+                error_msg = Texts.RESOLVE_NOT_IN_INV.format(query=corrected_query)
             else:
                 # Begriff existiert im Spiel, ist aber nicht hier
-                error_msg = f"Ich sehe hier kein '{corrected_query}'."
+                error_msg = Texts.RESOLVE_NOT_HERE.format(query=corrected_query)
 
             raise ResolutionError(error_msg)
         
@@ -191,19 +192,25 @@ class Resolver:
         query = Resolver.normalize_term(" ".join(words))
         if not query:
             return None
-        local_npcs = [n for n in game.npcs if n['location'] == game.location]
-        
+        local_npcs = [n for n in game.npcs if n["location"] == game.location]
+        remote_npcs = [
+            n for n in game.npcs if n.get("remote_comms", False) and n not in local_npcs
+        ]
+        searchable_npcs = local_npcs + remote_npcs
+
         # 1. Schnellsuche
-        for npc in local_npcs:
+        for npc in searchable_npcs:
             n_name = Resolver.normalize_term(npc[ATTR_NAME])
             n_aliases = [Resolver.normalize_term(a) for a in npc.get(ATTR_ALIASES, [])]
-            if query in n_name or any(query in alias for alias in n_aliases): return npc
-        
-        # 2. Fuzzy Suche (nur lokal bei NPCs, Dialoge über Distanz gehen eh nicht)
+            if query in n_name or any(query in alias for alias in n_aliases):
+                return npc
+
+        # 2. Fuzzy Suche
         npc_map: dict[str, NPCData] = {}
-        for npc in local_npcs:
+        for npc in searchable_npcs:
             npc_map[Resolver.normalize_term(npc[ATTR_NAME])] = npc
-            for a in npc.get(ATTR_ALIASES, []): npc_map[Resolver.normalize_term(a)] = npc
+            for a in npc.get(ATTR_ALIASES, []):
+                npc_map[Resolver.normalize_term(a)] = npc
             
         matches = difflib.get_close_matches(query, list(npc_map.keys()), n=1, cutoff=0.7)
         if matches:

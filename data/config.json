@@ -1,6 +1,6 @@
 {
     "game": {
-        "start_chapter": "data.chapters.ep0_test_lab.config",
+        "default_module": "deep_zero",
         "title": "Narratrix",
         "language": "de"
     },

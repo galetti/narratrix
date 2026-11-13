@@ -11,6 +11,7 @@ from engine.constants import (
     ATTR_MATTER,
     ATTR_NAME,
     ATTR_TEMP,
+    LOC_INVENTORY,
     LOC_VOID,
     MATTER_SOLID,
     STATE_BROKEN,
@@ -34,6 +35,7 @@ from engine.systems.event_manager import EventManager
 from engine.systems.object_behavior import ObjectBehaviorSystem
 from engine.systems.pathfinder import Pathfinder
 from engine.systems.quest_manager import QuestManager
+from engine.strings import Texts
 
 
 logger = logging.getLogger(__name__)
@@ -41,7 +43,12 @@ SAVE_SCHEMA_VERSION: int = 2
 
 
 class GameState:
-    def __init__(self, config: dict[str, Any], silent: bool = False) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any],
+        silent: bool = False,
+        transfer_state: dict[str, Any] | None = None,
+    ) -> None:
         self.config: dict[str, Any] = config
         self.silent: bool = silent
         self.lock: threading.RLock = threading.RLock()
@@ -77,6 +84,9 @@ class GameState:
             obj.setdefault(ATTR_TEMP, 20)
             obj.setdefault(ATTR_MATTER, MATTER_SOLID)
 
+        if transfer_state:
+            self.apply_transfer_state(transfer_state)
+
         self.effects: EffectProcessor = EffectProcessor(self)
         self.dialogue_system: DialogueSystem = DialogueSystem(self)
         self.crafting: CraftingSystem = CraftingSystem(self)
@@ -91,6 +101,45 @@ class GameState:
 
         if not self.silent:
             self.events.update()
+
+    def export_transfer_state(self) -> dict[str, Any]:
+        """Export carried inventory items, knowledge, time, and stability for chapter linking."""
+
+        with self.lock:
+            held: list[ObjectData] = []
+            for obj in self.objects.values():
+                location = obj.get("location")
+                visited: set[str] = set()
+                while location in self.objects and location not in visited:
+                    visited.add(location)
+                    location = self.objects[location].get("location")
+                if location == LOC_INVENTORY:
+                    held.append(copy.deepcopy(obj))
+
+            return {
+                "knowledge": set(self.knowledge),
+                "time": self.time,
+                "stability": self.stability,
+                "inventory_objects": held,
+            }
+
+    def apply_transfer_state(self, transfer_state: dict[str, Any]) -> None:
+        """Merge carried inventory items and player state from a previous episode."""
+
+        with self.lock:
+            self.knowledge = set(transfer_state.get("knowledge", set()))
+            self.time = int(transfer_state.get("time", self.time))
+            self.stability = float(transfer_state.get("stability", self.stability))
+            for old_item in transfer_state.get("inventory_objects", []):
+                item_id = old_item["id"]
+                if item_id in self.objects:
+                    target_obj = self.objects[item_id]
+                    target_obj["location"] = old_item.get("location", LOC_INVENTORY)
+                    for state_key in ("is_open", "is_locked", "state", "count", ATTR_TEMP):
+                        if state_key in old_item:
+                            target_obj[state_key] = copy.deepcopy(old_item[state_key])  # type: ignore[literal-required]
+                else:
+                    self.objects[item_id] = copy.deepcopy(old_item)
 
     def _prepare_npc_state(self, npc: NPCData) -> None:
         states = npc.get("states", {})
@@ -149,8 +198,8 @@ class GameState:
     def render_room_desc(self, room_id: str) -> str:
         if self.hidden_in:
             container = self.objects.get(self.hidden_in)
-            name = container[ATTR_NAME] if container else "einem Versteck"
-            return f"Du bist versteckt in {name}. Durch einen Spalt siehst du den Raum."
+            name = container[ATTR_NAME] if container else Texts.STATE_HIDDEN_CONTAINER_FALLBACK
+            return Texts.STATE_HIDDEN_DESC.format(name=name)
 
         room = self.rooms.get(room_id)
         if not room:
@@ -162,18 +211,18 @@ class GameState:
             if obj:
                 display = obj[ATTR_NAME]
                 if obj.get("state") == STATE_SABOTAGED:
-                    display += " [SABOTIERT]"
+                    display += Texts.STATE_TAG_SABOTAGED
                 elif obj.get("state") == STATE_BROKEN:
-                    display += " [DEFEKT]"
+                    display += Texts.STATE_TAG_BROKEN
                 elif obj.get("type") == "container":
-                    display += " [OFFEN]" if obj.get("is_open") else " [VERSCHLOSSEN]"
+                    display += Texts.STATE_TAG_OPEN if obj.get("is_open") else Texts.STATE_TAG_CLOSED
                 return display
             target_room = self.rooms.get(key)
             return target_room[ATTR_NAME] if target_room else f"ERROR:{key}"
 
         description = re.sub(r"\{(\w+)\}", replace_match, room.get(ATTR_DESC, ""))
         if self.elevation > 0:
-            description += f"\n(Du befindest dich auf Ebene {self.elevation}.)"
+            description += Texts.STATE_ELEVATION_NOTE.format(level=self.elevation)
         return description
 
     def log(self, type_str: str, text: Any) -> None:
@@ -201,9 +250,9 @@ class GameState:
                 npc_level = int(npc.get("level", 0))
                 label = npc[ATTR_NAME]
                 if npc_level > self.elevation:
-                    label += f" (oben auf Ebene {npc_level})"
+                    label += Texts.LEVEL_INFO_UP.format(level=npc_level)
                 elif npc_level < self.elevation:
-                    label += f" (unten auf Ebene {npc_level})"
+                    label += Texts.LEVEL_INFO_DOWN.format(level=npc_level)
                 present_npcs.append(label)
             active_quest_info: str | None = None
             if hasattr(self, "quests") and hasattr(self.quests, "states"):
@@ -224,11 +273,13 @@ class GameState:
                 "game_over": self.game_over,
                 "pending_chapter_load": self.pending_chapter_load,
                 "location": self.location,
-                "room_name": room[ATTR_NAME] if room else "Unbekannt",
+                "room_name": room[ATTR_NAME] if room else Texts.MAP_UNKNOWN_ROOM,
                 "room_img": room.get("img", "???") if room else "???",
                 "dialogue_active": self.dialogue_active,
                 "dialogue_header": (
-                    f"GESPRÄCH: {partner_name.upper()}" if partner_name else ""
+                    Texts.STATE_DIALOGUE_SNAPSHOT_HEADER.format(npc=partner_name.upper())
+                    if partner_name
+                    else ""
                 ),
                 "dialogue_img": partner_img or partner_name or "???",
                 "logs": list(self.logs),
@@ -276,10 +327,10 @@ class GameState:
                 self.ai.process_all_npcs(minutes)
             except (EffectProcessingError, KeyError, ValueError, TypeError, RuntimeError) as exc:
                 logger.exception("Simulationsfehler: %s", exc)
-                self.log("error", f"Systemfehler (Simulation): {exc}")
+                self.log("error", Texts.STATE_SIM_ERROR.format(error=exc))
 
             if self.stability <= 0 and not self.game_over:
-                self.log("alarm", "GAME OVER: STATION KRITISCH.")
+                self.log("alarm", Texts.STATE_GAME_OVER_CRITICAL)
                 self.game_over = True
 
     @staticmethod
@@ -323,66 +374,67 @@ class GameState:
     def deserialize_state(
         self, data: dict[str, Any], allow_chapter_mismatch: bool = False
     ) -> bool:
-        try:
-            meta = data.get("meta", {})
-            if meta.get("schema_version") != SAVE_SCHEMA_VERSION:
-                raise ValueError(
-                    f"Saveformat {meta.get('schema_version')} wird nicht unterstützt "
-                    f"(erwartet: {SAVE_SCHEMA_VERSION})."
-                )
-            saved_chapter = meta.get("chapter")
-            current_chapter = self.config.get("meta", {}).get("module")
-            if (
-                not allow_chapter_mismatch
-                and saved_chapter
-                and current_chapter
-                and saved_chapter != current_chapter
-            ):
-                raise ValueError(
-                    f"Spielstand gehört zu '{saved_chapter}', nicht zu '{current_chapter}'."
-                )
+        with self.lock:
+            try:
+                meta = data.get("meta", {})
+                if meta.get("schema_version") != SAVE_SCHEMA_VERSION:
+                    raise ValueError(
+                        f"Saveformat {meta.get('schema_version')} wird nicht unterstützt "
+                        f"(erwartet: {SAVE_SCHEMA_VERSION})."
+                    )
+                saved_chapter = meta.get("chapter")
+                current_chapter = self.config.get("meta", {}).get("module")
+                if (
+                    not allow_chapter_mismatch
+                    and saved_chapter
+                    and current_chapter
+                    and saved_chapter != current_chapter
+                ):
+                    raise ValueError(
+                        f"Spielstand gehört zu '{saved_chapter}', nicht zu '{current_chapter}'."
+                    )
 
-            rooms = copy.deepcopy(data["rooms"])
-            location = data["location"]
-            if location not in rooms:
-                raise ValueError(f"Gespeicherter Raum '{location}' fehlt.")
+                rooms = copy.deepcopy(data["rooms"])
+                location = data["location"]
+                if location not in rooms:
+                    raise ValueError(f"Gespeicherter Raum '{location}' fehlt.")
 
-            self.rooms = rooms
-            self.objects = copy.deepcopy(data["objects"])
-            self.npcs = copy.deepcopy(data["npcs"])
-            self.combinations = copy.deepcopy(data.get("combinations", self.combinations))
-            self.location = location
-            self.time = int(data.get("time", 0))
-            self.stability = float(data.get("stability", 100))
-            self.elevation = int(data.get("elevation", 0))
-            self.knowledge = set(data.get("knowledge", []))
-            self.hidden_in = data.get("hidden_in")
-            self.game_over = bool(data.get("game_over", False))
-            self.pending_chapter_load = None
-            self.pending_interaction = None
-            self.disambiguation = None
-            self.dialogue_active = False
-            self.dialogue_partner = None
+                self.rooms = rooms
+                self.objects = copy.deepcopy(data["objects"])
+                self.npcs = copy.deepcopy(data["npcs"])
+                self.combinations = copy.deepcopy(data.get("combinations", self.combinations))
+                self.location = location
+                self.time = int(data.get("time", 0))
+                self.stability = float(data.get("stability", 100))
+                self.elevation = int(data.get("elevation", 0))
+                self.knowledge = set(data.get("knowledge", []))
+                self.hidden_in = data.get("hidden_in")
+                self.game_over = bool(data.get("game_over", False))
+                self.pending_chapter_load = None
+                self.pending_interaction = None
+                self.disambiguation = None
+                self.dialogue_active = False
+                self.dialogue_partner = None
 
-            for npc in self.npcs:
-                self._prepare_npc_state(npc)
-            for obj in self.objects.values():
-                obj.setdefault(ATTR_TEMP, 20)
-                obj.setdefault(ATTR_MATTER, MATTER_SOLID)
+                for npc in self.npcs:
+                    self._prepare_npc_state(npc)
+                for obj in self.objects.values():
+                    obj.setdefault(ATTR_TEMP, 20)
+                    obj.setdefault(ATTR_MATTER, MATTER_SOLID)
 
-            self.quests.load_save_data(data.get("quests", {}))
-            saved_events = {
-                event["id"]: event
-                for event in data.get("events", [])
-                if isinstance(event, dict) and "id" in event
-            }
-            for event in self.events.events:
-                saved = saved_events.get(event.get("id"))
-                if saved:
-                    event["triggered"] = bool(saved.get("triggered", False))
-                    event["last_triggered_at"] = saved.get("last_triggered_at")
-            self.visit_room(self.location)
-            return True
-        except (KeyError, ValueError, TypeError) as exc:
-            logger.error("Laden fehlgeschlagen: %s", exc)
-            return False
+                self.quests.load_save_data(data.get("quests", {}))
+                saved_events = {
+                    event["id"]: event
+                    for event in data.get("events", [])
+                    if isinstance(event, dict) and "id" in event
+                }
+                for event in self.events.events:
+                    saved = saved_events.get(event.get("id"))
+                    if saved:
+                        event["triggered"] = bool(saved.get("triggered", False))
+                        event["last_triggered_at"] = saved.get("last_triggered_at")
+                self.visit_room(self.location)
+                return True
+            except (KeyError, ValueError, TypeError) as exc:
+                logger.error("Laden fehlgeschlagen: %s", exc)
+                return False

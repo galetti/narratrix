@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import pygame
 
 from engine.story_loader import StoryLoader
@@ -35,8 +37,9 @@ def run_viewer() -> None:
 
     # 1. Initiale Simulation mit neuem Loader
     print("Lade Kapiteldaten...")
-    # Wir laden standardmäßig Episode 1 für die Simulation
-    config = StoryLoader.load_chapter("data.chapters.ep1_deep_zero.config")
+    target = sys.argv[1] if len(sys.argv) > 1 else "deep_zero"
+    chapter_source = StoryLoader.resolve_start_chapter(target)
+    config = StoryLoader.load_chapter(chapter_source)
     
     if not config:
         print("[ERROR] Konnte Config nicht laden. Abbruch.")
