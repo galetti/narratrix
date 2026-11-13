@@ -65,6 +65,30 @@ class RuleBasedParserTests(unittest.TestCase):
         self.parser.parse("s")
         self.assertEqual(self.game.location, "central_hub")
 
+    def test_climb_directional_phrases_use_room_climbable(self) -> None:
+        ep1_cfg = StoryLoader.load_chapter(EP1, raise_on_error=True)
+        assert ep1_cfg is not None
+        ep1_game = GameState(ep1_cfg, silent=True)
+        ep1_parser = RuleBasedParser(ep1_game)
+
+        # In einem Raum ohne Kletterobjekt schlägt "klettere hoch" weiter fehl
+        ep1_parser.parse("klettere hoch")
+        self.assertEqual(ep1_game.elevation, 0)
+
+        # In der Müllverarbeitung klettern "klettere hoch" und "klettere nach oben" über die Wartungsleiter
+        ep1_game.location = "room_outer_waste"
+        ep1_parser.parse("klettere hoch")
+        self.assertEqual(ep1_game.elevation, 2)
+
+        ep1_parser.parse("klettere nach unten")
+        self.assertEqual(ep1_game.elevation, 0)
+
+        ep1_parser.parse("klettere nach oben")
+        self.assertEqual(ep1_game.elevation, 2)
+
+        ep1_parser.parse("klettere leiter runter")
+        self.assertEqual(ep1_game.elevation, 0)
+
     def test_canonical_and_synonym_verbs(self) -> None:
         self.parser.parse("schaue")
         self.assertTrue(any("Zentraler Test-Hub" in entry["text"] for entry in self.game.logs))

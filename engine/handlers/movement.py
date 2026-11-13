@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from engine.access import get_connecting_doors, get_exit_doors
+from engine.access import get_connecting_doors, get_exit_doors, is_directly_reachable
 from engine.constants import (
     ATTR_CLIMBABLE,
     ATTR_ID,
@@ -12,11 +12,18 @@ from engine.constants import (
     TYPE_SCENERY,
 )
 from engine.resolver import Resolver, ResolutionError
+from engine.schema import ObjectData
 from engine.strings import Texts
 from engine.handlers.common import CommonHandler
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
+
+_CLIMB_FILLERS: frozenset[str] = frozenset(
+    {"auf", "on", "in", "im", "an", "nach", "zu", "zur", "zum", "wieder", "den", "die", "das", "der", "dem"}
+)
+_CLIMB_UP_WORDS: frozenset[str] = frozenset({"up", "hoch", "rauf", "oben", "hinauf"})
+_CLIMB_DOWN_WORDS: frozenset[str] = frozenset({"down", "runter", "ab", "unten", "hinunter", "hinab", "boden"})
 
 
 class MovementHandler:
@@ -122,14 +129,12 @@ class MovementHandler:
                 game.tick(1) 
         elif target_dir == "down" and game.elevation > 0:
             MovementHandler.climb(game, ["down"])
-        elif target_dir == "up" and game.elevation == 0:
-            climbables = [
-                obj
-                for obj in game.objects.values()
-                if obj.get("location") == game.location and obj.get(ATTR_CLIMBABLE, False)
-            ]
+        elif target_dir == "up":
+            climbables = MovementHandler._find_upward_climbables(game)
             if climbables:
-                MovementHandler.climb(game, [climbables[0][ATTR_NAME]])
+                MovementHandler._climb_target(game, climbables[0])
+            elif game.elevation > 0:
+                game.log('error', Texts.MOVE_CLIMB_ALREADY_UP)
             else:
                 game.log('error', Texts.MOVE_NO_WAY.format(target=target_dir))
         else:
@@ -145,116 +150,137 @@ class MovementHandler:
                 game.log('error', Texts.MOVE_NO_WAY.format(target=target_dir))
 
     @staticmethod
+    def _find_upward_climbables(game: GameState) -> list[ObjectData]:
+        """Return reachable climbable objects leading above the player's current elevation."""
+        current_room = game.rooms.get(game.location, {})
+        climb_targets = current_room.get("climb_targets", {})
+        candidates: list[ObjectData] = []
+        for obj in game.objects.values():
+            if obj.get("location") != game.location or not obj.get(ATTR_CLIMBABLE, False):
+                continue
+            if not is_directly_reachable(game, obj, upward_reach=1):
+                continue
+            target_elev = obj.get("target_elevation")
+            has_higher_elev = isinstance(target_elev, (int, float)) and target_elev > game.elevation
+            has_passage = "destination" in obj or obj.get(ATTR_ID) in climb_targets
+            if has_higher_elev or has_passage:
+                candidates.append(obj)
+        candidates.sort(key=lambda obj: int(obj.get("level", 0)) > game.elevation)
+        return candidates
+
+    @staticmethod
+    def _climb_target(game: GameState, target: ObjectData) -> None:
+        if not target.get(ATTR_CLIMBABLE, False):
+            game.log('info', Texts.MOVE_CLIMB_CANNOT.format(target=target[ATTR_NAME]))
+            return
+
+        if 'target_elevation' in target:
+            new_level = target['target_elevation']
+            if new_level == game.elevation:
+                game.log(
+                    'info',
+                    Texts.MOVE_CLIMB_ALREADY_THERE.format(
+                        target=target[ATTR_NAME], level=new_level
+                    ),
+                )
+                MovementHandler._list_room_items(game, game.location)
+            else:
+                game.elevation = new_level
+                game.log(
+                    'success',
+                    Texts.MOVE_CLIMB_SUCCESS_LEVEL.format(
+                        target=target[ATTR_NAME], level=new_level
+                    ),
+                )
+                MovementHandler._list_room_items(game, game.location)
+                game.tick(1)
+            return
+
+        if 'destination' in target:
+            dest = target['destination']
+            game.location = dest
+            game.elevation = 0
+            game.visit_room(dest)
+            game.log('success', Texts.MOVE_CLIMB_SUCCESS_DEST.format(target=target[ATTR_NAME]))
+            game.tick(1)
+
+            game.log('location', game.rooms[dest][ATTR_NAME])
+            game.log('story', game.render_room_desc(dest))
+            MovementHandler._list_room_items(game, dest)
+            return
+
+        current_room = game.rooms[game.location]
+        climb_targets = current_room.get('climb_targets', {})
+        target_id = target[ATTR_ID]
+
+        if target_id in climb_targets:
+            dest_room_id = climb_targets[target_id]
+            game.log(
+                'success',
+                Texts.MOVE_CLIMB_SUCCESS_PASSAGE.format(target=target[ATTR_NAME]),
+            )
+            game.location = dest_room_id
+            game.elevation = 0
+            game.visit_room(dest_room_id)
+            game.tick(1)
+
+            game.log('location', game.rooms[dest_room_id][ATTR_NAME])
+            game.log('story', game.render_room_desc(dest_room_id))
+            MovementHandler._list_room_items(game, dest_room_id)
+        else:
+            game.log(
+                'success',
+                Texts.MOVE_CLIMB_NO_HEIGHT.format(target=target[ATTR_NAME]),
+            )
+
+    @staticmethod
     def climb(game: GameState, args: list[str]) -> None:
-        if game.hidden_in: return game.log('error', Texts.ERR_HIDDEN)
-        
+        if game.hidden_in:
+            return game.log('error', Texts.ERR_HIDDEN)
+
         if not args:
             return game.log('error', Texts.MOVE_CLIMB_WHAT)
 
-        # Filter Präpositionen aus den Argumenten für sauberes Resolver-Matching
-        clean_args = [
-            w
-            for w in args
-            if w.lower() not in ["auf", "on", "up", "hoch", "in", "im", "an", "den", "die", "das"]
-        ]
-        
-        # Fallback: Wenn nur "klettere auf" eingegeben wurde, ist clean_args leer
-        if not clean_args:
-             if args[0].lower() not in ["up", "hoch", "rauf", "oben"]:
-                 return game.log('error', Texts.MOVE_CLIMB_WHAT)
+        meaningful = [w for w in args if w.lower() not in _CLIMB_FILLERS]
+        if not meaningful:
+            return game.log('error', Texts.MOVE_CLIMB_WHAT)
 
-        # "Climb down" logic
-        if args[0].lower() in ["down", "runter", "ab", "unten", "boden"]:
+        lowered = [w.lower() for w in meaningful]
+        has_down = any(w in _CLIMB_DOWN_WORDS for w in lowered)
+        has_up = any(w in _CLIMB_UP_WORDS for w in lowered)
+        object_args = [
+            w for w in meaningful if w.lower() not in _CLIMB_UP_WORDS and w.lower() not in _CLIMB_DOWN_WORDS
+        ]
+
+        # "Climb down" logic (mit oder ohne Nennung der Leiter)
+        if has_down and (not object_args or game.elevation > 0):
             if game.elevation > 0:
                 game.elevation = 0
                 game.log('success', Texts.MOVE_CLIMB_DOWN)
                 MovementHandler._list_room_items(game, game.location)
                 game.tick(1)
-                return
             else:
                 MovementHandler.handle(game, ["down"])
-                return
+            return
 
-        # "Climb up" logic (ohne Zielobjekt)
-        if args[0].lower() in ["up", "hoch", "rauf", "oben"]:
-            if game.elevation == 0:
-                if 'up' in game.rooms[game.location].get('exits', {}):
-                    MovementHandler.handle(game, ["up"])
-                else:
-                    game.log('error', Texts.MOVE_CLIMB_CANNOT_SIMPLE)
+        # "Climb up" logic ohne Zielobjekt -> Exit 'up' oder kletterbares Objekt im Raum
+        if has_up and not object_args:
+            if 'up' in game.rooms[game.location].get('exits', {}):
+                MovementHandler.handle(game, ["up"])
                 return
-            else:
+            climbables = MovementHandler._find_upward_climbables(game)
+            if climbables:
+                MovementHandler._climb_target(game, climbables[0])
+            elif game.elevation > 0:
                 game.log('error', Texts.MOVE_CLIMB_ALREADY_UP)
-                return
+            else:
+                game.log('error', Texts.MOVE_CLIMB_CANNOT_SIMPLE)
+            return
 
         try:
-            # WICHTIG: Nutze die bereinigten Argumente
-            target = Resolver.resolve_target(game, clean_args, location_filter=FILTER_ROOM, verb='climb')
+            target = Resolver.resolve_target(game, object_args, location_filter=FILTER_ROOM, verb='climb')
             if not target:
                 return
-            
-            if not target.get(ATTR_CLIMBABLE, False):
-                game.log('info', Texts.MOVE_CLIMB_CANNOT.format(target=target[ATTR_NAME]))
-                return
-
-            if 'target_elevation' in target:
-                new_level = target['target_elevation']
-                if new_level == game.elevation:
-                    game.log(
-                        'info',
-                        Texts.MOVE_CLIMB_ALREADY_THERE.format(
-                            target=target[ATTR_NAME], level=new_level
-                        ),
-                    )
-                    MovementHandler._list_room_items(game, game.location)
-                else:
-                    game.elevation = new_level
-                    game.log(
-                        'success',
-                        Texts.MOVE_CLIMB_SUCCESS_LEVEL.format(
-                            target=target[ATTR_NAME], level=new_level
-                        ),
-                    )
-                    MovementHandler._list_room_items(game, game.location)
-                    game.tick(1)
-                return
-
-            if 'destination' in target:
-                dest = target['destination']
-                game.location = dest
-                game.elevation = 0
-                game.visit_room(dest)
-                game.log('success', Texts.MOVE_CLIMB_SUCCESS_DEST.format(target=target[ATTR_NAME]))
-                game.tick(1)
-                
-                game.log('location', game.rooms[dest][ATTR_NAME])
-                game.log('story', game.render_room_desc(dest))
-                MovementHandler._list_room_items(game, dest)
-                return
-
-            current_room = game.rooms[game.location]
-            climb_targets = current_room.get('climb_targets', {})
-            target_id = target[ATTR_ID]
-            
-            if target_id in climb_targets:
-                dest_room_id = climb_targets[target_id]
-                game.log(
-                    'success',
-                    Texts.MOVE_CLIMB_SUCCESS_PASSAGE.format(target=target[ATTR_NAME]),
-                )
-                game.location = dest_room_id
-                game.elevation = 0
-                game.visit_room(dest_room_id)
-                game.tick(1)
-                
-                game.log('location', game.rooms[dest_room_id][ATTR_NAME])
-                game.log('story', game.render_room_desc(dest_room_id))
-                MovementHandler._list_room_items(game, dest_room_id)
-            else:
-                game.log(
-                    'success',
-                    Texts.MOVE_CLIMB_NO_HEIGHT.format(target=target[ATTR_NAME]),
-                )
-        
+            MovementHandler._climb_target(game, target)
         except ResolutionError as e:
             game.log('error', str(e))
