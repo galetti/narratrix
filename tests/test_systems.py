@@ -970,7 +970,7 @@ class GUIModularityAndClipboardTests(unittest.TestCase):
         pygame.init()
         from main_gui import GameGUI
 
-        gui = GameGUI()
+        gui = GameGUI(show_start_menu=False)
         # 1. Render-Zyklus ohne Fehler
         gui.draw()
 
@@ -988,6 +988,99 @@ class GUIModularityAndClipboardTests(unittest.TestCase):
         gui.selection_end_idx = 1
         gui.copy_selection_or_log()
         self.assertEqual(gui.toast_msg, "✓ In Zwischenablage kopiert")
+
+        pygame.quit()
+
+    def test_llm_bridge_list_available_models(self) -> None:
+        from types import SimpleNamespace
+        from engine.llm_bridge import LLMBridge
+
+        # 1. OpenAI-kompatibles /v1/models
+        fake_ok = SimpleNamespace(
+            ok=True,
+            json=lambda: {"data": [{"id": "gemma4:12b"}, {"id": "llama3.1:8b"}]},
+        )
+        with patch("engine.llm_bridge.requests.get", return_value=fake_ok):
+            active, models = LLMBridge.list_available_models(
+                "http://127.0.0.1:11434/v1/chat/completions"
+            )
+        self.assertTrue(active)
+        self.assertEqual(models, ["gemma4:12b", "llama3.1:8b"])
+
+        # 2. Fallback auf Ollama /api/tags
+        fake_404 = SimpleNamespace(ok=False)
+        fake_tags = SimpleNamespace(
+            ok=True,
+            json=lambda: {"models": [{"name": "mistral:7b"}, {"name": "gemma4:12b"}]},
+        )
+        with patch("engine.llm_bridge.requests.get", side_effect=[fake_404, fake_tags]):
+            active, models = LLMBridge.list_available_models(
+                "http://127.0.0.1:11434/v1/chat/completions"
+            )
+        self.assertTrue(active)
+        self.assertEqual(models, ["mistral:7b", "gemma4:12b"])
+
+        # 3. Server nicht erreichbar
+        import requests as req_lib
+
+        with patch(
+            "engine.llm_bridge.requests.get",
+            side_effect=req_lib.exceptions.ConnectionError("refused"),
+        ):
+            active, models = LLMBridge.list_available_models(
+                "http://127.0.0.1:11434/v1/chat/completions"
+            )
+        self.assertFalse(active)
+        self.assertEqual(models, [])
+
+    def test_headless_start_menu_modes_and_save_loading(self) -> None:
+        import json
+        import tempfile
+        import pygame
+        from engine.handlers.system import SystemHandler
+        from main_gui import GameGUI
+
+        os.environ["SDL_VIDEODRIVER"] = "dummy"
+        pygame.init()
+
+        # 1. Startmenü-Rendering & Normaler Modus
+        gui = GameGUI(show_start_menu=True)
+        self.assertEqual(gui.menu_state, "main")
+        gui.draw()
+        gui._trigger_menu_action("mode_normal")
+        self.assertIsNone(gui.menu_state)
+        self.assertFalse(gui.game.config["use_llm_dialogue"])
+
+        # 2. KI-Modus: Ollama-Ergebnis anwenden, Modell wählen & starten
+        gui_ai = GameGUI(show_start_menu=True)
+        gui_ai._apply_ollama_check_result(True, ["llama3.1:8b", "gemma4:12b"])
+        self.assertEqual(gui_ai.menu_state, "ai_setup")
+        self.assertTrue(gui_ai.ollama_active)
+        gui_ai.draw()
+        gui_ai._trigger_menu_action("model:0")
+        gui_ai._trigger_menu_action("ai_start")
+        self.assertIsNone(gui_ai.menu_state)
+        self.assertTrue(gui_ai.game.config["use_llm_dialogue"])
+        self.assertEqual(gui_ai.game.config["llm_model"], "llama3.1:8b")
+
+        # 3. Spiel laden über Startmenü
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            save_path = os.path.join(tmp_dir, "slot1.json")
+            gui.game.time = 42
+            with open(save_path, "w", encoding="utf-8") as f:
+                json.dump(gui.game.serialize_state(), f)
+
+            saves = SystemHandler.list_saves(save_dir=tmp_dir)
+            self.assertEqual(len(saves), 1)
+            self.assertEqual(saves[0]["filename"], "slot1.json")
+
+            gui_load = GameGUI(show_start_menu=True)
+            gui_load.save_list = saves
+            gui_load.menu_state = "load_game"
+            gui_load.draw()
+            gui_load._trigger_menu_action("load_selected")
+            self.assertIsNone(gui_load.menu_state)
+            self.assertEqual(gui_load.game.time, 42)
 
         pygame.quit()
 

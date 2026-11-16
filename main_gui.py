@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
+import json
 import logging
 import math
 from pathlib import Path
@@ -18,10 +20,13 @@ warnings.filterwarnings("ignore", category=UserWarning, module="pygame")
 
 from engine.action_dispatcher import ActionDispatcher
 from engine.game_state import GameState
+from engine.handlers.system import SystemHandler
+from engine.llm_bridge import LLMBridge
 from engine.parser.rule_based import RuleBasedParser
 from engine.parser.spacy_parser import SpacyParser
 from engine.schema import GameSnapshot
 from engine.story_loader import StoryLoader
+from engine.strings import Texts
 import engine.theme as theme
 from engine.ui import (
     AssetLoader,
@@ -44,6 +49,8 @@ class GameGUI:
         self,
         module_id: str | None = None,
         start_chapter: str | None = None,
+        *,
+        show_start_menu: bool = True,
     ) -> None:
         pygame.init()
         display_flags = pygame.RESIZABLE
@@ -85,6 +92,21 @@ class GameGUI:
         self.toast_msg: str | None = None
         self.toast_timer: int = 0
 
+        # Startmenü & Modus-Auswahl
+        self.menu_state: str | None = "main" if show_start_menu else None
+        self.menu_selected_idx: int = 0
+        self.menu_item_rects: list[tuple[str, pygame.Rect]] = []
+        self.menu_error: str | None = None
+        self.llm_enabled_override: bool | None = None
+        self.llm_model_override: str | None = None
+        self.ollama_check_queue: queue.Queue[tuple[bool, list[str]]] = queue.Queue()
+        self.ollama_active: bool = False
+        self.ollama_models: list[str] = []
+        self.selected_model_idx: int = 0
+        self.save_list: list[dict[str, Any]] = []
+        self.selected_save_idx: int = 0
+        self.cursor_blink: int = 0
+
         configured_target = (
             start_chapter
             or module_id
@@ -93,10 +115,16 @@ class GameGUI:
         )
         self.initial_chapter: str = StoryLoader.resolve_start_chapter(str(configured_target))
         self.current_chapter: str = self.initial_chapter
-        logger.info("Starte mit Kapitel: %s", self.current_chapter)
-        self.load_game_chapter(self.current_chapter)
-
         self.show_all_logs_in_main: bool = False
+
+        if show_start_menu:
+            mod_cfg = StoryLoader.get_module(str(configured_target))
+            if mod_cfg and mod_cfg.get("theme"):
+                theme.set_active_theme(mod_cfg["theme"])
+                self._reload_theme_fonts_and_renderer()
+        else:
+            logger.info("Starte mit Kapitel: %s", self.current_chapter)
+            self.load_game_chapter(self.current_chapter)
 
     def _reload_theme_fonts_and_renderer(self) -> None:
         try:
@@ -118,7 +146,11 @@ class GameGUI:
         self.line_height = theme.FONT_SIZE_LOG + 4
 
     def load_game_chapter(
-        self, chapter_path: str, transfer_state: dict[str, Any] | None = None
+        self,
+        chapter_path: str,
+        transfer_state: dict[str, Any] | None = None,
+        *,
+        run_initial_look: bool = True,
     ) -> None:
         new_config = StoryLoader.load_chapter(chapter_path)
 
@@ -132,12 +164,19 @@ class GameGUI:
         self._reload_theme_fonts_and_renderer()
         self.assets.set_base_dir(new_config.get("asset_dir"))
 
-        new_config["use_llm_dialogue"] = bool(
-            SYS_CONFIG["system"].get("llm_enabled", False)
+        use_llm = (
+            self.llm_enabled_override
+            if self.llm_enabled_override is not None
+            else bool(SYS_CONFIG["system"].get("llm_enabled", False))
         )
+        new_config["use_llm_dialogue"] = use_llm
         new_config["language"] = str(SYS_CONFIG["game"].get("language", "de"))
         new_config["llm_url"] = SYS_CONFIG["system"].get("llm_url")
-        new_config["llm_model"] = SYS_CONFIG["system"].get("llm_model")
+        new_config["llm_model"] = (
+            self.llm_model_override
+            if self.llm_model_override
+            else SYS_CONFIG["system"].get("llm_model")
+        )
         new_config["llm_api_key"] = SYS_CONFIG["system"].get("llm_api_key")
         new_config["llm_fallback_url"] = SYS_CONFIG["system"].get("llm_fallback_url")
         new_config["llm_fallback_model"] = SYS_CONFIG["system"].get("llm_fallback_model")
@@ -166,7 +205,8 @@ class GameGUI:
         else:
             self.parser = RuleBasedParser(self.game)
 
-        self.submit_command("look", echo=False)
+        if run_initial_look:
+            self.submit_command("look", echo=False)
 
     def restart_game(self) -> None:
         self.current_chapter = self.initial_chapter
@@ -243,6 +283,10 @@ class GameGUI:
                 self.screen = pygame.display.set_mode(
                     (event.w, event.h), pygame.RESIZABLE
                 )
+
+            if self.menu_state is not None:
+                self.handle_menu_event(event)
+                continue
 
             if self.game.game_over:
                 if event.type == pygame.KEYDOWN:
@@ -399,6 +443,15 @@ class GameGUI:
             if self.toast_timer <= 0:
                 self.toast_msg = None
 
+        if self.menu_state is not None:
+            try:
+                while not self.ollama_check_queue.empty():
+                    active, models = self.ollama_check_queue.get_nowait()
+                    self._apply_ollama_check_result(active, models)
+            except queue.Empty:
+                pass
+            return
+
         with self.game.lock:
             pending_chapter = self.game.pending_chapter_load if not self.is_processing else None
         if pending_chapter:
@@ -408,9 +461,15 @@ class GameGUI:
             self.load_game_chapter(target_chapter, transfer_state)
 
     def draw(self) -> None:
-        snapshot = self.game.get_snapshot()
         self.screen.fill(theme.COLOR_BG)
         w, h = self.screen.get_size()
+
+        if self.menu_state is not None:
+            self.draw_start_menu(w, h)
+            pygame.display.flip()
+            return
+
+        snapshot = self.game.get_snapshot()
 
         if snapshot["game_over"]:
             self.draw_game_over(w, h, snapshot)
@@ -801,6 +860,541 @@ class GameGUI:
         )
         pygame.draw.circle(self.screen, col, (center_x, center_y), radius, 1)
         pygame.draw.line(self.screen, col, (center_x, center_y), (end_x, end_y), 2)
+
+    def start_normal_mode(self) -> None:
+        self.llm_enabled_override = False
+        self.llm_model_override = None
+        self.menu_error = None
+        self.menu_state = None
+        logger.info("Starte im normalen Modus (Kapitel: %s)", self.initial_chapter)
+        self.load_game_chapter(self.initial_chapter)
+
+    def start_ai_mode(self, model: str | None = None) -> None:
+        chosen_model = model or (
+            self.ollama_models[self.selected_model_idx]
+            if self.ollama_models and 0 <= self.selected_model_idx < len(self.ollama_models)
+            else str(SYS_CONFIG["system"].get("llm_model") or LLMBridge.DEFAULT_MODEL)
+        )
+        self.llm_enabled_override = True
+        self.llm_model_override = chosen_model
+        self.menu_error = None
+        self.menu_state = None
+        logger.info(
+            "Starte im KI-Modus mit Modell '%s' (Kapitel: %s)",
+            chosen_model,
+            self.initial_chapter,
+        )
+        self.load_game_chapter(self.initial_chapter)
+
+    def start_ollama_check(self) -> None:
+        self.menu_error = None
+        self.menu_state = "ai_checking"
+        self.ollama_active = False
+        self.ollama_models = []
+        self.selected_model_idx = 0
+
+        api_url = SYS_CONFIG["system"].get("llm_url")
+        api_key = SYS_CONFIG["system"].get("llm_api_key")
+
+        def worker() -> None:
+            active, models = LLMBridge.list_available_models(
+                api_url=api_url,
+                api_key=api_key,
+                timeout=2.0,
+            )
+            self.ollama_check_queue.put((active, models))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_ollama_check_result(self, active: bool, models: list[str]) -> None:
+        self.ollama_active = active
+        self.ollama_models = list(models)
+        configured_model = str(SYS_CONFIG["system"].get("llm_model") or "")
+        if configured_model and configured_model in self.ollama_models:
+            self.selected_model_idx = self.ollama_models.index(configured_model)
+        else:
+            self.selected_model_idx = 0
+        self.menu_state = "ai_setup"
+
+    def open_load_menu(self) -> None:
+        self.menu_error = None
+        self.save_list = SystemHandler.list_saves()
+        self.selected_save_idx = 0
+        self.menu_state = "load_game"
+
+    def load_selected_save(self, save_info: dict[str, Any]) -> None:
+        filepath = str(save_info.get("filepath", ""))
+        if not filepath or not Path(filepath).is_file():
+            self.menu_error = Texts.LOAD_NOT_FOUND.format(
+                filename=save_info.get("filename", "savegame.json")
+            )
+            return
+
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            self.menu_error = Texts.LOAD_CRITICAL_ERROR.format(error=exc)
+            return
+
+        saved_chapter = (
+            data.get("meta", {}).get("chapter")
+            if isinstance(data.get("meta"), dict)
+            else None
+        )
+        target_chapter = (
+            StoryLoader.resolve_start_chapter(str(saved_chapter))
+            if saved_chapter
+            else self.initial_chapter
+        )
+        if not StoryLoader.load_chapter(target_chapter):
+            target_chapter = self.initial_chapter
+
+        self.llm_enabled_override = False
+        self.llm_model_override = None
+        self.load_game_chapter(target_chapter, run_initial_look=False)
+
+        if self.game.deserialize_state(data):
+            self.menu_error = None
+            self.menu_state = None
+            self.game.log("success", Texts.LOAD_SUCCESS)
+            self.submit_command("look", echo=False)
+        else:
+            self.menu_error = Texts.LOAD_PROCESS_ERROR
+
+    def _trigger_menu_action(self, action_id: str) -> None:
+        if action_id == "mode_normal":
+            self.start_normal_mode()
+        elif action_id == "mode_ai":
+            self.start_ollama_check()
+        elif action_id == "mode_load":
+            self.open_load_menu()
+        elif action_id == "ai_retry":
+            self.start_ollama_check()
+        elif action_id == "ai_start":
+            if self.ollama_active and self.ollama_models:
+                self.start_ai_mode(self.ollama_models[self.selected_model_idx])
+        elif action_id.startswith("model:"):
+            idx = int(action_id.split(":", 1)[1])
+            if 0 <= idx < len(self.ollama_models):
+                self.selected_model_idx = idx
+        elif action_id.startswith("save:"):
+            idx = int(action_id.split(":", 1)[1])
+            if 0 <= idx < len(self.save_list):
+                self.selected_save_idx = idx
+        elif action_id == "load_selected":
+            if self.save_list and 0 <= self.selected_save_idx < len(self.save_list):
+                self.load_selected_save(self.save_list[self.selected_save_idx])
+        elif action_id == "back":
+            self.menu_error = None
+            self.menu_state = "main"
+
+    def handle_menu_event(self, event: pygame.event.Event) -> None:
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            for action_id, rect in self.menu_item_rects:
+                if rect.collidepoint(event.pos):
+                    self._trigger_menu_action(action_id)
+                    return
+            return
+
+        if event.type != pygame.KEYDOWN:
+            return
+
+        if self.menu_state == "main":
+            if event.key == pygame.K_UP:
+                self.menu_selected_idx = (self.menu_selected_idx - 1) % 3
+            elif event.key == pygame.K_DOWN:
+                self.menu_selected_idx = (self.menu_selected_idx + 1) % 3
+            elif event.key in (pygame.K_1, pygame.K_KP1):
+                self._trigger_menu_action("mode_normal")
+            elif event.key in (pygame.K_2, pygame.K_KP2):
+                self._trigger_menu_action("mode_ai")
+            elif event.key in (pygame.K_3, pygame.K_KP3):
+                self._trigger_menu_action("mode_load")
+            elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                actions = ("mode_normal", "mode_ai", "mode_load")
+                self._trigger_menu_action(actions[self.menu_selected_idx])
+
+        elif self.menu_state == "ai_checking":
+            if event.key == pygame.K_ESCAPE:
+                self._trigger_menu_action("back")
+
+        elif self.menu_state == "ai_setup":
+            if event.key == pygame.K_ESCAPE:
+                self._trigger_menu_action("back")
+            elif self.ollama_active and self.ollama_models:
+                if event.key == pygame.K_UP:
+                    self.selected_model_idx = (self.selected_model_idx - 1) % len(
+                        self.ollama_models
+                    )
+                elif event.key == pygame.K_DOWN:
+                    self.selected_model_idx = (self.selected_model_idx + 1) % len(
+                        self.ollama_models
+                    )
+                elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                    self._trigger_menu_action("ai_start")
+            elif event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_r):
+                self._trigger_menu_action("ai_retry")
+
+        elif self.menu_state == "load_game":
+            if event.key == pygame.K_ESCAPE:
+                self._trigger_menu_action("back")
+            elif self.save_list:
+                if event.key == pygame.K_UP:
+                    self.selected_save_idx = (self.selected_save_idx - 1) % len(
+                        self.save_list
+                    )
+                elif event.key == pygame.K_DOWN:
+                    self.selected_save_idx = (self.selected_save_idx + 1) % len(
+                        self.save_list
+                    )
+                elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                    self._trigger_menu_action("load_selected")
+
+    def _draw_menu_button(
+        self,
+        rect: pygame.Rect,
+        title: str,
+        subtitle: str | None,
+        selected: bool,
+        hovered: bool,
+        accent: tuple[int, int, int] | None = None,
+    ) -> None:
+        accent_col = accent or theme.COLOR_ACCENT
+        bg_col = (
+            (
+                min(255, theme.COLOR_PANEL_BG[0] + 18),
+                min(255, theme.COLOR_PANEL_BG[1] + 22),
+                min(255, theme.COLOR_PANEL_BG[2] + 30),
+            )
+            if (selected or hovered)
+            else theme.COLOR_PANEL_BG
+        )
+        border_col = accent_col if selected else (theme.COLOR_ACCENT_DIM if hovered else theme.COLOR_UI_BORDER)
+        pygame.draw.rect(self.screen, bg_col, rect, border_radius=6)
+        pygame.draw.rect(self.screen, border_col, rect, 2 if selected else 1, border_radius=6)
+
+        prefix = "> " if selected else "  "
+        title_col = accent_col if selected else theme.COLOR_TEXT
+        surf_title = self.font_med.render(f"{prefix}{title}", True, title_col)
+        if subtitle:
+            self.screen.blit(surf_title, (rect.x + 16, rect.y + 10))
+            surf_sub = self.font_sensor.render(subtitle, True, theme.COLOR_TEXT_DIM)
+            self.screen.blit(surf_sub, (rect.x + 34, rect.y + 40))
+        else:
+            title_y = rect.y + (rect.height - surf_title.get_height()) // 2
+            self.screen.blit(surf_title, (rect.x + 16, title_y))
+
+    def draw_start_menu(self, w: int, h: int) -> None:
+        self.menu_item_rects = []
+        mouse_pos = pygame.mouse.get_pos()
+
+        panel_w = min(680, max(420, w - 80))
+        panel_h = min(560, max(400, h - 80))
+        panel_x = (w - panel_w) // 2
+        panel_y = (h - panel_h) // 2
+        panel_rect = pygame.Rect(panel_x, panel_y, panel_w, panel_h)
+
+        pygame.draw.rect(self.screen, theme.COLOR_PANEL_BG, panel_rect, border_radius=10)
+        pygame.draw.rect(self.screen, theme.COLOR_UI_BORDER, panel_rect, 2, border_radius=10)
+
+        title_text = f"{SYS_CONFIG['game'].get('title', 'Narratrix').upper()}  v6.0"
+        surf_title = self.font_header.render(title_text, True, theme.COLOR_ACCENT)
+        self.screen.blit(
+            surf_title,
+            (panel_x + (panel_w - surf_title.get_width()) // 2, panel_y + 24),
+        )
+
+        surf_sub = self.font_sensor.render(
+            "Modulare Textadventure-Engine", True, theme.COLOR_TEXT_DIM
+        )
+        self.screen.blit(
+            surf_sub,
+            (panel_x + (panel_w - surf_sub.get_width()) // 2, panel_y + 64),
+        )
+
+        pygame.draw.line(
+            self.screen,
+            theme.COLOR_UI_BORDER,
+            (panel_x + 28, panel_y + 94),
+            (panel_x + panel_w - 28, panel_y + 94),
+            1,
+        )
+
+        inner_x = panel_x + 36
+        inner_w = panel_w - 72
+        cur_y = panel_y + 114
+
+        if self.menu_state == "main":
+            prompt = self.font_log.render("Wähle deinen Spielmodus:", True, theme.COLOR_TEXT)
+            self.screen.blit(prompt, (inner_x, cur_y))
+            cur_y += 38
+
+            options = [
+                (
+                    "mode_normal",
+                    "[1] Normaler Modus",
+                    "Klassisches Textadventure mit deterministischen Dialogen",
+                ),
+                (
+                    "mode_ai",
+                    "[2] KI Modus (Ollama)",
+                    "Dynamische NPC-Dialoge über lokalen Ollama-Server",
+                ),
+                (
+                    "mode_load",
+                    "[3] Spiel laden",
+                    "Gespeicherten Spielstand aus saves/ fortsetzen",
+                ),
+            ]
+            for idx, (action_id, label, desc) in enumerate(options):
+                btn_rect = pygame.Rect(inner_x, cur_y, inner_w, 72)
+                hovered = btn_rect.collidepoint(mouse_pos)
+                self._draw_menu_button(
+                    btn_rect,
+                    label,
+                    desc,
+                    selected=(idx == self.menu_selected_idx),
+                    hovered=hovered,
+                )
+                self.menu_item_rects.append((action_id, btn_rect))
+                cur_y += 88
+
+            hint = self.font_sensor.render(
+                "Pfeiltasten / [1-3] / Maus zum Auswählen  •  Enter zum Starten",
+                True,
+                theme.COLOR_TEXT_DIM,
+            )
+            self.screen.blit(
+                hint,
+                (panel_x + (panel_w - hint.get_width()) // 2, panel_rect.bottom - 34),
+            )
+
+        elif self.menu_state == "ai_checking":
+            url = LLMBridge.get_api_url(SYS_CONFIG["system"].get("llm_url"))
+            status = self.font_med.render(
+                "Prüfe Ollama-Server und verfügbare Modelle...",
+                True,
+                theme.COLOR_LOADING,
+            )
+            self.screen.blit(status, (inner_x, cur_y + 20))
+            url_surf = self.font_sensor.render(f"Ziel: {url}", True, theme.COLOR_TEXT_DIM)
+            self.screen.blit(url_surf, (inner_x, cur_y + 56))
+
+            center_x = panel_x + panel_w // 2
+            center_y = cur_y + 130
+            angle = (self.cursor_blink * theme.CURSOR_BLINK_SPEED) % 360
+            end_x = center_x + 18 * math.cos(math.radians(angle))
+            end_y = center_y + 18 * math.sin(math.radians(angle))
+            pygame.draw.circle(self.screen, theme.COLOR_LOADING, (center_x, center_y), 18, 2)
+            pygame.draw.line(
+                self.screen, theme.COLOR_LOADING, (center_x, center_y), (end_x, end_y), 2
+            )
+
+            back_rect = pygame.Rect(inner_x, panel_rect.bottom - 68, 160, 42)
+            self._draw_menu_button(
+                back_rect,
+                "Abbrechen",
+                None,
+                selected=False,
+                hovered=back_rect.collidepoint(mouse_pos),
+            )
+            self.menu_item_rects.append(("back", back_rect))
+
+        elif self.menu_state == "ai_setup":
+            url = LLMBridge.get_api_url(SYS_CONFIG["system"].get("llm_url"))
+            status_col = theme.COLOR_ACCENT if self.ollama_active else theme.COLOR_ALERT
+            status_label = (
+                "● Ollama-Server aktiv"
+                if self.ollama_active
+                else "● Ollama-Server nicht erreichbar"
+            )
+            surf_status = self.font_med.render(status_label, True, status_col)
+            self.screen.blit(surf_status, (inner_x, cur_y))
+            cur_y += 30
+
+            surf_url = self.font_sensor.render(f"Server: {url}", True, theme.COLOR_TEXT_DIM)
+            self.screen.blit(surf_url, (inner_x, cur_y))
+            cur_y += 28
+
+            if self.ollama_active and self.ollama_models:
+                configured = str(SYS_CONFIG["system"].get("llm_model") or "")
+                lbl = self.font_log.render(
+                    f"Verfügbare Modelle ({len(self.ollama_models)}):",
+                    True,
+                    theme.COLOR_TEXT,
+                )
+                self.screen.blit(lbl, (inner_x, cur_y))
+                cur_y += 30
+
+                max_visible = 5
+                start_idx = max(
+                    0,
+                    min(
+                        self.selected_model_idx - max_visible // 2,
+                        len(self.ollama_models) - max_visible,
+                    ),
+                )
+                visible_models = self.ollama_models[start_idx : start_idx + max_visible]
+                for offset, model_name in enumerate(visible_models):
+                    m_idx = start_idx + offset
+                    suffix = "  (Standard)" if model_name == configured else ""
+                    row_rect = pygame.Rect(inner_x, cur_y, inner_w, 42)
+                    self._draw_menu_button(
+                        row_rect,
+                        f"{model_name}{suffix}",
+                        None,
+                        selected=(m_idx == self.selected_model_idx),
+                        hovered=row_rect.collidepoint(mouse_pos),
+                    )
+                    self.menu_item_rects.append((f"model:{m_idx}", row_rect))
+                    cur_y += 48
+
+                btn_y = panel_rect.bottom - 68
+                start_rect = pygame.Rect(inner_x, btn_y, 240, 44)
+                retry_rect = pygame.Rect(inner_x + 256, btn_y, 170, 44)
+                back_rect = pygame.Rect(inner_x + 442, btn_y, inner_w - 442, 44)
+                self._draw_menu_button(
+                    start_rect,
+                    "KI-Modus starten",
+                    None,
+                    selected=True,
+                    hovered=start_rect.collidepoint(mouse_pos),
+                )
+                self._draw_menu_button(
+                    retry_rect,
+                    "Erneut prüfen",
+                    None,
+                    selected=False,
+                    hovered=retry_rect.collidepoint(mouse_pos),
+                )
+                self._draw_menu_button(
+                    back_rect,
+                    "Zurück",
+                    None,
+                    selected=False,
+                    hovered=back_rect.collidepoint(mouse_pos),
+                )
+                self.menu_item_rects.append(("ai_start", start_rect))
+                self.menu_item_rects.append(("ai_retry", retry_rect))
+                self.menu_item_rects.append(("back", back_rect))
+            else:
+                hint_msg = (
+                    "Server aktiv, aber keine Modelle installiert (z. B. 'ollama pull gemma4:12b')."
+                    if self.ollama_active
+                    else "Bitte Ollama starten (z. B. 'ollama serve') oder im normalen Modus spielen."
+                )
+                surf_hint = self.font_log.render(hint_msg[:62], True, theme.COLOR_TEXT)
+                self.screen.blit(surf_hint, (inner_x, cur_y + 12))
+                if len(hint_msg) > 62:
+                    surf_hint2 = self.font_log.render(hint_msg[62:], True, theme.COLOR_TEXT)
+                    self.screen.blit(surf_hint2, (inner_x, cur_y + 36))
+
+                btn_y = panel_rect.bottom - 68
+                retry_rect = pygame.Rect(inner_x, btn_y, 190, 44)
+                normal_rect = pygame.Rect(inner_x + 206, btn_y, 230, 44)
+                back_rect = pygame.Rect(inner_x + 452, btn_y, inner_w - 452, 44)
+                self._draw_menu_button(
+                    retry_rect,
+                    "Erneut prüfen",
+                    None,
+                    selected=True,
+                    hovered=retry_rect.collidepoint(mouse_pos),
+                    accent=theme.COLOR_LOADING,
+                )
+                self._draw_menu_button(
+                    normal_rect,
+                    "Normaler Modus",
+                    None,
+                    selected=False,
+                    hovered=normal_rect.collidepoint(mouse_pos),
+                )
+                self._draw_menu_button(
+                    back_rect,
+                    "Zurück",
+                    None,
+                    selected=False,
+                    hovered=back_rect.collidepoint(mouse_pos),
+                )
+                self.menu_item_rects.append(("ai_retry", retry_rect))
+                self.menu_item_rects.append(("mode_normal", normal_rect))
+                self.menu_item_rects.append(("back", back_rect))
+
+        elif self.menu_state == "load_game":
+            lbl = self.font_log.render("Gespeicherte Spielstände:", True, theme.COLOR_TEXT)
+            self.screen.blit(lbl, (inner_x, cur_y))
+            cur_y += 34
+
+            if self.save_list:
+                max_visible = 4
+                start_idx = max(
+                    0,
+                    min(
+                        self.selected_save_idx - max_visible // 2,
+                        len(self.save_list) - max_visible,
+                    ),
+                )
+                visible_saves = self.save_list[start_idx : start_idx + max_visible]
+                for offset, save_info in enumerate(visible_saves):
+                    s_idx = start_idx + offset
+                    ts = datetime.fromtimestamp(float(save_info.get("mtime", 0))).strftime(
+                        "%Y-%m-%d %H:%M"
+                    )
+                    chap = save_info.get("chapter") or "?"
+                    loc = save_info.get("location") or "?"
+                    sub = f"Kapitel: {chap}  •  Ort: {loc}  •  {ts}"
+                    row_rect = pygame.Rect(inner_x, cur_y, inner_w, 64)
+                    self._draw_menu_button(
+                        row_rect,
+                        str(save_info.get("filename", "savegame.json")),
+                        sub,
+                        selected=(s_idx == self.selected_save_idx),
+                        hovered=row_rect.collidepoint(mouse_pos),
+                    )
+                    self.menu_item_rects.append((f"save:{s_idx}", row_rect))
+                    cur_y += 72
+
+                if self.menu_error:
+                    err_surf = self.font_sensor.render(
+                        self.menu_error[:80], True, theme.COLOR_ALERT
+                    )
+                    self.screen.blit(err_surf, (inner_x, panel_rect.bottom - 94))
+
+                btn_y = panel_rect.bottom - 68
+                load_rect = pygame.Rect(inner_x, btn_y, 240, 44)
+                back_rect = pygame.Rect(inner_x + 256, btn_y, 180, 44)
+                self._draw_menu_button(
+                    load_rect,
+                    "Spielstand laden",
+                    None,
+                    selected=True,
+                    hovered=load_rect.collidepoint(mouse_pos),
+                )
+                self._draw_menu_button(
+                    back_rect,
+                    "Zurück",
+                    None,
+                    selected=False,
+                    hovered=back_rect.collidepoint(mouse_pos),
+                )
+                self.menu_item_rects.append(("load_selected", load_rect))
+                self.menu_item_rects.append(("back", back_rect))
+            else:
+                empty_surf = self.font_log.render(
+                    "Keine Spielstände im Ordner 'saves/' gefunden.",
+                    True,
+                    theme.COLOR_TEXT_DIM,
+                )
+                self.screen.blit(empty_surf, (inner_x, cur_y + 16))
+                back_rect = pygame.Rect(inner_x, panel_rect.bottom - 68, 180, 44)
+                self._draw_menu_button(
+                    back_rect,
+                    "Zurück",
+                    None,
+                    selected=True,
+                    hovered=back_rect.collidepoint(mouse_pos),
+                )
+                self.menu_item_rects.append(("back", back_rect))
 
 
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:

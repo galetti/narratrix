@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from engine.constants import ATTR_NAME, STATE_SABOTAGED
 from engine.strings import Texts
@@ -16,6 +16,53 @@ logger = logging.getLogger(__name__)
 
 
 class SystemHandler:
+    @staticmethod
+    def get_save_dir() -> str:
+        return os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "saves"
+        )
+
+    @staticmethod
+    def list_saves(save_dir: str | None = None) -> list[dict[str, Any]]:
+        """List available JSON savegames sorted by modification time (newest first)."""
+        target_dir = save_dir or SystemHandler.get_save_dir()
+        if not os.path.isdir(target_dir):
+            return []
+
+        entries: list[tuple[float, dict[str, Any]]] = []
+        for fname in os.listdir(target_dir):
+            if not fname.lower().endswith(".json"):
+                continue
+            filepath = os.path.join(target_dir, fname)
+            if not os.path.isfile(filepath):
+                continue
+            try:
+                mtime = os.path.getmtime(filepath)
+                with open(filepath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if not isinstance(data, dict):
+                    continue
+                meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+                entries.append(
+                    (
+                        mtime,
+                        {
+                            "filename": fname,
+                            "stem": fname[:-5],
+                            "filepath": filepath,
+                            "chapter": meta.get("chapter"),
+                            "location": data.get("location", ""),
+                            "time": int(data.get("time", 0)),
+                            "mtime": mtime,
+                        },
+                    )
+                )
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                continue
+
+        entries.sort(key=lambda item: item[0], reverse=True)
+        return [item[1] for item in entries]
+
     @staticmethod
     def _save_filename(args: list[str]) -> str:
         stem = args[0] if args else "savegame"
@@ -32,7 +79,7 @@ class SystemHandler:
         except ValueError as exc:
             return game.log('error', str(exc))
         
-        save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "saves")
+        save_dir = SystemHandler.get_save_dir()
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
             
@@ -55,7 +102,7 @@ class SystemHandler:
         except ValueError as exc:
             return game.log('error', str(exc))
         
-        save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "saves")
+        save_dir = SystemHandler.get_save_dir()
         filepath = os.path.join(save_dir, filename)
         
         if not os.path.exists(filepath):

@@ -4,6 +4,7 @@ import logging
 import os
 import time
 from typing import Any, Callable, TypedDict
+import urllib.parse
 
 try:
     import requests
@@ -248,7 +249,7 @@ class LLMBridge:
                 headers["Authorization"] = f"Bearer {spec['api_key']}"
             try:
                 response = requests.get(
-                    url.replace("/chat/completions", "/models"),
+                    LLMBridge._build_models_url(url),
                     headers=headers,
                     timeout=1,
                 )
@@ -257,3 +258,76 @@ class LLMBridge:
             except requests.RequestException:
                 continue
         return False
+
+    @staticmethod
+    def _build_models_url(chat_url: str) -> str:
+        if chat_url.endswith("/chat/completions"):
+            return chat_url[: -len("/chat/completions")] + "/models"
+        if "/chat/completions" in chat_url:
+            return chat_url.replace("/chat/completions", "/models")
+        return chat_url.rstrip("/") + "/models"
+
+    @staticmethod
+    def _build_ollama_tags_url(chat_url: str) -> str:
+        parsed = urllib.parse.urlsplit(chat_url)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}/api/tags"
+        return ""
+
+    @staticmethod
+    def _extract_model_names(payload: Any) -> list[str]:
+        if not isinstance(payload, dict):
+            return []
+        raw_items: list[Any] = []
+        if isinstance(payload.get("data"), list):
+            raw_items = payload["data"]
+        elif isinstance(payload.get("models"), list):
+            raw_items = payload["models"]
+
+        models: list[str] = []
+        seen: set[str] = set()
+        for entry in raw_items:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("id") or entry.get("name") or entry.get("model") or "").strip()
+            if name and name not in seen:
+                seen.add(name)
+                models.append(name)
+        return models
+
+    @staticmethod
+    def list_available_models(
+        api_url: str | None = None,
+        *,
+        api_key: str | None = None,
+        timeout: float = 2.0,
+    ) -> tuple[bool, list[str]]:
+        """Check whether an Ollama/OpenAI-compatible server is active and list models."""
+        if requests is None:
+            return False, []
+
+        resolved_url = LLMBridge.get_api_url(api_url)
+        headers: dict[str, str] = {}
+        resolved_key = LLMBridge._resolve_api_key(api_key, "NARRATRIX_LLM_API_KEY")
+        if resolved_key:
+            headers["Authorization"] = f"Bearer {resolved_key}"
+
+        models_url = LLMBridge._build_models_url(resolved_url)
+        tags_url = LLMBridge._build_ollama_tags_url(resolved_url)
+        candidate_urls = [models_url]
+        if tags_url and tags_url not in candidate_urls:
+            candidate_urls.append(tags_url)
+
+        for target_url in candidate_urls:
+            try:
+                response = requests.get(target_url, headers=headers, timeout=timeout)
+                if not response.ok:
+                    continue
+                try:
+                    payload = response.json()
+                except ValueError:
+                    return True, []
+                return True, LLMBridge._extract_model_names(payload)
+            except requests.RequestException:
+                continue
+        return False, []
